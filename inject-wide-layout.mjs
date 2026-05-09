@@ -10,10 +10,13 @@ const LEGACY_STYLE_ID = "codex-wide-layout-style";
 
 const DEFAULT_PORT = 9229;
 const DEFAULT_SIDE_PADDING = "32px";
+const DEFAULT_TARGET_TIMEOUT_MS = 30000;
+const TARGET_POLL_INTERVAL_MS = 250;
 const DEFAULT_CONFIG = Object.freeze({
   contentMaxWidth: "1800px",
   fullscreenHeaderOffset: "46px",
   imeEnterGuard: true,
+  longTextSendEnhancement: false,
 });
 
 function parseCliArgs(argv) {
@@ -41,12 +44,19 @@ function parseCliArgs(argv) {
     } else if (arg === "--target" && value) {
       cli.target = value;
       i += 1;
+    } else if (arg === "--target-timeout-ms" && value) {
+      cli.targetTimeoutMs = value;
+      i += 1;
     } else if (arg === "--diagnose") {
       cli.diagnose = true;
     } else if (arg === "--disable-ime-enter-guard") {
       cli.imeEnterGuard = false;
     } else if (arg === "--enable-ime-enter-guard") {
       cli.imeEnterGuard = true;
+    } else if (arg === "--disable-long-text-send-enhancement") {
+      cli.longTextSendEnhancement = false;
+    } else if (arg === "--enable-long-text-send-enhancement") {
+      cli.longTextSendEnhancement = true;
     } else if (arg === "--help" || arg === "-h") {
       cli.help = true;
     } else {
@@ -70,8 +80,13 @@ Options:
                                      Default: ${DEFAULT_CONFIG.fullscreenHeaderOffset}
   --side-padding <size>               Window side padding used in calc(). Default: ${DEFAULT_SIDE_PADDING}
   --target <text>                     Prefer a debugger target whose title/url includes this text.
+  --target-timeout-ms <ms>            Wait for the Codex page target. Default: ${DEFAULT_TARGET_TIMEOUT_MS}
   --disable-ime-enter-guard           Disable IME Enter guard for this run.
   --enable-ime-enter-guard            Enable IME Enter guard for this run.
+  --disable-long-text-send-enhancement
+                                     Disable long text send enhancement for this run.
+  --enable-long-text-send-enhancement
+                                     Enable long text send enhancement for this run.
   --diagnose                          Print current Codex layout facts without changing CSS.
 
 Config:
@@ -95,12 +110,11 @@ async function main() {
 
   const configInfo = ensureConfig();
   const options = buildOptions(cli, configInfo);
-  const targets = await getJson(`http://127.0.0.1:${options.port}/json/list`);
-  const target = selectTarget(targets, options.target);
+  const { target, targets } = await waitForTarget(options);
 
   if (!target) {
     const known = targets.map((item) => `${item.type || "unknown"} ${item.title || ""} ${item.url || ""}`).join("\n");
-    throw new Error(`No attachable Codex page target found on port ${options.port}.\nKnown targets:\n${known}`);
+    throw new Error(`No attachable Codex page target found on port ${options.port} after ${options.targetTimeoutMs}ms.\nKnown targets:\n${known || "(none)"}`);
   }
 
   const client = await connectCdp(target.webSocketDebuggerUrl);
@@ -167,6 +181,7 @@ function ensureConfig() {
       contentMaxWidth: stringOrUndefined(parsed.contentMaxWidth),
       fullscreenHeaderOffset: stringOrUndefined(parsed.fullscreenHeaderOffset),
       imeEnterGuard: booleanOrUndefined(parsed.imeEnterGuard, "imeEnterGuard"),
+      longTextSendEnhancement: booleanOrUndefined(parsed.longTextSendEnhancement, "longTextSendEnhancement"),
     },
   };
 }
@@ -213,11 +228,22 @@ function buildOptions(cli, configInfo) {
       env.CODEX_WIDE_TARGET,
       "",
     ),
+    targetTimeoutMs: parsePositiveInteger("targetTimeoutMs", firstValue(
+      cli.targetTimeoutMs,
+      env.CODEX_APP_EXTENSION_TARGET_TIMEOUT_MS,
+      DEFAULT_TARGET_TIMEOUT_MS,
+    )),
     imeEnterGuard: parseBooleanOption("imeEnterGuard", firstValue(
       cli.imeEnterGuard,
       env.CODEX_APP_EXTENSION_IME_ENTER_GUARD,
       configInfo.values.imeEnterGuard,
       DEFAULT_CONFIG.imeEnterGuard,
+    )),
+    longTextSendEnhancement: parseBooleanOption("longTextSendEnhancement", firstValue(
+      cli.longTextSendEnhancement,
+      env.CODEX_APP_EXTENSION_LONG_TEXT_SEND_ENHANCEMENT,
+      configInfo.values.longTextSendEnhancement,
+      DEFAULT_CONFIG.longTextSendEnhancement,
     )),
     diagnose: Boolean(cli.diagnose),
     configPath: configInfo.path,
@@ -229,6 +255,14 @@ function buildOptions(cli, configInfo) {
   assertCssSize("sidePadding", options.sidePadding);
 
   return options;
+}
+
+function parsePositiveInteger(name, value) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`Invalid ${name}: expected a positive integer`);
+  }
+  return parsed;
 }
 
 function firstValue(...values) {
@@ -273,6 +307,38 @@ async function getJson(url) {
   }
 
   return response.json();
+}
+
+async function waitForTarget(options) {
+  const url = `http://127.0.0.1:${options.port}/json/list`;
+  const deadline = Date.now() + options.targetTimeoutMs;
+  let lastTargets = [];
+  let lastError = null;
+
+  while (Date.now() <= deadline) {
+    try {
+      const targets = await getJson(url);
+      lastTargets = Array.isArray(targets) ? targets : [];
+      const target = selectTarget(lastTargets, options.target);
+      if (target) {
+        return { target, targets: lastTargets };
+      }
+    } catch (error) {
+      lastError = error;
+    }
+
+    await sleep(TARGET_POLL_INTERVAL_MS);
+  }
+
+  if (lastError && lastTargets.length === 0) {
+    throw lastError;
+  }
+
+  return { target: null, targets: lastTargets };
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function selectTarget(targets, preferredText) {
@@ -468,12 +534,24 @@ function buildDiagnoseSource(options) {
       lastBlockedEvent: imeGuard.lastBlockedEvent || null
     } : null;
 
+    const longText = window.__codexAppExtensionLongTextSendEnhancement || null;
+    const longTextState = longText ? {
+      installed: Boolean(longText.installed),
+      enabled: Boolean(longText.enabled),
+      lastSeenEnterEvent: longText.lastSeenEnterEvent || null,
+      lastHandledEvent: longText.lastHandledEvent || null,
+      lastIgnoredEvent: longText.lastIgnoredEvent || null
+    } : null;
+
     return {
       tool: ${JSON.stringify(APP_NAME)},
       config: meta,
       imeEnterGuardEnabled: Boolean(meta.imeEnterGuard),
       imeEnterGuardInstalled: Boolean(imeGuardState?.installed),
       imeEnterGuardState: imeGuardState,
+      longTextSendEnhancementEnabled: Boolean(meta.longTextSendEnhancement),
+      longTextSendEnhancementInstalled: Boolean(longTextState?.installed),
+      longTextSendEnhancementState: longTextState,
       href: location.href,
       title: document.title,
       readyState: document.readyState,
@@ -660,6 +738,265 @@ function buildInstallerSource(options) {
       };
     }
 
+    function describeButton(element) {
+      if (!element) return null;
+      return {
+        tag: element.tagName.toLowerCase(),
+        className: String(element.className || "").slice(0, 160),
+        text: (element.innerText || "").trim().slice(0, 80),
+        ariaLabel: element.getAttribute("aria-label") || "",
+        title: element.getAttribute("title") || "",
+        disabled: Boolean(element.disabled),
+        ariaDisabled: element.getAttribute("aria-disabled") || ""
+      };
+    }
+
+    function isEnterKey(event) {
+      return event.key === "Enter"
+        || event.code === "Enter"
+        || event.code === "NumpadEnter"
+        || event.keyCode === 13;
+    }
+
+    function isVisibleElement(element) {
+      if (!(element instanceof HTMLElement)) return false;
+      const rect = element.getBoundingClientRect();
+      if (rect.width < 1 || rect.height < 1) return false;
+      const style = getComputedStyle(element);
+      return style.display !== "none" && style.visibility !== "hidden";
+    }
+
+    function getButtonSignal(button) {
+      const className = String(button.className || "");
+      const label = [
+        button.getAttribute("aria-label") || "",
+        button.getAttribute("title") || "",
+        button.innerText || ""
+      ].join(" ");
+      return { className, label };
+    }
+
+    function isComposerLikeButton(button) {
+      if (!isVisibleElement(button)) return false;
+      const { className, label } = getButtonSignal(button);
+      return /composer|token-button-composer|h-token-button-composer|size-token-button-composer/i.test(className)
+        || /听写|发送|提交|模型|自定义|添加文件|Send|Submit|Dictate|Model|Custom|Attach/i.test(label);
+    }
+
+    function getComposerRoot(editable) {
+      let element = editable;
+      for (let depth = 0; element && depth < 14; depth += 1, element = element.parentElement) {
+        if (!(element instanceof HTMLElement)) continue;
+        const hasComposerEditor = Boolean(element.querySelector(".ProseMirror[contenteditable]"));
+        if (!hasComposerEditor) continue;
+
+        const rect = element.getBoundingClientRect();
+        if (rect.width < 220 || rect.height < 24) continue;
+
+        const classText = [
+          String(element.className || ""),
+          element.getAttribute("data-testid") || "",
+          element.getAttribute("aria-label") || ""
+        ].join(" ");
+        const hasComposerSurface = /composer|prompt|input|textarea|ProseMirror|bg-token-input|token-button-composer/i.test(classText)
+          || Boolean(element.querySelector("[class*='composer'], [class*='token-button-composer']"));
+        const buttons = Array.from(element.querySelectorAll("button"));
+        const hasComposerButton = buttons.some(isComposerLikeButton);
+
+        if (hasComposerButton && (hasComposerSurface || depth <= 6)) return element;
+      }
+      return null;
+    }
+
+    function isMainComposerEditable(editable) {
+      if (!(editable instanceof HTMLElement)) return false;
+      if (!editable.isContentEditable) return false;
+      if (!editable.classList.contains("ProseMirror")) return false;
+      if (editable.closest("[role='dialog'], [data-radix-popper-content-wrapper], nav, aside, header")) return false;
+      if (!isVisibleElement(editable)) return false;
+      const rect = editable.getBoundingClientRect();
+      if (rect.width < 180 || rect.height < 12) return false;
+      if (rect.bottom < 0 || rect.top > window.innerHeight) return false;
+      return Boolean(getComposerRoot(editable));
+    }
+
+    function getRequestInputPanelRoot(editable) {
+      if (!(editable instanceof HTMLTextAreaElement)) return null;
+      if (!isVisibleElement(editable)) return null;
+      if (editable.closest("[role='dialog'], [data-radix-popper-content-wrapper], nav, aside, header")) return null;
+      const editableClassName = String(editable.className || "");
+      if (!/request-input-panel|inline-freeform/i.test(editableClassName)) return null;
+
+      let fallback = editable.parentElement || editable;
+      for (let depth = 0, element = editable; element && depth < 12; depth += 1, element = element.parentElement) {
+        if (!(element instanceof HTMLElement)) continue;
+        const rect = element.getBoundingClientRect();
+        const classText = [
+          String(element.className || ""),
+          element.getAttribute("data-testid") || "",
+          element.getAttribute("aria-label") || ""
+        ].join(" ");
+        const hasPanelClass = /request-input-panel|inline-freeform/i.test(classText);
+        const containsPanelTextarea = Boolean(element.querySelector("textarea.request-input-panel__inline-freeform"));
+        const hasActionButton = Array.from(element.querySelectorAll("button")).some(isVisibleElement);
+
+        if ((hasPanelClass || containsPanelTextarea) && rect.width >= 220 && rect.height >= 20) {
+          fallback = element;
+          if (hasActionButton || depth >= 2) return element;
+        }
+      }
+      return fallback;
+    }
+
+    function getLongTextManagedInput(editable) {
+      if (isMainComposerEditable(editable)) {
+        return {
+          kind: "prosemirror-composer",
+          element: editable,
+          root: getComposerRoot(editable)
+        };
+      }
+
+      const requestInputPanelRoot = getRequestInputPanelRoot(editable);
+      if (requestInputPanelRoot) {
+        return {
+          kind: "request-input-panel-textarea",
+          element: editable,
+          root: requestInputPanelRoot
+        };
+      }
+
+      return null;
+    }
+
+    function isImeManagedEnter(event, editable) {
+      if (!isEnterKey(event)) return false;
+      const imeGuard = window.__codexAppExtensionImeGuard;
+      const recentCompositionEnd = imeGuard?.lastCompositionEndAt > 0
+        && Date.now() - imeGuard.lastCompositionEndAt < 120;
+      const targetComposing = Boolean(imeGuard?.activeTarget === editable)
+        || Boolean(imeGuard?.composingTargets?.has?.(editable));
+      return Boolean(event.isComposing)
+        || event.keyCode === 229
+        || recentCompositionEnd
+        || targetComposing;
+    }
+
+    function findSendButton(editable) {
+      const root = getComposerRoot(editable);
+      if (!root) return null;
+      const buttons = Array.from(root.querySelectorAll("button")).filter((button) => {
+        if (button.disabled) return false;
+        if (button.getAttribute("aria-disabled") === "true") return false;
+        if (button.offsetParent === null && getComputedStyle(button).position !== "fixed") return false;
+        const label = [
+          button.getAttribute("aria-label") || "",
+          button.getAttribute("title") || "",
+          button.innerText || ""
+        ].join(" ");
+        if (/停止|Stop|Cancel|中断|interrupt/i.test(label)) return false;
+        if (/听写|添加文件|设置|模型|自定义|本地模式|分支|滚动/i.test(label)) return false;
+        return true;
+      });
+
+      const explicit = buttons.find((button) => {
+        const label = [
+          button.getAttribute("aria-label") || "",
+          button.getAttribute("title") || "",
+          button.innerText || ""
+        ].join(" ");
+        return /发送|Send|Submit|提交/i.test(label);
+      });
+      if (explicit) return explicit;
+
+      return buttons.reverse().find((button) => {
+        const className = String(button.className || "");
+        return className.includes("size-token-button-composer");
+      }) || null;
+    }
+
+    function findRequestPanelSendButton(managedInput) {
+      const root = managedInput?.root;
+      if (!root) return null;
+      const buttons = Array.from(root.querySelectorAll("button")).filter((button) => {
+        if (button.disabled) return false;
+        if (button.getAttribute("aria-disabled") === "true") return false;
+        if (!isVisibleElement(button)) return false;
+        const { label } = getButtonSignal(button);
+        if (/取消|关闭|返回|Cancel|Close|Back/i.test(label)) return false;
+        if (/添加文件|听写|模型|自定义|Attach|Dictate|Model|Custom/i.test(label)) return false;
+        return true;
+      });
+
+      const explicit = buttons.find((button) => {
+        const { label } = getButtonSignal(button);
+        return /发送|提交|确认|继续|回复|Send|Submit|Confirm|Continue|Reply/i.test(label);
+      });
+      if (explicit) return explicit;
+
+      return buttons.reverse().find((button) => {
+        const { className, label } = getButtonSignal(button);
+        return /primary|submit|send|accent|solid|button/i.test(className) || label.trim();
+      }) || null;
+    }
+
+    function insertComposerLineBreak(editable, state) {
+      editable.focus();
+
+      state.syntheticDepth += 1;
+      try {
+        const shiftEnter = new KeyboardEvent("keydown", {
+          key: "Enter",
+          code: "Enter",
+          keyCode: 13,
+          which: 13,
+          bubbles: true,
+          cancelable: true,
+          shiftKey: true
+        });
+        editable.dispatchEvent(shiftEnter);
+        if (shiftEnter.defaultPrevented) return true;
+      } finally {
+        state.syntheticDepth -= 1;
+      }
+
+      if (document.queryCommandSupported?.("insertLineBreak") && document.execCommand("insertLineBreak")) {
+        return true;
+      }
+      if (document.queryCommandSupported?.("insertText") && document.execCommand("insertText", false, "\\n")) {
+        return true;
+      }
+      return false;
+    }
+
+    function insertTextareaLineBreak(textarea) {
+      if (!(textarea instanceof HTMLTextAreaElement)) return false;
+      textarea.focus();
+
+      const start = Number.isInteger(textarea.selectionStart) ? textarea.selectionStart : textarea.value.length;
+      const end = Number.isInteger(textarea.selectionEnd) ? textarea.selectionEnd : start;
+      const nextValue = textarea.value.slice(0, start) + "\\n" + textarea.value.slice(end);
+      const valueSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+      if (valueSetter) {
+        valueSetter.call(textarea, nextValue);
+      } else {
+        textarea.value = nextValue;
+      }
+      textarea.selectionStart = start + 1;
+      textarea.selectionEnd = start + 1;
+
+      const inputEvent = typeof InputEvent === "function"
+        ? new InputEvent("input", {
+          bubbles: true,
+          cancelable: true,
+          inputType: "insertLineBreak",
+          data: null
+        })
+        : new Event("input", { bubbles: true, cancelable: true });
+      textarea.dispatchEvent(inputEvent);
+      return true;
+    }
+
     function installImeEnterGuard() {
       const existing = window.__codexAppExtensionImeGuard;
       if (existing?.handlers) {
@@ -758,6 +1095,174 @@ function buildInstallerSource(options) {
       return state;
     }
 
+    function installLongTextSendEnhancement() {
+      const existing = window.__codexAppExtensionLongTextSendEnhancement;
+      if (existing?.handlers) {
+        if (existing.handlers.keydown) {
+          window.removeEventListener("keydown", existing.handlers.keydown, true);
+          document.removeEventListener("keydown", existing.handlers.keydown, true);
+        }
+        if (existing.handlers.suppressFollowup) {
+          window.removeEventListener("keypress", existing.handlers.suppressFollowup, true);
+          document.removeEventListener("keypress", existing.handlers.suppressFollowup, true);
+          window.removeEventListener("keyup", existing.handlers.suppressFollowup, true);
+          document.removeEventListener("keyup", existing.handlers.suppressFollowup, true);
+        }
+      }
+
+      const state = {
+        enabled: Boolean(meta.longTextSendEnhancement),
+        installed: false,
+        lastSeenEnterEvent: null,
+        lastHandledEvent: null,
+        lastIgnoredEvent: null,
+        handlers: null,
+        syntheticDepth: 0,
+        suppressEnterUntil: 0,
+        suppressEditable: null,
+        suppressAction: ""
+      };
+      window.__codexAppExtensionLongTextSendEnhancement = state;
+
+      if (!state.enabled) return state;
+
+      const buildEventInfo = (event, editable, managedInput, extra = {}) => ({
+        time: Date.now(),
+        type: event.type,
+        key: event.key,
+        code: event.code,
+        keyCode: event.keyCode,
+        metaKey: Boolean(event.metaKey),
+        ctrlKey: Boolean(event.ctrlKey),
+        altKey: Boolean(event.altKey),
+        shiftKey: Boolean(event.shiftKey),
+        isComposing: Boolean(event.isComposing),
+        action: "",
+        handled: false,
+        target: describeImeTarget(editable),
+        inputKind: managedInput?.kind || null,
+        managedRoot: describeImeTarget(managedInput?.root || null),
+        composerRoot: describeImeTarget(managedInput?.kind === "prosemirror-composer" ? managedInput.root : null),
+        ...extra
+      });
+
+      const ignoreEnter = (event, editable, managedInput, reason, extra = {}) => {
+        state.lastIgnoredEvent = buildEventInfo(event, editable, managedInput, {
+          action: "ignore",
+          reason,
+          ...extra
+        });
+      };
+
+      const suppressNextEnterEvents = (editable, action) => {
+        state.suppressEnterUntil = Date.now() + 800;
+        state.suppressEditable = editable;
+        state.suppressAction = action;
+      };
+
+      const matchesSuppressedEditable = (editable) => {
+        if (!state.suppressEditable) return true;
+        if (!editable) return false;
+        return editable === state.suppressEditable
+          || Boolean(state.suppressEditable.contains?.(editable))
+          || Boolean(editable.contains?.(state.suppressEditable));
+      };
+
+      const suppressFollowup = (event) => {
+        if (state.syntheticDepth > 0) return;
+        if (!isEnterKey(event)) return;
+
+        const editable = getEditableElement(event.target);
+        const managedInput = getLongTextManagedInput(editable);
+        state.lastSeenEnterEvent = buildEventInfo(event, editable, managedInput);
+
+        if (Date.now() > state.suppressEnterUntil) return;
+        if (!matchesSuppressedEditable(editable)) return;
+        if (!managedInput) return;
+
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        state.lastHandledEvent = buildEventInfo(event, editable, managedInput, {
+          action: "suppress-" + event.type,
+          handled: true,
+          suppressedAction: state.suppressAction
+        });
+      };
+
+      const keydown = (event) => {
+        if (state.syntheticDepth > 0) return;
+        if (!isEnterKey(event)) return;
+
+        const editable = getEditableElement(event.target);
+        const managedInput = getLongTextManagedInput(editable);
+        state.lastSeenEnterEvent = buildEventInfo(event, editable, managedInput);
+        if (!managedInput) {
+          ignoreEnter(event, editable, managedInput, "not-composer");
+          return;
+        }
+        if (isImeManagedEnter(event, editable)) {
+          ignoreEnter(event, editable, managedInput, "ime-composing");
+          return;
+        }
+
+        const cmdEnter = event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey;
+        const plainEnter = !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey;
+        if (!cmdEnter && !plainEnter) {
+          ignoreEnter(event, editable, managedInput, "unsupported-modifier");
+          return;
+        }
+
+        const eventInfo = buildEventInfo(event, editable, managedInput, {
+          sendButton: null,
+          insertedLineBreak: false
+        });
+
+        if (cmdEnter) {
+          const sendButton = managedInput.kind === "request-input-panel-textarea"
+            ? findRequestPanelSendButton(managedInput)
+            : findSendButton(editable);
+          eventInfo.sendButton = describeButton(sendButton);
+          if (!sendButton) {
+            state.lastIgnoredEvent = {
+              ...eventInfo,
+              action: "native-send-fallback",
+              reason: "no-send-button"
+            };
+            return;
+          }
+
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          suppressNextEnterEvents(editable, "send");
+          sendButton.click();
+          eventInfo.action = "send";
+          eventInfo.handled = true;
+          state.lastHandledEvent = eventInfo;
+          return;
+        }
+
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        suppressNextEnterEvents(editable, "newline");
+        eventInfo.action = "newline";
+        eventInfo.insertedLineBreak = managedInput.kind === "request-input-panel-textarea"
+          ? insertTextareaLineBreak(editable)
+          : insertComposerLineBreak(editable, state);
+        eventInfo.handled = true;
+        state.lastHandledEvent = eventInfo;
+      };
+
+      state.handlers = { keydown, suppressFollowup };
+      window.addEventListener("keydown", keydown, true);
+      document.addEventListener("keydown", keydown, true);
+      window.addEventListener("keypress", suppressFollowup, true);
+      document.addEventListener("keypress", suppressFollowup, true);
+      window.addEventListener("keyup", suppressFollowup, true);
+      document.addEventListener("keyup", suppressFollowup, true);
+      state.installed = true;
+      return state;
+    }
+
     function install() {
       cleanupLegacyWideLayout();
       upsertStyle();
@@ -765,6 +1270,7 @@ function buildInstallerSource(options) {
       const fullscreen = applyFullscreenState();
       installResizeListener();
       const imeGuard = installImeEnterGuard();
+      const longTextSend = installLongTextSendEnhancement();
 
       if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", () => {
@@ -773,6 +1279,7 @@ function buildInstallerSource(options) {
           applyVariables();
           applyFullscreenState();
           installImeEnterGuard();
+          installLongTextSendEnhancement();
           installObserver();
         }, { once: true });
       } else {
@@ -792,7 +1299,9 @@ function buildInstallerSource(options) {
         bodyMarkdownWideBlockMaxWidth: getComputedStyle(computedTarget).getPropertyValue("--markdown-wide-block-max-width").trim(),
         mainPaddingTop: main ? getComputedStyle(main).paddingTop : null,
         imeEnterGuardEnabled: Boolean(meta.imeEnterGuard),
-        imeEnterGuardInstalled: Boolean(imeGuard?.installed)
+        imeEnterGuardInstalled: Boolean(imeGuard?.installed),
+        longTextSendEnhancementEnabled: Boolean(meta.longTextSendEnhancement),
+        longTextSendEnhancementInstalled: Boolean(longTextSend?.installed)
       };
     }
 
@@ -807,6 +1316,7 @@ function buildMeta(options) {
     contentMaxWidth: options.contentMaxWidth,
     fullscreenHeaderOffset: options.fullscreenHeaderOffset,
     imeEnterGuard: options.imeEnterGuard,
+    longTextSendEnhancement: options.longTextSendEnhancement,
     sidePadding: options.sidePadding,
   };
 }

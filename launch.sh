@@ -46,7 +46,7 @@ if ! is_debug_port_ready; then
   exit 1
 fi
 
-echo "[$APP_NAME] Injecting extension CSS..."
+echo "[$APP_NAME] Waiting for Codex page target, then injecting extension..."
 "$NODE_BIN" "$SCRIPT_DIR/inject-wide-layout.mjs" --port "$PORT"
 
 echo "[$APP_NAME] Done. Config: ~/.codex-app-extension/config.json"
