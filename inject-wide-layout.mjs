@@ -12,11 +12,26 @@ const DEFAULT_PORT = 9229;
 const DEFAULT_SIDE_PADDING = "32px";
 const DEFAULT_TARGET_TIMEOUT_MS = 30000;
 const TARGET_POLL_INTERVAL_MS = 250;
+const DEFAULT_THEME_ENHANCEMENT_COLORS = Object.freeze({
+  orderedListMarker: "#fcfcfc",
+  unorderedListMarker: "#fcfcfc",
+  inlineCodeText: "#df3079",
+  inlineCodeBackground: "rgba(223, 48, 121, 0.10)",
+  inlineCodeBorder: "rgba(223, 48, 121, 0.18)",
+  blockquoteBorder: "#00a67d",
+  blockquoteText: "rgba(252, 252, 252, 0.78)",
+  blockquoteBackground: "rgba(0, 166, 125, 0.06)",
+  headingText: "#00a67d",
+  strongText: "#df3079",
+});
+const THEME_ENHANCEMENT_COLOR_KEYS = Object.freeze(Object.keys(DEFAULT_THEME_ENHANCEMENT_COLORS));
 const DEFAULT_CONFIG = Object.freeze({
   contentMaxWidth: "1800px",
   fullscreenHeaderOffset: "46px",
   imeEnterGuard: true,
   longTextSendEnhancement: false,
+  themeEnhancement: false,
+  themeEnhancementColors: DEFAULT_THEME_ENHANCEMENT_COLORS,
 });
 
 function parseCliArgs(argv) {
@@ -57,6 +72,10 @@ function parseCliArgs(argv) {
       cli.longTextSendEnhancement = false;
     } else if (arg === "--enable-long-text-send-enhancement") {
       cli.longTextSendEnhancement = true;
+    } else if (arg === "--disable-theme-enhancement") {
+      cli.themeEnhancement = false;
+    } else if (arg === "--enable-theme-enhancement") {
+      cli.themeEnhancement = true;
     } else if (arg === "--help" || arg === "-h") {
       cli.help = true;
     } else {
@@ -87,6 +106,8 @@ Options:
                                      Disable long text send enhancement for this run.
   --enable-long-text-send-enhancement
                                      Enable long text send enhancement for this run.
+  --disable-theme-enhancement        Disable Markdown theme enhancement for this run.
+  --enable-theme-enhancement         Enable Markdown theme enhancement for this run.
   --diagnose                          Print current Codex layout facts without changing CSS.
 
 Config:
@@ -182,6 +203,8 @@ function ensureConfig() {
       fullscreenHeaderOffset: stringOrUndefined(parsed.fullscreenHeaderOffset),
       imeEnterGuard: booleanOrUndefined(parsed.imeEnterGuard, "imeEnterGuard"),
       longTextSendEnhancement: booleanOrUndefined(parsed.longTextSendEnhancement, "longTextSendEnhancement"),
+      themeEnhancement: booleanOrUndefined(parsed.themeEnhancement, "themeEnhancement"),
+      themeEnhancementColors: themeColorsOrUndefined(parsed.themeEnhancementColors),
     },
   };
 }
@@ -245,6 +268,16 @@ function buildOptions(cli, configInfo) {
       configInfo.values.longTextSendEnhancement,
       DEFAULT_CONFIG.longTextSendEnhancement,
     )),
+    themeEnhancement: parseBooleanOption("themeEnhancement", firstValue(
+      cli.themeEnhancement,
+      env.CODEX_APP_EXTENSION_THEME_ENHANCEMENT,
+      configInfo.values.themeEnhancement,
+      DEFAULT_CONFIG.themeEnhancement,
+    )),
+    themeEnhancementColors: {
+      ...DEFAULT_THEME_ENHANCEMENT_COLORS,
+      ...(configInfo.values.themeEnhancementColors || {}),
+    },
     diagnose: Boolean(cli.diagnose),
     configPath: configInfo.path,
     configCreated: configInfo.created,
@@ -253,6 +286,9 @@ function buildOptions(cli, configInfo) {
   assertCssSize("contentMaxWidth", options.contentMaxWidth);
   assertCssSize("fullscreenHeaderOffset", options.fullscreenHeaderOffset);
   assertCssSize("sidePadding", options.sidePadding);
+  for (const [key, value] of Object.entries(options.themeEnhancementColors)) {
+    assertCssColor(`themeEnhancementColors.${key}`, value);
+  }
 
   return options;
 }
@@ -280,6 +316,20 @@ function booleanOrUndefined(value, name) {
   return parseBooleanOption(name, value);
 }
 
+function themeColorsOrUndefined(value) {
+  if (value === undefined || value === null) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Invalid themeEnhancementColors: expected a JSON object");
+  }
+
+  const colors = {};
+  for (const key of THEME_ENHANCEMENT_COLOR_KEYS) {
+    const color = stringOrUndefined(value[key]);
+    if (color) colors[key] = color;
+  }
+  return colors;
+}
+
 function parseBooleanOption(name, value) {
   if (typeof value === "boolean") return value;
   const normalized = String(value).trim().toLowerCase();
@@ -291,6 +341,12 @@ function parseBooleanOption(name, value) {
 function assertCssSize(name, value) {
   if (typeof value !== "string" || !value.trim()) {
     throw new Error(`Invalid ${name}: expected a non-empty CSS size`);
+  }
+}
+
+function assertCssColor(name, value) {
+  if (typeof value !== "string" || !value.trim() || /[;{}<>]/.test(value)) {
+    throw new Error(`Invalid ${name}: expected a safe CSS color value`);
   }
 }
 
@@ -565,6 +621,9 @@ function buildDiagnoseSource(options) {
       },
       detectedFullscreen: isProbablyFullscreen(),
       fullscreenAttribute: document.documentElement.dataset.codexAppExtensionFullscreen || "",
+      themeEnhancementEnabled: Boolean(meta.themeEnhancement),
+      themeEnhancementAttribute: document.documentElement.dataset.codexAppExtensionThemeEnhancement || "",
+      themeEnhancementColors: meta.themeEnhancementColors,
       injectedStyleExists: Boolean(document.getElementById(${JSON.stringify(STYLE_ID)})),
       legacyStyleExists: Boolean(document.getElementById(${JSON.stringify(LEGACY_STYLE_ID)})),
       root: pick("html"),
@@ -594,6 +653,16 @@ function buildInstallerSource(options) {
     "--thread-composer-max-width": unifiedWidth,
     "--markdown-wide-block-max-width": unifiedWidth,
     "--codex-app-extension-fullscreen-header-offset": options.fullscreenHeaderOffset,
+    "--codex-app-extension-theme-ordered-list-marker": options.themeEnhancementColors.orderedListMarker,
+    "--codex-app-extension-theme-unordered-list-marker": options.themeEnhancementColors.unorderedListMarker,
+    "--codex-app-extension-theme-inline-code-text": options.themeEnhancementColors.inlineCodeText,
+    "--codex-app-extension-theme-inline-code-background": options.themeEnhancementColors.inlineCodeBackground,
+    "--codex-app-extension-theme-inline-code-border": options.themeEnhancementColors.inlineCodeBorder,
+    "--codex-app-extension-theme-blockquote-border": options.themeEnhancementColors.blockquoteBorder,
+    "--codex-app-extension-theme-blockquote-text": options.themeEnhancementColors.blockquoteText,
+    "--codex-app-extension-theme-blockquote-background": options.themeEnhancementColors.blockquoteBackground,
+    "--codex-app-extension-theme-heading-text": options.themeEnhancementColors.headingText,
+    "--codex-app-extension-theme-strong-text": options.themeEnhancementColors.strongText,
   };
 
   return `(() => {
@@ -664,6 +733,12 @@ function buildInstallerSource(options) {
       return fullscreen;
     }
 
+    function applyThemeEnhancementState() {
+      const enabled = Boolean(meta.themeEnhancement);
+      document.documentElement.dataset.codexAppExtensionThemeEnhancement = enabled ? "true" : "false";
+      return enabled;
+    }
+
     function installResizeListener() {
       window.__codexAppExtensionApplyFullscreenState = applyFullscreenState;
       if (window.__codexAppExtensionResizeHandler) return;
@@ -694,6 +769,7 @@ function buildInstallerSource(options) {
           upsertStyle();
           applyVariables();
           applyFullscreenState();
+          applyThemeEnhancementState();
         });
       });
       observer.observe(document.documentElement, {
@@ -1268,6 +1344,7 @@ function buildInstallerSource(options) {
       upsertStyle();
       applyVariables();
       const fullscreen = applyFullscreenState();
+      const themeEnhancement = applyThemeEnhancementState();
       installResizeListener();
       const imeGuard = installImeEnterGuard();
       const longTextSend = installLongTextSendEnhancement();
@@ -1278,6 +1355,7 @@ function buildInstallerSource(options) {
           upsertStyle();
           applyVariables();
           applyFullscreenState();
+          applyThemeEnhancementState();
           installImeEnterGuard();
           installLongTextSendEnhancement();
           installObserver();
@@ -1298,6 +1376,9 @@ function buildInstallerSource(options) {
         bodyComposerMaxWidth: getComputedStyle(computedTarget).getPropertyValue("--thread-composer-max-width").trim(),
         bodyMarkdownWideBlockMaxWidth: getComputedStyle(computedTarget).getPropertyValue("--markdown-wide-block-max-width").trim(),
         mainPaddingTop: main ? getComputedStyle(main).paddingTop : null,
+        themeEnhancementEnabled: Boolean(meta.themeEnhancement),
+        themeEnhancementInstalled: themeEnhancement,
+        themeEnhancementColors: meta.themeEnhancementColors,
         imeEnterGuardEnabled: Boolean(meta.imeEnterGuard),
         imeEnterGuardInstalled: Boolean(imeGuard?.installed),
         longTextSendEnhancementEnabled: Boolean(meta.longTextSendEnhancement),
@@ -1317,6 +1398,8 @@ function buildMeta(options) {
     fullscreenHeaderOffset: options.fullscreenHeaderOffset,
     imeEnterGuard: options.imeEnterGuard,
     longTextSendEnhancement: options.longTextSendEnhancement,
+    themeEnhancement: options.themeEnhancement,
+    themeEnhancementColors: options.themeEnhancementColors,
     sidePadding: options.sidePadding,
   };
 }
@@ -1332,6 +1415,16 @@ body[data-codex-window-type="electron"],
   --thread-composer-max-width: ${width} !important;
   --markdown-wide-block-max-width: ${width} !important;
   --codex-app-extension-fullscreen-header-offset: ${options.fullscreenHeaderOffset} !important;
+  --codex-app-extension-theme-ordered-list-marker: ${options.themeEnhancementColors.orderedListMarker} !important;
+  --codex-app-extension-theme-unordered-list-marker: ${options.themeEnhancementColors.unorderedListMarker} !important;
+  --codex-app-extension-theme-inline-code-text: ${options.themeEnhancementColors.inlineCodeText} !important;
+  --codex-app-extension-theme-inline-code-background: ${options.themeEnhancementColors.inlineCodeBackground} !important;
+  --codex-app-extension-theme-inline-code-border: ${options.themeEnhancementColors.inlineCodeBorder} !important;
+  --codex-app-extension-theme-blockquote-border: ${options.themeEnhancementColors.blockquoteBorder} !important;
+  --codex-app-extension-theme-blockquote-text: ${options.themeEnhancementColors.blockquoteText} !important;
+  --codex-app-extension-theme-blockquote-background: ${options.themeEnhancementColors.blockquoteBackground} !important;
+  --codex-app-extension-theme-heading-text: ${options.themeEnhancementColors.headingText} !important;
+  --codex-app-extension-theme-strong-text: ${options.themeEnhancementColors.strongText} !important;
 }
 
 .max-w-\\(--thread-content-max-width\\),
@@ -1356,6 +1449,51 @@ html[data-codex-app-extension-fullscreen="true"] main.main-surface {
   box-sizing: border-box !important;
   padding-top: var(--codex-app-extension-fullscreen-header-offset) !important;
 }
+
+/* Theme enhancement is intentionally scoped to Markdown-like tags in the main surface. */
+html[data-codex-app-extension-theme-enhancement="true"] main.main-surface :where(ol) > li::marker {
+  color: var(--codex-app-extension-theme-ordered-list-marker) !important;
+  font-weight: 700 !important;
+}
+
+html[data-codex-app-extension-theme-enhancement="true"] main.main-surface :where(ul) > li::marker {
+  color: var(--codex-app-extension-theme-unordered-list-marker) !important;
+  font-weight: 700 !important;
+}
+
+html[data-codex-app-extension-theme-enhancement="true"] main.main-surface :where(.inline-markdown),
+html[data-codex-app-extension-theme-enhancement="true"] main.main-surface :where(p, li, blockquote, td, th, h1, h2, h3, h4, h5, h6) > code {
+  color: var(--codex-app-extension-theme-inline-code-text) !important;
+  background: var(--codex-app-extension-theme-inline-code-background) !important;
+  border: 1px solid var(--codex-app-extension-theme-inline-code-border) !important;
+  border-radius: 6px !important;
+  padding: 0.08em 0.36em !important;
+}
+
+html[data-codex-app-extension-theme-enhancement="true"] main.main-surface :where(pre, pre *) code {
+  color: inherit !important;
+  background: transparent !important;
+  border: 0 !important;
+  padding: 0 !important;
+}
+
+html[data-codex-app-extension-theme-enhancement="true"] main.main-surface :where(blockquote) {
+  color: var(--codex-app-extension-theme-blockquote-text) !important;
+  background: var(--codex-app-extension-theme-blockquote-background) !important;
+  border-left: 3px solid var(--codex-app-extension-theme-blockquote-border) !important;
+  border-radius: 0 6px 6px 0 !important;
+  margin-inline: 0 !important;
+  padding: 0.65em 0.9em !important;
+}
+
+html[data-codex-app-extension-theme-enhancement="true"] main.main-surface :where(h1, h2, h3, h4, h5, h6) {
+  color: var(--codex-app-extension-theme-heading-text) !important;
+}
+
+html[data-codex-app-extension-theme-enhancement="true"] main.main-surface :where(strong) {
+  color: var(--codex-app-extension-theme-strong-text) !important;
+}
+
 `.trim();
 }
 
