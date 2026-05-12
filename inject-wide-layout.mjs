@@ -22,7 +22,7 @@ const DEFAULT_THEME_ENHANCEMENT_COLORS = Object.freeze({
   blockquoteText: "rgba(252, 252, 252, 0.78)",
   blockquoteBackground: "rgba(0, 166, 125, 0.06)",
   headingText: "#00a67d",
-  strongText: "#df3079",
+  strongText: "#00a67d",
 });
 const THEME_ENHANCEMENT_COLOR_KEYS = Object.freeze(Object.keys(DEFAULT_THEME_ENHANCEMENT_COLORS));
 const DEFAULT_CONFIG = Object.freeze({
