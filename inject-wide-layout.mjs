@@ -25,13 +25,20 @@ const DEFAULT_THEME_ENHANCEMENT_COLORS = Object.freeze({
   strongText: "#00a67d",
 });
 const THEME_ENHANCEMENT_COLOR_KEYS = Object.freeze(Object.keys(DEFAULT_THEME_ENHANCEMENT_COLORS));
+const DEFAULT_THEME_ENHANCEMENT_TYPOGRAPHY = Object.freeze({
+  strongFontWeight: null,
+  strongFontSize: null,
+});
+const THEME_ENHANCEMENT_TYPOGRAPHY_KEYS = Object.freeze(Object.keys(DEFAULT_THEME_ENHANCEMENT_TYPOGRAPHY));
 const DEFAULT_CONFIG = Object.freeze({
   contentMaxWidth: "1800px",
   fullscreenHeaderOffset: "46px",
   imeEnterGuard: true,
   longTextSendEnhancement: false,
+  layoutFocusRingFix: true,
   themeEnhancement: false,
   themeEnhancementColors: DEFAULT_THEME_ENHANCEMENT_COLORS,
+  themeEnhancementTypography: DEFAULT_THEME_ENHANCEMENT_TYPOGRAPHY,
 });
 
 function parseCliArgs(argv) {
@@ -72,6 +79,10 @@ function parseCliArgs(argv) {
       cli.longTextSendEnhancement = false;
     } else if (arg === "--enable-long-text-send-enhancement") {
       cli.longTextSendEnhancement = true;
+    } else if (arg === "--disable-layout-focus-ring-fix") {
+      cli.layoutFocusRingFix = false;
+    } else if (arg === "--enable-layout-focus-ring-fix") {
+      cli.layoutFocusRingFix = true;
     } else if (arg === "--disable-theme-enhancement") {
       cli.themeEnhancement = false;
     } else if (arg === "--enable-theme-enhancement") {
@@ -106,6 +117,8 @@ Options:
                                      Disable long text send enhancement for this run.
   --enable-long-text-send-enhancement
                                      Enable long text send enhancement for this run.
+  --disable-layout-focus-ring-fix    Disable accidental layout focus ring fix for this run.
+  --enable-layout-focus-ring-fix     Enable accidental layout focus ring fix for this run.
   --disable-theme-enhancement        Disable Markdown theme enhancement for this run.
   --enable-theme-enhancement         Enable Markdown theme enhancement for this run.
   --diagnose                          Print current Codex layout facts without changing CSS.
@@ -203,8 +216,10 @@ function ensureConfig() {
       fullscreenHeaderOffset: stringOrUndefined(parsed.fullscreenHeaderOffset),
       imeEnterGuard: booleanOrUndefined(parsed.imeEnterGuard, "imeEnterGuard"),
       longTextSendEnhancement: booleanOrUndefined(parsed.longTextSendEnhancement, "longTextSendEnhancement"),
+      layoutFocusRingFix: booleanOrUndefined(parsed.layoutFocusRingFix, "layoutFocusRingFix"),
       themeEnhancement: booleanOrUndefined(parsed.themeEnhancement, "themeEnhancement"),
       themeEnhancementColors: themeColorsOrUndefined(parsed.themeEnhancementColors),
+      themeEnhancementTypography: themeTypographyOrUndefined(parsed.themeEnhancementTypography),
     },
   };
 }
@@ -268,6 +283,12 @@ function buildOptions(cli, configInfo) {
       configInfo.values.longTextSendEnhancement,
       DEFAULT_CONFIG.longTextSendEnhancement,
     )),
+    layoutFocusRingFix: parseBooleanOption("layoutFocusRingFix", firstValue(
+      cli.layoutFocusRingFix,
+      env.CODEX_APP_EXTENSION_LAYOUT_FOCUS_RING_FIX,
+      configInfo.values.layoutFocusRingFix,
+      DEFAULT_CONFIG.layoutFocusRingFix,
+    )),
     themeEnhancement: parseBooleanOption("themeEnhancement", firstValue(
       cli.themeEnhancement,
       env.CODEX_APP_EXTENSION_THEME_ENHANCEMENT,
@@ -277,6 +298,10 @@ function buildOptions(cli, configInfo) {
     themeEnhancementColors: {
       ...DEFAULT_THEME_ENHANCEMENT_COLORS,
       ...(configInfo.values.themeEnhancementColors || {}),
+    },
+    themeEnhancementTypography: {
+      ...DEFAULT_THEME_ENHANCEMENT_TYPOGRAPHY,
+      ...(configInfo.values.themeEnhancementTypography || {}),
     },
     diagnose: Boolean(cli.diagnose),
     configPath: configInfo.path,
@@ -288,6 +313,9 @@ function buildOptions(cli, configInfo) {
   assertCssSize("sidePadding", options.sidePadding);
   for (const [key, value] of Object.entries(options.themeEnhancementColors)) {
     assertCssColor(`themeEnhancementColors.${key}`, value);
+  }
+  for (const [key, value] of Object.entries(options.themeEnhancementTypography)) {
+    if (value !== null) assertCssValue(`themeEnhancementTypography.${key}`, value);
   }
 
   return options;
@@ -330,6 +358,26 @@ function themeColorsOrUndefined(value) {
   return colors;
 }
 
+function themeTypographyOrUndefined(value) {
+  if (value === undefined || value === null) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Invalid themeEnhancementTypography: expected a JSON object");
+  }
+
+  const typography = {};
+  for (const key of THEME_ENHANCEMENT_TYPOGRAPHY_KEYS) {
+    const setting = cssStringOrNullOrUndefined(value[key]);
+    if (setting !== undefined) typography[key] = setting;
+  }
+  return typography;
+}
+
+function cssStringOrNullOrUndefined(value) {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  return stringOrUndefined(value);
+}
+
 function parseBooleanOption(name, value) {
   if (typeof value === "boolean") return value;
   const normalized = String(value).trim().toLowerCase();
@@ -345,8 +393,12 @@ function assertCssSize(name, value) {
 }
 
 function assertCssColor(name, value) {
+  assertCssValue(name, value);
+}
+
+function assertCssValue(name, value) {
   if (typeof value !== "string" || !value.trim() || /[;{}<>]/.test(value)) {
-    throw new Error(`Invalid ${name}: expected a safe CSS color value`);
+    throw new Error(`Invalid ${name}: expected a safe CSS value`);
   }
 }
 
@@ -621,9 +673,12 @@ function buildDiagnoseSource(options) {
       },
       detectedFullscreen: isProbablyFullscreen(),
       fullscreenAttribute: document.documentElement.dataset.codexAppExtensionFullscreen || "",
+      layoutFocusRingFixEnabled: Boolean(meta.layoutFocusRingFix),
+      layoutFocusRingFixAttribute: document.documentElement.dataset.codexAppExtensionLayoutFocusRingFix || "",
       themeEnhancementEnabled: Boolean(meta.themeEnhancement),
       themeEnhancementAttribute: document.documentElement.dataset.codexAppExtensionThemeEnhancement || "",
       themeEnhancementColors: meta.themeEnhancementColors,
+      themeEnhancementTypography: meta.themeEnhancementTypography,
       injectedStyleExists: Boolean(document.getElementById(${JSON.stringify(STYLE_ID)})),
       legacyStyleExists: Boolean(document.getElementById(${JSON.stringify(LEGACY_STYLE_ID)})),
       root: pick("html"),
@@ -739,6 +794,12 @@ function buildInstallerSource(options) {
       return enabled;
     }
 
+    function applyLayoutFocusRingFixState() {
+      const enabled = Boolean(meta.layoutFocusRingFix);
+      document.documentElement.dataset.codexAppExtensionLayoutFocusRingFix = enabled ? "true" : "false";
+      return enabled;
+    }
+
     function installResizeListener() {
       window.__codexAppExtensionApplyFullscreenState = applyFullscreenState;
       if (window.__codexAppExtensionResizeHandler) return;
@@ -769,6 +830,7 @@ function buildInstallerSource(options) {
           upsertStyle();
           applyVariables();
           applyFullscreenState();
+          applyLayoutFocusRingFixState();
           applyThemeEnhancementState();
         });
       });
@@ -1138,8 +1200,7 @@ function buildInstallerSource(options) {
         const enterLike = event.key === "Enter"
           || event.code === "Enter"
           || event.code === "NumpadEnter"
-          || event.keyCode === 13
-          || (event.keyCode === 229 && imeManagedKey);
+          || event.keyCode === 13;
 
         state.lastKeydownEvent = {
           time: now,
@@ -1344,6 +1405,7 @@ function buildInstallerSource(options) {
       upsertStyle();
       applyVariables();
       const fullscreen = applyFullscreenState();
+      const layoutFocusRingFix = applyLayoutFocusRingFixState();
       const themeEnhancement = applyThemeEnhancementState();
       installResizeListener();
       const imeGuard = installImeEnterGuard();
@@ -1355,6 +1417,7 @@ function buildInstallerSource(options) {
           upsertStyle();
           applyVariables();
           applyFullscreenState();
+          applyLayoutFocusRingFixState();
           applyThemeEnhancementState();
           installImeEnterGuard();
           installLongTextSendEnhancement();
@@ -1376,9 +1439,12 @@ function buildInstallerSource(options) {
         bodyComposerMaxWidth: getComputedStyle(computedTarget).getPropertyValue("--thread-composer-max-width").trim(),
         bodyMarkdownWideBlockMaxWidth: getComputedStyle(computedTarget).getPropertyValue("--markdown-wide-block-max-width").trim(),
         mainPaddingTop: main ? getComputedStyle(main).paddingTop : null,
+        layoutFocusRingFixEnabled: Boolean(meta.layoutFocusRingFix),
+        layoutFocusRingFixInstalled: layoutFocusRingFix,
         themeEnhancementEnabled: Boolean(meta.themeEnhancement),
         themeEnhancementInstalled: themeEnhancement,
         themeEnhancementColors: meta.themeEnhancementColors,
+        themeEnhancementTypography: meta.themeEnhancementTypography,
         imeEnterGuardEnabled: Boolean(meta.imeEnterGuard),
         imeEnterGuardInstalled: Boolean(imeGuard?.installed),
         longTextSendEnhancementEnabled: Boolean(meta.longTextSendEnhancement),
@@ -1398,14 +1464,24 @@ function buildMeta(options) {
     fullscreenHeaderOffset: options.fullscreenHeaderOffset,
     imeEnterGuard: options.imeEnterGuard,
     longTextSendEnhancement: options.longTextSendEnhancement,
+    layoutFocusRingFix: options.layoutFocusRingFix,
     themeEnhancement: options.themeEnhancement,
     themeEnhancementColors: options.themeEnhancementColors,
+    themeEnhancementTypography: options.themeEnhancementTypography,
     sidePadding: options.sidePadding,
   };
 }
 
 function buildCss(options) {
   const width = `min(${options.contentMaxWidth}, calc(100vw - ${options.sidePadding}))`;
+  const strongTypographyCss = [
+    options.themeEnhancementTypography.strongFontWeight
+      ? `  font-weight: ${options.themeEnhancementTypography.strongFontWeight} !important;`
+      : "",
+    options.themeEnhancementTypography.strongFontSize
+      ? `  font-size: ${options.themeEnhancementTypography.strongFontSize} !important;`
+      : "",
+  ].filter(Boolean).join("\n");
 
   return `
 body[data-codex-window-type="electron"],
@@ -1450,6 +1526,26 @@ html[data-codex-app-extension-fullscreen="true"] main.main-surface {
   padding-top: var(--codex-app-extension-fullscreen-header-offset) !important;
 }
 
+/* Only suppress accidental focus chrome on top-level layout shells; real controls keep their focus styles. */
+html[data-codex-app-extension-layout-focus-ring-fix="true"] :where(
+  main.main-surface,
+  .app-shell-main-content-viewport,
+  [data-app-shell-main-content-layout],
+  .thread-scroll-container
+):is(:focus, :focus-visible) {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+html[data-codex-app-extension-layout-focus-ring-fix="true"] :where(
+  main.main-surface,
+  .app-shell-main-content-viewport,
+  [data-app-shell-main-content-layout],
+  .thread-scroll-container
+):focus-within {
+  outline: none !important;
+}
+
 /* Theme enhancement is intentionally scoped to Markdown-like tags in the main surface. */
 html[data-codex-app-extension-theme-enhancement="true"] main.main-surface :where(ol) > li::marker {
   color: var(--codex-app-extension-theme-ordered-list-marker) !important;
@@ -1492,6 +1588,7 @@ html[data-codex-app-extension-theme-enhancement="true"] main.main-surface :where
 
 html[data-codex-app-extension-theme-enhancement="true"] main.main-surface :where(strong) {
   color: var(--codex-app-extension-theme-strong-text) !important;
+${strongTypographyCss ? `${strongTypographyCss}\n` : ""}
 }
 
 `.trim();
