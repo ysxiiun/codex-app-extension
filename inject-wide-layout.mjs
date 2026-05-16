@@ -10,6 +10,8 @@ const LEGACY_STYLE_ID = "codex-wide-layout-style";
 
 const DEFAULT_PORT = 9229;
 const DEFAULT_SIDE_PADDING = "32px";
+const MIN_SIDE_GUTTER = "50px";
+const MIN_TOTAL_SIDE_PADDING = "100px";
 const DEFAULT_TARGET_TIMEOUT_MS = 30000;
 const TARGET_POLL_INTERVAL_MS = 250;
 const DEFAULT_THEME_ENHANCEMENT_COLORS = Object.freeze({
@@ -35,6 +37,7 @@ const DEFAULT_CONFIG = Object.freeze({
   fullscreenHeaderOffset: "46px",
   imeEnterGuard: true,
   longTextSendEnhancement: false,
+  tabIndentEnhancement: false,
   layoutFocusRingFix: true,
   themeEnhancement: false,
   themeEnhancementColors: DEFAULT_THEME_ENHANCEMENT_COLORS,
@@ -79,6 +82,10 @@ function parseCliArgs(argv) {
       cli.longTextSendEnhancement = false;
     } else if (arg === "--enable-long-text-send-enhancement") {
       cli.longTextSendEnhancement = true;
+    } else if (arg === "--disable-tab-indent-enhancement") {
+      cli.tabIndentEnhancement = false;
+    } else if (arg === "--enable-tab-indent-enhancement") {
+      cli.tabIndentEnhancement = true;
     } else if (arg === "--disable-layout-focus-ring-fix") {
       cli.layoutFocusRingFix = false;
     } else if (arg === "--enable-layout-focus-ring-fix") {
@@ -108,7 +115,9 @@ Options:
                                      Default: ${DEFAULT_CONFIG.contentMaxWidth}
   --fullscreen-header-offset <size>   Top offset used in macOS fullscreen.
                                      Default: ${DEFAULT_CONFIG.fullscreenHeaderOffset}
-  --side-padding <size>               Window side padding used in calc(). Default: ${DEFAULT_SIDE_PADDING}
+  --side-padding <size>               Total horizontal padding used in width calc.
+                                     Effective value is at least ${MIN_TOTAL_SIDE_PADDING} (${MIN_SIDE_GUTTER} each side).
+                                     Default: ${DEFAULT_SIDE_PADDING}
   --target <text>                     Prefer a debugger target whose title/url includes this text.
   --target-timeout-ms <ms>            Wait for the Codex page target. Default: ${DEFAULT_TARGET_TIMEOUT_MS}
   --disable-ime-enter-guard           Disable IME Enter guard for this run.
@@ -117,6 +126,8 @@ Options:
                                      Disable long text send enhancement for this run.
   --enable-long-text-send-enhancement
                                      Enable long text send enhancement for this run.
+  --disable-tab-indent-enhancement   Disable Tab indentation enhancement for this run.
+  --enable-tab-indent-enhancement    Enable Tab indentation enhancement for this run.
   --disable-layout-focus-ring-fix    Disable accidental layout focus ring fix for this run.
   --enable-layout-focus-ring-fix     Enable accidental layout focus ring fix for this run.
   --disable-theme-enhancement        Disable Markdown theme enhancement for this run.
@@ -216,6 +227,7 @@ function ensureConfig() {
       fullscreenHeaderOffset: stringOrUndefined(parsed.fullscreenHeaderOffset),
       imeEnterGuard: booleanOrUndefined(parsed.imeEnterGuard, "imeEnterGuard"),
       longTextSendEnhancement: booleanOrUndefined(parsed.longTextSendEnhancement, "longTextSendEnhancement"),
+      tabIndentEnhancement: booleanOrUndefined(parsed.tabIndentEnhancement, "tabIndentEnhancement"),
       layoutFocusRingFix: booleanOrUndefined(parsed.layoutFocusRingFix, "layoutFocusRingFix"),
       themeEnhancement: booleanOrUndefined(parsed.themeEnhancement, "themeEnhancement"),
       themeEnhancementColors: themeColorsOrUndefined(parsed.themeEnhancementColors),
@@ -282,6 +294,12 @@ function buildOptions(cli, configInfo) {
       env.CODEX_APP_EXTENSION_LONG_TEXT_SEND_ENHANCEMENT,
       configInfo.values.longTextSendEnhancement,
       DEFAULT_CONFIG.longTextSendEnhancement,
+    )),
+    tabIndentEnhancement: parseBooleanOption("tabIndentEnhancement", firstValue(
+      cli.tabIndentEnhancement,
+      env.CODEX_APP_EXTENSION_TAB_INDENT_ENHANCEMENT,
+      configInfo.values.tabIndentEnhancement,
+      DEFAULT_CONFIG.tabIndentEnhancement,
     )),
     layoutFocusRingFix: parseBooleanOption("layoutFocusRingFix", firstValue(
       cli.layoutFocusRingFix,
@@ -651,6 +669,17 @@ function buildDiagnoseSource(options) {
       lastIgnoredEvent: longText.lastIgnoredEvent || null
     } : null;
 
+    const tabIndent = window.__codexAppExtensionTabIndentEnhancement || null;
+    const tabIndentState = tabIndent ? {
+      installed: Boolean(tabIndent.installed),
+      enabled: Boolean(tabIndent.enabled),
+      lastSeenTabEvent: tabIndent.lastSeenTabEvent || null,
+      lastHandledEvent: tabIndent.lastHandledEvent || null,
+      lastIgnoredEvent: tabIndent.lastIgnoredEvent || null
+    } : null;
+
+    const layoutWidthState = window.__codexAppExtensionLayoutWidth || null;
+
     return {
       tool: ${JSON.stringify(APP_NAME)},
       config: meta,
@@ -660,9 +689,13 @@ function buildDiagnoseSource(options) {
       longTextSendEnhancementEnabled: Boolean(meta.longTextSendEnhancement),
       longTextSendEnhancementInstalled: Boolean(longTextState?.installed),
       longTextSendEnhancementState: longTextState,
+      tabIndentEnhancementEnabled: Boolean(meta.tabIndentEnhancement),
+      tabIndentEnhancementInstalled: Boolean(tabIndentState?.installed),
+      tabIndentEnhancementState: tabIndentState,
       href: location.href,
       title: document.title,
       readyState: document.readyState,
+      layoutWidthState,
       viewport: {
         innerWidth: window.innerWidth,
         innerHeight: window.innerHeight,
@@ -702,11 +735,13 @@ function buildDiagnoseSource(options) {
 function buildInstallerSource(options) {
   const css = buildCss(options);
   const meta = buildMeta(options);
-  const unifiedWidth = `min(${options.contentMaxWidth}, calc(100vw - ${options.sidePadding}))`;
+  const effectiveSidePadding = `max(${options.sidePadding}, ${MIN_TOTAL_SIDE_PADDING})`;
+  const unifiedWidth = `min(${options.contentMaxWidth}, max(1px, calc(100vw - ${effectiveSidePadding})))`;
   const variables = {
     "--thread-content-max-width": unifiedWidth,
     "--thread-composer-max-width": unifiedWidth,
     "--markdown-wide-block-max-width": unifiedWidth,
+    "--codex-app-extension-effective-side-padding": effectiveSidePadding,
     "--codex-app-extension-fullscreen-header-offset": options.fullscreenHeaderOffset,
     "--codex-app-extension-theme-ordered-list-marker": options.themeEnhancementColors.orderedListMarker,
     "--codex-app-extension-theme-unordered-list-marker": options.themeEnhancementColors.unorderedListMarker,
@@ -754,7 +789,143 @@ function buildInstallerSource(options) {
       }
     }
 
+    function describeLayoutElement(element, selector = "") {
+      if (!(element instanceof HTMLElement)) return null;
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return {
+        selector,
+        tag: element.tagName.toLowerCase(),
+        className: String(element.className || "").slice(0, 160),
+        id: element.id || "",
+        role: element.getAttribute("role") || "",
+        dataTestid: element.getAttribute("data-testid") || "",
+        ariaLabel: element.getAttribute("aria-label") || "",
+        position: style.position,
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+        top: Math.round(rect.top),
+        left: Math.round(rect.left),
+        right: Math.round(rect.right),
+        bottom: Math.round(rect.bottom)
+      };
+    }
+
+    function findLayoutWidthReference() {
+      const selectors = [
+        ".thread-scroll-container",
+        "[data-app-shell-main-content-layout]",
+        ".app-shell-main-content-viewport",
+        "main.main-surface"
+      ];
+      const seen = new Set();
+
+      for (const selector of selectors) {
+        for (const element of document.querySelectorAll(selector)) {
+          if (!(element instanceof HTMLElement) || seen.has(element)) continue;
+          seen.add(element);
+          if (!isVisibleElement(element)) continue;
+          const rect = element.getBoundingClientRect();
+          if (rect.width < 1) continue;
+          return { element, selector, rect };
+        }
+      }
+
+      const fallback = document.body || document.documentElement;
+      if (!(fallback instanceof HTMLElement)) return null;
+      const rect = fallback.getBoundingClientRect();
+      return { element: fallback, selector: fallback.tagName.toLowerCase(), rect };
+    }
+
+    function findRightFloatingRail(reference) {
+      if (!reference?.element || !reference.rect || !document.body) return null;
+
+      const viewportRight = window.innerWidth || reference.rect.right;
+      const referenceRight = Math.min(reference.rect.right, viewportRight);
+      const minimumHeight = Math.min(240, Math.max(120, (window.innerHeight || 0) * 0.25));
+      const candidates = [];
+
+      for (const element of document.body.querySelectorAll("*")) {
+        if (!(element instanceof HTMLElement)) continue;
+        if (element === reference.element || element.contains(reference.element)) continue;
+
+        const rect = element.getBoundingClientRect();
+        if (rect.width < 80 || rect.height < minimumHeight) continue;
+        const style = getComputedStyle(element);
+        if (!["absolute", "fixed", "sticky"].includes(style.position)) continue;
+        if (style.display === "none" || style.visibility === "hidden") continue;
+
+        const overlapsVertically = rect.bottom > reference.rect.top + 80
+          && rect.top < reference.rect.bottom - 80;
+        const startsInsideReference = rect.left > reference.rect.left + 120
+          && rect.left < referenceRight - 40;
+        const rightAnchored = rect.right >= referenceRight - 80
+          || rect.right >= viewportRight - 80;
+        const narrowEnough = rect.width <= Math.max(520, viewportRight * 0.45);
+
+        if (!overlapsVertically || !startsInsideReference || !rightAnchored || !narrowEnough) continue;
+        candidates.push({ element, rect, style });
+      }
+
+      candidates.sort((a, b) => a.rect.left - b.rect.left);
+      const best = candidates[0];
+      if (!best) return null;
+
+      return {
+        rect: best.rect,
+        summary: describeLayoutElement(best.element, "right-floating-rail-candidate")
+      };
+    }
+
+    function buildWidthExpression(availableWidth) {
+      const roundedWidth = Math.max(1, Math.floor(availableWidth));
+      return "min(" + meta.contentMaxWidth + ", max(1px, calc("
+        + roundedWidth + "px - " + variables["--codex-app-extension-effective-side-padding"] + ")))";
+    }
+
+    function computeLayoutWidthState() {
+      const fallbackWidth = variables["--thread-content-max-width"];
+      const reference = findLayoutWidthReference();
+      const effectiveSidePadding = variables["--codex-app-extension-effective-side-padding"];
+      if (!reference) {
+        return {
+          reason: "no-layout-reference",
+          width: fallbackWidth,
+          fallbackWidth,
+          effectiveSidePadding,
+          minimumSideGutter: meta.minSideGutter,
+          reference: null,
+          rightFloatingRail: null
+        };
+      }
+
+      // Codex 新版右侧悬浮栏可能覆盖主区域；先按真实主聊天容器收敛，再避让右侧悬浮栏。
+      const rightFloatingRail = findRightFloatingRail(reference);
+      const rightBoundary = rightFloatingRail
+        ? Math.min(reference.rect.right, rightFloatingRail.rect.left)
+        : reference.rect.right;
+      const availableWidth = Math.max(1, Math.floor(rightBoundary - reference.rect.left));
+
+      return {
+        reason: rightFloatingRail ? "layout-reference-with-right-floating-rail" : "layout-reference",
+        width: buildWidthExpression(availableWidth),
+        fallbackWidth,
+        availableWidth,
+        effectiveSidePadding,
+        minimumSideGutter: meta.minSideGutter,
+        reference: describeLayoutElement(reference.element, reference.selector),
+        rightFloatingRail: rightFloatingRail?.summary || null
+      };
+    }
+
     function applyVariables() {
+      const layoutWidthState = computeLayoutWidthState();
+      const appliedVariables = {
+        ...variables,
+        "--thread-content-max-width": layoutWidthState.width,
+        "--thread-composer-max-width": layoutWidthState.width,
+        "--markdown-wide-block-max-width": layoutWidthState.width
+      };
       const targets = [
         document.documentElement,
         document.body,
@@ -762,12 +933,15 @@ function buildInstallerSource(options) {
       ].filter(Boolean);
 
       for (const target of targets) {
-        for (const [name, value] of Object.entries(variables)) {
+        for (const [name, value] of Object.entries(appliedVariables)) {
           if (target.style.getPropertyValue(name) !== value || target.style.getPropertyPriority(name) !== "important") {
             target.style.setProperty(name, value, "important");
           }
         }
       }
+
+      window.__codexAppExtensionLayoutWidth = layoutWidthState;
+      return layoutWidthState;
     }
 
     function isProbablyFullscreen() {
@@ -802,10 +976,13 @@ function buildInstallerSource(options) {
 
     function installResizeListener() {
       window.__codexAppExtensionApplyFullscreenState = applyFullscreenState;
-      if (window.__codexAppExtensionResizeHandler) return;
+      if (window.__codexAppExtensionResizeHandler) {
+        window.removeEventListener("resize", window.__codexAppExtensionResizeHandler);
+      }
 
       window.__codexAppExtensionResizeHandler = () => {
         requestAnimationFrame(() => {
+          applyVariables();
           window.__codexAppExtensionApplyFullscreenState?.();
         });
       };
@@ -894,6 +1071,12 @@ function buildInstallerSource(options) {
         || event.code === "Enter"
         || event.code === "NumpadEnter"
         || event.keyCode === 13;
+    }
+
+    function isTabKey(event) {
+      return event.key === "Tab"
+        || event.code === "Tab"
+        || event.keyCode === 9;
     }
 
     function isVisibleElement(element) {
@@ -1133,6 +1316,47 @@ function buildInstallerSource(options) {
         : new Event("input", { bubbles: true, cancelable: true });
       textarea.dispatchEvent(inputEvent);
       return true;
+    }
+
+    function insertTextareaTab(textarea) {
+      if (!(textarea instanceof HTMLTextAreaElement)) return false;
+      textarea.focus();
+
+      const start = Number.isInteger(textarea.selectionStart) ? textarea.selectionStart : textarea.value.length;
+      const end = Number.isInteger(textarea.selectionEnd) ? textarea.selectionEnd : start;
+      const nextValue = textarea.value.slice(0, start) + "\\t" + textarea.value.slice(end);
+      const valueSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+      if (valueSetter) {
+        valueSetter.call(textarea, nextValue);
+      } else {
+        textarea.value = nextValue;
+      }
+      textarea.selectionStart = start + 1;
+      textarea.selectionEnd = start + 1;
+
+      const inputEvent = typeof InputEvent === "function"
+        ? new InputEvent("input", {
+          bubbles: true,
+          cancelable: true,
+          inputType: "insertText",
+          data: "\\t"
+        })
+        : new Event("input", { bubbles: true, cancelable: true });
+      textarea.dispatchEvent(inputEvent);
+      return true;
+    }
+
+    function insertContentEditableTab(editable) {
+      if (!(editable instanceof HTMLElement)) return false;
+      editable.focus();
+
+      if (document.queryCommandSupported?.("insertText") && document.execCommand("insertText", false, "\\t")) {
+        return true;
+      }
+      if (document.queryCommandSupported?.("insertHTML") && document.execCommand("insertHTML", false, "&#9;")) {
+        return true;
+      }
+      return false;
     }
 
     function installImeEnterGuard() {
@@ -1400,16 +1624,102 @@ function buildInstallerSource(options) {
       return state;
     }
 
+    function installTabIndentEnhancement() {
+      const existing = window.__codexAppExtensionTabIndentEnhancement;
+      if (existing?.handlers?.keydown) {
+        window.removeEventListener("keydown", existing.handlers.keydown, true);
+        document.removeEventListener("keydown", existing.handlers.keydown, true);
+      }
+
+      const state = {
+        enabled: Boolean(meta.tabIndentEnhancement),
+        installed: false,
+        lastSeenTabEvent: null,
+        lastHandledEvent: null,
+        lastIgnoredEvent: null,
+        handlers: null
+      };
+      window.__codexAppExtensionTabIndentEnhancement = state;
+
+      if (!state.enabled) return state;
+
+      const buildEventInfo = (event, editable, managedInput, extra = {}) => ({
+        time: Date.now(),
+        type: event.type,
+        key: event.key,
+        code: event.code,
+        keyCode: event.keyCode,
+        metaKey: Boolean(event.metaKey),
+        ctrlKey: Boolean(event.ctrlKey),
+        altKey: Boolean(event.altKey),
+        shiftKey: Boolean(event.shiftKey),
+        action: "",
+        handled: false,
+        target: describeImeTarget(editable),
+        inputKind: managedInput?.kind || null,
+        managedRoot: describeImeTarget(managedInput?.root || null),
+        ...extra
+      });
+
+      const ignoreTab = (event, editable, managedInput, reason) => {
+        state.lastIgnoredEvent = buildEventInfo(event, editable, managedInput, {
+          action: "ignore",
+          reason
+        });
+      };
+
+      const keydown = (event) => {
+        if (!isTabKey(event)) return;
+
+        const editable = getEditableElement(event.target);
+        const managedInput = getLongTextManagedInput(editable);
+        state.lastSeenTabEvent = buildEventInfo(event, editable, managedInput);
+        if (!managedInput) {
+          ignoreTab(event, editable, managedInput, "not-composer");
+          return;
+        }
+
+        const plainTab = !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey;
+        if (!plainTab) {
+          ignoreTab(event, editable, managedInput, "unsupported-modifier");
+          return;
+        }
+
+        // Tab 是系统焦点导航键，只在已识别的 Codex 输入框内接管，避免破坏全局键盘导航。
+        event.preventDefault();
+        event.stopImmediatePropagation();
+
+        const eventInfo = buildEventInfo(event, editable, managedInput);
+        eventInfo.action = "insert-tab";
+        eventInfo.insertedTab = managedInput.kind === "request-input-panel-textarea"
+          ? insertTextareaTab(editable)
+          : insertContentEditableTab(editable);
+        eventInfo.handled = true;
+        if (!eventInfo.insertedTab) {
+          eventInfo.action = "insert-tab-failed";
+          eventInfo.reason = "insert-command-failed";
+        }
+        state.lastHandledEvent = eventInfo;
+      };
+
+      state.handlers = { keydown };
+      window.addEventListener("keydown", keydown, true);
+      document.addEventListener("keydown", keydown, true);
+      state.installed = true;
+      return state;
+    }
+
     function install() {
       cleanupLegacyWideLayout();
       upsertStyle();
-      applyVariables();
+      const layoutWidthState = applyVariables();
       const fullscreen = applyFullscreenState();
       const layoutFocusRingFix = applyLayoutFocusRingFixState();
       const themeEnhancement = applyThemeEnhancementState();
       installResizeListener();
       const imeGuard = installImeEnterGuard();
       const longTextSend = installLongTextSendEnhancement();
+      const tabIndent = installTabIndentEnhancement();
 
       if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", () => {
@@ -1421,6 +1731,7 @@ function buildInstallerSource(options) {
           applyThemeEnhancementState();
           installImeEnterGuard();
           installLongTextSendEnhancement();
+          installTabIndentEnhancement();
           installObserver();
         }, { once: true });
       } else {
@@ -1438,6 +1749,7 @@ function buildInstallerSource(options) {
         bodyThreadContentMaxWidth: getComputedStyle(computedTarget).getPropertyValue("--thread-content-max-width").trim(),
         bodyComposerMaxWidth: getComputedStyle(computedTarget).getPropertyValue("--thread-composer-max-width").trim(),
         bodyMarkdownWideBlockMaxWidth: getComputedStyle(computedTarget).getPropertyValue("--markdown-wide-block-max-width").trim(),
+        layoutWidthState: window.__codexAppExtensionLayoutWidth || layoutWidthState,
         mainPaddingTop: main ? getComputedStyle(main).paddingTop : null,
         layoutFocusRingFixEnabled: Boolean(meta.layoutFocusRingFix),
         layoutFocusRingFixInstalled: layoutFocusRingFix,
@@ -1448,7 +1760,9 @@ function buildInstallerSource(options) {
         imeEnterGuardEnabled: Boolean(meta.imeEnterGuard),
         imeEnterGuardInstalled: Boolean(imeGuard?.installed),
         longTextSendEnhancementEnabled: Boolean(meta.longTextSendEnhancement),
-        longTextSendEnhancementInstalled: Boolean(longTextSend?.installed)
+        longTextSendEnhancementInstalled: Boolean(longTextSend?.installed),
+        tabIndentEnhancementEnabled: Boolean(meta.tabIndentEnhancement),
+        tabIndentEnhancementInstalled: Boolean(tabIndent?.installed)
       };
     }
 
@@ -1464,16 +1778,20 @@ function buildMeta(options) {
     fullscreenHeaderOffset: options.fullscreenHeaderOffset,
     imeEnterGuard: options.imeEnterGuard,
     longTextSendEnhancement: options.longTextSendEnhancement,
+    tabIndentEnhancement: options.tabIndentEnhancement,
     layoutFocusRingFix: options.layoutFocusRingFix,
     themeEnhancement: options.themeEnhancement,
     themeEnhancementColors: options.themeEnhancementColors,
     themeEnhancementTypography: options.themeEnhancementTypography,
     sidePadding: options.sidePadding,
+    minSideGutter: MIN_SIDE_GUTTER,
+    minTotalSidePadding: MIN_TOTAL_SIDE_PADDING,
   };
 }
 
 function buildCss(options) {
-  const width = `min(${options.contentMaxWidth}, calc(100vw - ${options.sidePadding}))`;
+  const effectiveSidePadding = `max(${options.sidePadding}, ${MIN_TOTAL_SIDE_PADDING})`;
+  const width = `min(${options.contentMaxWidth}, max(1px, calc(100vw - ${effectiveSidePadding})))`;
   const strongTypographyCss = [
     options.themeEnhancementTypography.strongFontWeight
       ? `  font-weight: ${options.themeEnhancementTypography.strongFontWeight} !important;`
@@ -1490,6 +1808,7 @@ body[data-codex-window-type="electron"],
   --thread-content-max-width: ${width} !important;
   --thread-composer-max-width: ${width} !important;
   --markdown-wide-block-max-width: ${width} !important;
+  --codex-app-extension-effective-side-padding: ${effectiveSidePadding} !important;
   --codex-app-extension-fullscreen-header-offset: ${options.fullscreenHeaderOffset} !important;
   --codex-app-extension-theme-ordered-list-marker: ${options.themeEnhancementColors.orderedListMarker} !important;
   --codex-app-extension-theme-unordered-list-marker: ${options.themeEnhancementColors.unorderedListMarker} !important;
