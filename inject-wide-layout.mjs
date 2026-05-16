@@ -3,6 +3,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { createInterface } from "node:readline";
 
 const APP_NAME = "codex-app-extension";
 const STYLE_ID = "codex-app-extension-style";
@@ -71,6 +72,8 @@ function parseCliArgs(argv) {
       i += 1;
     } else if (arg === "--diagnose") {
       cli.diagnose = true;
+    } else if (arg === "--configure") {
+      cli.configure = true;
     } else if (arg === "--disable-ime-enter-guard") {
       cli.imeEnterGuard = false;
     } else if (arg === "--enable-ime-enter-guard") {
@@ -121,6 +124,7 @@ Options:
   --enable-layout-focus-ring-fix     Enable accidental layout focus ring fix for this run.
   --disable-theme-enhancement        Disable Markdown theme enhancement for this run.
   --enable-theme-enhancement         Enable Markdown theme enhancement for this run.
+  --configure                        Review and complete ~/.codex-app-extension/config.json.
   --diagnose                          Print current Codex layout facts without changing CSS.
 
 Config:
@@ -132,14 +136,18 @@ Legacy aliases:
 }
 
 async function main() {
-  if (typeof WebSocket !== "function") {
-    throw new Error("This Node.js runtime does not expose WebSocket. Try NODE_BIN=/Applications/Codex.app/Contents/Resources/node.");
-  }
-
   const cli = parseCliArgs(process.argv.slice(2));
   if (cli.help) {
     printHelp();
     process.exit(0);
+  }
+  if (cli.configure) {
+    await configureConfig();
+    return;
+  }
+
+  if (typeof WebSocket !== "function") {
+    throw new Error("This Node.js runtime does not expose WebSocket. Try NODE_BIN=/Applications/Codex.app/Contents/Resources/node.");
   }
 
   const configInfo = ensureConfig();
@@ -211,6 +219,7 @@ function ensureConfig() {
   return {
     path: configPath,
     created,
+    raw: parsed,
     values: {
       contentMaxWidth: stringOrUndefined(parsed.contentMaxWidth),
       fullscreenHeaderOffset: stringOrUndefined(parsed.fullscreenHeaderOffset),
@@ -222,6 +231,169 @@ function ensureConfig() {
       themeEnhancementTypography: themeTypographyOrUndefined(parsed.themeEnhancementTypography),
     },
   };
+}
+
+async function configureConfig() {
+  const configInfo = ensureConfig();
+  const nextConfig = buildCompleteConfig(configInfo.values);
+  const promptSession = await createPromptSession();
+
+  try {
+    console.log(`[${APP_NAME}] Config file: ${configInfo.path}`);
+    if (configInfo.created) {
+      console.log(`[${APP_NAME}] Config file was missing, created it with defaults first.`);
+    }
+    console.log(`[${APP_NAME}] Press Enter to keep the current value shown in brackets.`);
+
+    nextConfig.contentMaxWidth = await askCssSize(promptSession, {
+      key: "contentMaxWidth",
+      label: "Content max width",
+      current: nextConfig.contentMaxWidth,
+    });
+    nextConfig.fullscreenHeaderOffset = await askCssSize(promptSession, {
+      key: "fullscreenHeaderOffset",
+      label: "Fullscreen header offset",
+      current: nextConfig.fullscreenHeaderOffset,
+    });
+    nextConfig.imeEnterGuard = await askBoolean(promptSession, {
+      label: "Enable IME Enter guard",
+      current: nextConfig.imeEnterGuard,
+    });
+    nextConfig.longTextSendEnhancement = await askBoolean(promptSession, {
+      label: "Enable long text send enhancement",
+      current: nextConfig.longTextSendEnhancement,
+    });
+    nextConfig.layoutFocusRingFix = await askBoolean(promptSession, {
+      label: "Enable layout focus ring fix",
+      current: nextConfig.layoutFocusRingFix,
+    });
+    nextConfig.themeEnhancement = await askBoolean(promptSession, {
+      label: "Enable Markdown theme enhancement",
+      current: nextConfig.themeEnhancement,
+    });
+
+    assertCompleteConfigValues(nextConfig);
+    writeCompleteConfig(configInfo.path, configInfo.raw, nextConfig);
+
+    console.log(`[${APP_NAME}] Config completed and saved.`);
+    console.log(`[${APP_NAME}] Full config keys are now present in ${configInfo.path}.`);
+    if (nextConfig.themeEnhancement) {
+      console.log(`[${APP_NAME}] Markdown theme enhancement is enabled. Edit themeEnhancementColors and themeEnhancementTypography in the config file for colors and typography.`);
+    } else {
+      console.log(`[${APP_NAME}] Theme color and typography defaults were still written, so enabling themeEnhancement later has a complete config block ready.`);
+    }
+  } finally {
+    promptSession.close();
+  }
+}
+
+function buildCompleteConfig(values) {
+  return {
+    contentMaxWidth: firstValue(values.contentMaxWidth, DEFAULT_CONFIG.contentMaxWidth),
+    fullscreenHeaderOffset: firstValue(values.fullscreenHeaderOffset, DEFAULT_CONFIG.fullscreenHeaderOffset),
+    imeEnterGuard: parseBooleanOption("imeEnterGuard", firstValue(values.imeEnterGuard, DEFAULT_CONFIG.imeEnterGuard)),
+    longTextSendEnhancement: parseBooleanOption("longTextSendEnhancement", firstValue(values.longTextSendEnhancement, DEFAULT_CONFIG.longTextSendEnhancement)),
+    layoutFocusRingFix: parseBooleanOption("layoutFocusRingFix", firstValue(values.layoutFocusRingFix, DEFAULT_CONFIG.layoutFocusRingFix)),
+    themeEnhancement: parseBooleanOption("themeEnhancement", firstValue(values.themeEnhancement, DEFAULT_CONFIG.themeEnhancement)),
+    // Complex theme values are completed but not edited interactively; users need the JSON context to tune them safely.
+    themeEnhancementColors: {
+      ...DEFAULT_THEME_ENHANCEMENT_COLORS,
+      ...(values.themeEnhancementColors || {}),
+    },
+    themeEnhancementTypography: {
+      ...DEFAULT_THEME_ENHANCEMENT_TYPOGRAPHY,
+      ...(values.themeEnhancementTypography || {}),
+    },
+  };
+}
+
+async function createPromptSession() {
+  if (!process.stdin.isTTY) {
+    const answers = await readStdinLines();
+    return {
+      close() {},
+      async question(prompt) {
+        process.stdout.write(prompt);
+        return answers.length ? answers.shift() : "";
+      },
+    };
+  }
+
+  const rl = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  return {
+    close() {
+      rl.close();
+    },
+    question(prompt) {
+      return new Promise((resolve) => {
+        rl.question(prompt, resolve);
+      });
+    },
+  };
+}
+
+function readStdinLines() {
+  return new Promise((resolve) => {
+    let raw = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (chunk) => {
+      raw += chunk;
+    });
+    process.stdin.on("end", () => {
+      resolve(raw.split(/\r?\n/));
+    });
+    process.stdin.resume();
+  });
+}
+
+async function askCssSize(promptSession, { key, label, current }) {
+  while (true) {
+    const answer = (await promptSession.question(`[${APP_NAME}] ${label} [${current}]: `)).trim();
+    const value = answer || current;
+    try {
+      assertCssSize(key, value);
+      return value;
+    } catch (error) {
+      console.log(`[${APP_NAME}] ${error.message}`);
+    }
+  }
+}
+
+async function askBoolean(promptSession, { label, current }) {
+  const hint = current ? "Y/n" : "y/N";
+  while (true) {
+    const answer = (await promptSession.question(`[${APP_NAME}] ${label} [${hint}]: `)).trim();
+    if (!answer) return current;
+    try {
+      return parseBooleanOption(label, answer);
+    } catch {
+      console.log(`[${APP_NAME}] Please answer y/n, true/false, on/off, or 1/0.`);
+    }
+  }
+}
+
+function writeCompleteConfig(configPath, rawConfig, knownConfig) {
+  const outputConfig = { ...knownConfig };
+  for (const [key, value] of Object.entries(rawConfig)) {
+    if (!Object.prototype.hasOwnProperty.call(DEFAULT_CONFIG, key)) {
+      outputConfig[key] = value;
+    }
+  }
+  writeFileSync(configPath, `${JSON.stringify(outputConfig, null, 2)}\n`, "utf8");
+}
+
+function assertCompleteConfigValues(config) {
+  assertCssSize("contentMaxWidth", config.contentMaxWidth);
+  assertCssSize("fullscreenHeaderOffset", config.fullscreenHeaderOffset);
+  for (const [key, value] of Object.entries(config.themeEnhancementColors)) {
+    assertCssColor(`themeEnhancementColors.${key}`, value);
+  }
+  for (const [key, value] of Object.entries(config.themeEnhancementTypography)) {
+    if (value !== null) assertCssValue(`themeEnhancementTypography.${key}`, value);
+  }
 }
 
 function buildOptions(cli, configInfo) {
@@ -381,9 +553,9 @@ function cssStringOrNullOrUndefined(value) {
 function parseBooleanOption(name, value) {
   if (typeof value === "boolean") return value;
   const normalized = String(value).trim().toLowerCase();
-  if (["1", "true", "yes", "on"].includes(normalized)) return true;
-  if (["0", "false", "no", "off"].includes(normalized)) return false;
-  throw new Error(`Invalid ${name}: expected true/false`);
+  if (["1", "true", "yes", "y", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "n", "off"].includes(normalized)) return false;
+  throw new Error(`Invalid ${name}: expected true/false, y/n, on/off, or 1/0`);
 }
 
 function assertCssSize(name, value) {
