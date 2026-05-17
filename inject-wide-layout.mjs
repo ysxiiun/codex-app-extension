@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
@@ -10,9 +10,7 @@ const STYLE_ID = "codex-app-extension-style";
 const LEGACY_STYLE_ID = "codex-wide-layout-style";
 
 const DEFAULT_PORT = 9229;
-const DEFAULT_SIDE_PADDING = "32px";
-const MIN_SIDE_GUTTER = "50px";
-const MIN_TOTAL_SIDE_PADDING = "100px";
+const DEFAULT_HORIZONTAL_GUTTER = "20px";
 const DEFAULT_TARGET_TIMEOUT_MS = 30000;
 const TARGET_POLL_INTERVAL_MS = 250;
 const DEFAULT_THEME_ENHANCEMENT_COLORS = Object.freeze({
@@ -34,7 +32,9 @@ const DEFAULT_THEME_ENHANCEMENT_TYPOGRAPHY = Object.freeze({
 });
 const THEME_ENHANCEMENT_TYPOGRAPHY_KEYS = Object.freeze(Object.keys(DEFAULT_THEME_ENHANCEMENT_TYPOGRAPHY));
 const DEFAULT_CONFIG = Object.freeze({
+  wideLayoutEnhancement: true,
   contentMaxWidth: "1800px",
+  horizontalGutter: DEFAULT_HORIZONTAL_GUTTER,
   fullscreenHeaderOffset: "46px",
   imeEnterGuard: true,
   longTextSendEnhancement: false,
@@ -44,6 +44,13 @@ const DEFAULT_CONFIG = Object.freeze({
   themeEnhancementColors: DEFAULT_THEME_ENHANCEMENT_COLORS,
   themeEnhancementTypography: DEFAULT_THEME_ENHANCEMENT_TYPOGRAPHY,
 });
+const DEPRECATED_CONFIG_KEYS = new Set([
+  "minimumSideGutter",
+  "minimumTotalSidePadding",
+  "minSideGutter",
+  "minTotalSidePadding",
+  "sidePadding",
+]);
 
 function parseCliArgs(argv) {
   const cli = {};
@@ -58,14 +65,14 @@ function parseCliArgs(argv) {
     } else if (arg === "--content-max-width" && value) {
       cli.contentMaxWidth = value;
       i += 1;
+    } else if (arg === "--horizontal-gutter" && value) {
+      cli.horizontalGutter = value;
+      i += 1;
     } else if (["--thread-max", "--composer-max", "--markdown-max"].includes(arg) && value) {
       cli.contentMaxWidth = value;
       i += 1;
     } else if (arg === "--fullscreen-header-offset" && value) {
       cli.fullscreenHeaderOffset = value;
-      i += 1;
-    } else if (arg === "--side-padding" && value) {
-      cli.sidePadding = value;
       i += 1;
     } else if (arg === "--target" && value) {
       cli.target = value;
@@ -77,6 +84,10 @@ function parseCliArgs(argv) {
       cli.diagnose = true;
     } else if (arg === "--configure") {
       cli.configure = true;
+    } else if (arg === "--disable-wide-layout-enhancement") {
+      cli.wideLayoutEnhancement = false;
+    } else if (arg === "--enable-wide-layout-enhancement") {
+      cli.wideLayoutEnhancement = true;
     } else if (arg === "--disable-ime-enter-guard") {
       cli.imeEnterGuard = false;
     } else if (arg === "--enable-ime-enter-guard") {
@@ -116,13 +127,14 @@ Options:
   --port <number>                    Remote debugging port. Default: ${DEFAULT_PORT}
   --content-max-width <css-size>      Max width for thread, composer, and wide blocks.
                                      Default: ${DEFAULT_CONFIG.contentMaxWidth}
-  --fullscreen-header-offset <size>   Top offset used in macOS fullscreen.
+  --horizontal-gutter <css-size>      Horizontal gutter kept on both left and right when wide layout is enabled.
+                                     Default: ${DEFAULT_CONFIG.horizontalGutter}
+  --fullscreen-header-offset <size>   Top offset used to avoid the app header in windowed and fullscreen modes.
                                      Default: ${DEFAULT_CONFIG.fullscreenHeaderOffset}
-  --side-padding <size>               Total horizontal padding used in width calc.
-                                     Effective value is at least ${MIN_TOTAL_SIDE_PADDING} (${MIN_SIDE_GUTTER} each side).
-                                     Default: ${DEFAULT_SIDE_PADDING}
   --target <text>                     Prefer a debugger target whose title/url includes this text.
   --target-timeout-ms <ms>            Wait for the Codex page target. Default: ${DEFAULT_TARGET_TIMEOUT_MS}
+  --disable-wide-layout-enhancement   Disable content width, gutter, and right rail avoidance for this run.
+  --enable-wide-layout-enhancement    Enable content width, gutter, and right rail avoidance for this run.
   --disable-ime-enter-guard           Disable IME Enter guard for this run.
   --enable-ime-enter-guard            Enable IME Enter guard for this run.
   --disable-long-text-send-enhancement
@@ -204,23 +216,28 @@ async function main() {
   }
 }
 
-function ensureConfig() {
+function ensureConfig({ createIfMissing = false } = {}) {
   const configDir = join(homedir(), ".codex-app-extension");
   const configPath = join(configDir, "config.json");
   let created = false;
+  let parsed;
 
-  if (!existsSync(configPath)) {
+  if (!existsSync(configPath) && !isSymlink(configPath)) {
+    if (!createIfMissing) {
+      throw new Error(`Missing config at ${configPath}. Run ./launch.sh for first-time setup, or run ./follow-author-config.sh / ./config.sh first.`);
+    }
     mkdirSync(configDir, { recursive: true });
-    writeFileSync(configPath, `${JSON.stringify(DEFAULT_CONFIG, null, 2)}\n`, "utf8");
     created = true;
+    parsed = {};
   }
 
-  const raw = readFileSync(configPath, "utf8");
-  let parsed;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (error) {
-    throw new Error(`Invalid config JSON at ${configPath}: ${error.message}`);
+  if (!created) {
+    const raw = readFileSync(configPath, "utf8");
+    try {
+      parsed = JSON.parse(raw);
+    } catch (error) {
+      throw new Error(`Invalid config JSON at ${configPath}: ${error.message}`);
+    }
   }
 
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -232,7 +249,9 @@ function ensureConfig() {
     created,
     raw: parsed,
     values: {
+      wideLayoutEnhancement: booleanOrUndefined(parsed.wideLayoutEnhancement, "wideLayoutEnhancement"),
       contentMaxWidth: stringOrUndefined(parsed.contentMaxWidth),
+      horizontalGutter: stringOrUndefined(parsed.horizontalGutter),
       fullscreenHeaderOffset: stringOrUndefined(parsed.fullscreenHeaderOffset),
       imeEnterGuard: booleanOrUndefined(parsed.imeEnterGuard, "imeEnterGuard"),
       longTextSendEnhancement: booleanOrUndefined(parsed.longTextSendEnhancement, "longTextSendEnhancement"),
@@ -246,21 +265,30 @@ function ensureConfig() {
 }
 
 async function configureConfig() {
-  const configInfo = ensureConfig();
+  const configInfo = ensureConfig({ createIfMissing: true });
   const nextConfig = buildCompleteConfig(configInfo.values);
   const promptSession = await createPromptSession();
 
   try {
     console.log(`[${APP_NAME}] Config file: ${configInfo.path}`);
     if (configInfo.created) {
-      console.log(`[${APP_NAME}] Config file was missing, created it with defaults first.`);
+      console.log(`[${APP_NAME}] Config file was missing, using defaults as initial values.`);
     }
     console.log(`[${APP_NAME}] Press Enter to keep the current value shown in brackets.`);
 
+    nextConfig.wideLayoutEnhancement = await askBoolean(promptSession, {
+      label: "Enable wide layout enhancement",
+      current: nextConfig.wideLayoutEnhancement,
+    });
     nextConfig.contentMaxWidth = await askCssSize(promptSession, {
       key: "contentMaxWidth",
       label: "Content max width",
       current: nextConfig.contentMaxWidth,
+    });
+    nextConfig.horizontalGutter = await askCssSize(promptSession, {
+      key: "horizontalGutter",
+      label: "Horizontal gutter",
+      current: nextConfig.horizontalGutter,
     });
     nextConfig.fullscreenHeaderOffset = await askCssSize(promptSession, {
       key: "fullscreenHeaderOffset",
@@ -305,7 +333,9 @@ async function configureConfig() {
 
 function buildCompleteConfig(values) {
   return {
+    wideLayoutEnhancement: parseBooleanOption("wideLayoutEnhancement", firstValue(values.wideLayoutEnhancement, DEFAULT_CONFIG.wideLayoutEnhancement)),
     contentMaxWidth: firstValue(values.contentMaxWidth, DEFAULT_CONFIG.contentMaxWidth),
+    horizontalGutter: firstValue(values.horizontalGutter, DEFAULT_CONFIG.horizontalGutter),
     fullscreenHeaderOffset: firstValue(values.fullscreenHeaderOffset, DEFAULT_CONFIG.fullscreenHeaderOffset),
     imeEnterGuard: parseBooleanOption("imeEnterGuard", firstValue(values.imeEnterGuard, DEFAULT_CONFIG.imeEnterGuard)),
     longTextSendEnhancement: parseBooleanOption("longTextSendEnhancement", firstValue(values.longTextSendEnhancement, DEFAULT_CONFIG.longTextSendEnhancement)),
@@ -395,15 +425,29 @@ async function askBoolean(promptSession, { label, current }) {
 function writeCompleteConfig(configPath, rawConfig, knownConfig) {
   const outputConfig = { ...knownConfig };
   for (const [key, value] of Object.entries(rawConfig)) {
+    if (DEPRECATED_CONFIG_KEYS.has(key)) continue;
     if (!Object.prototype.hasOwnProperty.call(DEFAULT_CONFIG, key)) {
       outputConfig[key] = value;
     }
   }
+  if (isSymlink(configPath)) {
+    rmSync(configPath);
+  }
   writeFileSync(configPath, `${JSON.stringify(outputConfig, null, 2)}\n`, "utf8");
 }
 
+function isSymlink(path) {
+  try {
+    return lstatSync(path).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
 function assertCompleteConfigValues(config) {
+  parseBooleanOption("wideLayoutEnhancement", config.wideLayoutEnhancement);
   assertCssSize("contentMaxWidth", config.contentMaxWidth);
+  assertCssSize("horizontalGutter", config.horizontalGutter);
   assertCssSize("fullscreenHeaderOffset", config.fullscreenHeaderOffset);
   for (const [key, value] of Object.entries(config.themeEnhancementColors)) {
     assertCssColor(`themeEnhancementColors.${key}`, value);
@@ -428,6 +472,12 @@ function buildOptions(cli, configInfo) {
 
   const options = {
     port,
+    wideLayoutEnhancement: parseBooleanOption("wideLayoutEnhancement", firstValue(
+      cli.wideLayoutEnhancement,
+      env.CODEX_APP_EXTENSION_WIDE_LAYOUT_ENHANCEMENT,
+      configInfo.values.wideLayoutEnhancement,
+      DEFAULT_CONFIG.wideLayoutEnhancement,
+    )),
     contentMaxWidth: firstValue(
       cli.contentMaxWidth,
       env.CODEX_APP_EXTENSION_CONTENT_MAX_WIDTH,
@@ -437,17 +487,17 @@ function buildOptions(cli, configInfo) {
       configInfo.values.contentMaxWidth,
       DEFAULT_CONFIG.contentMaxWidth,
     ),
+    horizontalGutter: firstValue(
+      cli.horizontalGutter,
+      env.CODEX_APP_EXTENSION_HORIZONTAL_GUTTER,
+      configInfo.values.horizontalGutter,
+      DEFAULT_CONFIG.horizontalGutter,
+    ),
     fullscreenHeaderOffset: firstValue(
       cli.fullscreenHeaderOffset,
       env.CODEX_APP_EXTENSION_FULLSCREEN_HEADER_OFFSET,
       configInfo.values.fullscreenHeaderOffset,
       DEFAULT_CONFIG.fullscreenHeaderOffset,
-    ),
-    sidePadding: firstValue(
-      cli.sidePadding,
-      env.CODEX_APP_EXTENSION_SIDE_PADDING,
-      env.CODEX_WIDE_SIDE_PADDING,
-      DEFAULT_SIDE_PADDING,
     ),
     target: firstValue(
       cli.target,
@@ -504,8 +554,8 @@ function buildOptions(cli, configInfo) {
   };
 
   assertCssSize("contentMaxWidth", options.contentMaxWidth);
+  assertCssSize("horizontalGutter", options.horizontalGutter);
   assertCssSize("fullscreenHeaderOffset", options.fullscreenHeaderOffset);
-  assertCssSize("sidePadding", options.sidePadding);
   for (const [key, value] of Object.entries(options.themeEnhancementColors)) {
     assertCssColor(`themeEnhancementColors.${key}`, value);
   }
@@ -595,6 +645,10 @@ function assertCssValue(name, value) {
   if (typeof value !== "string" || !value.trim() || /[;{}<>]/.test(value)) {
     throw new Error(`Invalid ${name}: expected a safe CSS value`);
   }
+}
+
+function buildHorizontalPadding(horizontalGutter) {
+  return `calc(${horizontalGutter} + ${horizontalGutter})`;
 }
 
 async function getJson(url) {
@@ -779,13 +833,17 @@ function buildDiagnoseSource(options) {
         height: Math.round(rect.height),
         top: Math.round(rect.top),
         left: Math.round(rect.left),
+        right: Math.round(rect.right),
         maxWidth: style.maxWidth,
+        translate: style.translate,
         paddingTop: style.paddingTop,
         marginLeft: style.marginLeft,
         marginRight: style.marginRight,
         threadContentMaxWidth: style.getPropertyValue("--thread-content-max-width").trim(),
         threadComposerMaxWidth: style.getPropertyValue("--thread-composer-max-width").trim(),
         markdownWideBlockMaxWidth: style.getPropertyValue("--markdown-wide-block-max-width").trim(),
+        contentOffsetX: style.getPropertyValue("--codex-app-extension-content-offset-x").trim(),
+        horizontalPadding: style.getPropertyValue("--codex-app-extension-horizontal-padding").trim(),
         fullscreenHeaderOffset: style.getPropertyValue("--codex-app-extension-fullscreen-header-offset").trim()
       };
     };
@@ -804,9 +862,13 @@ function buildDiagnoseSource(options) {
         height: Math.round(rect.height),
         top: Math.round(rect.top),
         left: Math.round(rect.left),
+        right: Math.round(rect.right),
         maxWidth: style.maxWidth,
+        translate: style.translate,
         marginLeft: style.marginLeft,
         marginRight: style.marginRight,
+        contentOffsetX: style.getPropertyValue("--codex-app-extension-content-offset-x").trim(),
+        horizontalPadding: style.getPropertyValue("--codex-app-extension-horizontal-padding").trim(),
         position: style.position
       };
     };
@@ -872,6 +934,8 @@ function buildDiagnoseSource(options) {
       href: location.href,
       title: document.title,
       readyState: document.readyState,
+      wideLayoutEnhancementEnabled: Boolean(meta.wideLayoutEnhancement),
+      wideLayoutEnhancementDisabled: !meta.wideLayoutEnhancement,
       layoutWidthState,
       viewport: {
         innerWidth: window.innerWidth,
@@ -894,7 +958,7 @@ function buildDiagnoseSource(options) {
       root: pick("html"),
       body: pick("body"),
       header: pick("header.app-header-tint"),
-      main: pick("main.main-surface"),
+      main: pick(".main-surface"),
       mainViewport: pick(".app-shell-main-content-viewport"),
       layout: pick("[data-app-shell-main-content-layout]"),
       threadScrollContainer: pick(".thread-scroll-container"),
@@ -912,13 +976,9 @@ function buildDiagnoseSource(options) {
 function buildInstallerSource(options) {
   const css = buildCss(options);
   const meta = buildMeta(options);
-  const effectiveSidePadding = `max(${options.sidePadding}, ${MIN_TOTAL_SIDE_PADDING})`;
-  const unifiedWidth = `min(${options.contentMaxWidth}, max(1px, calc(100vw - ${effectiveSidePadding})))`;
+  const horizontalPadding = buildHorizontalPadding(options.horizontalGutter);
+  const unifiedWidth = `min(${options.contentMaxWidth}, max(1px, calc(100vw - ${horizontalPadding})))`;
   const variables = {
-    "--thread-content-max-width": unifiedWidth,
-    "--thread-composer-max-width": unifiedWidth,
-    "--markdown-wide-block-max-width": unifiedWidth,
-    "--codex-app-extension-effective-side-padding": effectiveSidePadding,
     "--codex-app-extension-fullscreen-header-offset": options.fullscreenHeaderOffset,
     "--codex-app-extension-theme-ordered-list-marker": options.themeEnhancementColors.orderedListMarker,
     "--codex-app-extension-theme-unordered-list-marker": options.themeEnhancementColors.unorderedListMarker,
@@ -931,6 +991,15 @@ function buildInstallerSource(options) {
     "--codex-app-extension-theme-heading-text": options.themeEnhancementColors.headingText,
     "--codex-app-extension-theme-strong-text": options.themeEnhancementColors.strongText,
   };
+  if (options.wideLayoutEnhancement) {
+    Object.assign(variables, {
+      "--thread-content-max-width": unifiedWidth,
+      "--thread-composer-max-width": unifiedWidth,
+      "--markdown-wide-block-max-width": unifiedWidth,
+      "--codex-app-extension-content-offset-x": "0px",
+      "--codex-app-extension-horizontal-padding": horizontalPadding,
+    });
+  }
 
   return `(() => {
     const STYLE_ID = ${JSON.stringify(STYLE_ID)};
@@ -938,6 +1007,14 @@ function buildInstallerSource(options) {
     const css = ${JSON.stringify(css)};
     const variables = ${JSON.stringify(variables)};
     const meta = ${JSON.stringify(meta)};
+    const WIDE_LAYOUT_VARIABLE_NAMES = [
+      "--thread-content-max-width",
+      "--thread-composer-max-width",
+      "--markdown-wide-block-max-width",
+      "--codex-app-extension-content-offset-x",
+      "--codex-app-extension-horizontal-padding",
+      "--codex-app-extension-effective-side-padding"
+    ];
 
     function cleanupLegacyWideLayout() {
       const legacyStyle = document.getElementById(LEGACY_STYLE_ID);
@@ -966,6 +1043,32 @@ function buildInstallerSource(options) {
       }
     }
 
+    function getVariableTargets() {
+      return [
+        document.documentElement,
+        document.body,
+        ...document.querySelectorAll(".main-surface, .app-shell-main-content-viewport, [data-app-shell-main-content-layout]")
+      ].filter(Boolean);
+    }
+
+    function clearWideLayoutVariables() {
+      for (const target of getVariableTargets()) {
+        for (const name of WIDE_LAYOUT_VARIABLE_NAMES) {
+          target.style.removeProperty(name);
+        }
+      }
+    }
+
+    function applyStyleVariables(nextVariables) {
+      for (const target of getVariableTargets()) {
+        for (const [name, value] of Object.entries(nextVariables)) {
+          if (target.style.getPropertyValue(name) !== value || target.style.getPropertyPriority(name) !== "important") {
+            target.style.setProperty(name, value, "important");
+          }
+        }
+      }
+    }
+
     function describeLayoutElement(element, selector = "") {
       if (!(element instanceof HTMLElement)) return null;
       const rect = element.getBoundingClientRect();
@@ -990,10 +1093,11 @@ function buildInstallerSource(options) {
 
     function findLayoutWidthReference() {
       const selectors = [
-        ".thread-scroll-container",
         "[data-app-shell-main-content-layout]",
         ".app-shell-main-content-viewport",
-        "main.main-surface"
+        "main.main-surface",
+        ".main-surface",
+        ".thread-scroll-container"
       ];
       const seen = new Set();
 
@@ -1019,7 +1123,8 @@ function buildInstallerSource(options) {
 
       const viewportRight = window.innerWidth || reference.rect.right;
       const referenceRight = Math.min(reference.rect.right, viewportRight);
-      const minimumHeight = Math.min(240, Math.max(120, (window.innerHeight || 0) * 0.25));
+      // 右侧输出/来源面板有时是短 popover，不是整高侧栏；阈值过高会让宽 Markdown 继续压到它下面。
+      const minimumFloatingPanelHeight = Math.min(160, Math.max(96, (window.innerHeight || 0) * 0.10));
       const candidates = [];
 
       for (const element of document.body.querySelectorAll("*")) {
@@ -1027,10 +1132,19 @@ function buildInstallerSource(options) {
         if (element === reference.element || element.contains(reference.element)) continue;
 
         const rect = element.getBoundingClientRect();
-        if (rect.width < 80 || rect.height < minimumHeight) continue;
+        if (rect.width < 80 || rect.height < minimumFloatingPanelHeight) continue;
         const style = getComputedStyle(element);
         if (!["absolute", "fixed", "sticky"].includes(style.position)) continue;
         if (style.display === "none" || style.visibility === "hidden") continue;
+        // Codex 右侧状态面板的外壳可能禁用 pointer-events，真正可交互区域在子节点里。
+        const hasInteractiveChild = style.pointerEvents === "none" && Array.from(element.querySelectorAll("*")).some((child) => {
+          if (!(child instanceof HTMLElement)) return false;
+          const childStyle = getComputedStyle(child);
+          if (childStyle.pointerEvents === "none") return false;
+          const childRect = child.getBoundingClientRect();
+          return childRect.width >= 1 && childRect.height >= 1;
+        });
+        if (style.pointerEvents === "none" && !hasInteractiveChild) continue;
 
         const overlapsVertically = rect.bottom > reference.rect.top + 80
           && rect.top < reference.rect.bottom - 80;
@@ -1057,66 +1171,202 @@ function buildInstallerSource(options) {
     function buildWidthExpression(availableWidth) {
       const roundedWidth = Math.max(1, Math.floor(availableWidth));
       return "min(" + meta.contentMaxWidth + ", max(1px, calc("
-        + roundedWidth + "px - " + variables["--codex-app-extension-effective-side-padding"] + ")))";
+        + roundedWidth + "px - " + variables["--codex-app-extension-horizontal-padding"] + ")))";
+    }
+
+    function parsePixelValue(value) {
+      const match = String(value || "").trim().match(/^(-?\\d+(?:\\.\\d+)?)px$/);
+      if (!match) return null;
+      const parsed = Number(match[1]);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+
+    function resolveCssSizeToPixels(value) {
+      const cssValue = String(value || "").trim();
+      if (!cssValue) return null;
+      const parsedPx = parsePixelValue(cssValue);
+      if (parsedPx !== null) return parsedPx;
+
+      const host = document.body || document.documentElement;
+      if (!host) return null;
+      const probe = document.createElement("div");
+      probe.style.position = "absolute";
+      probe.style.visibility = "hidden";
+      probe.style.pointerEvents = "none";
+      probe.style.height = "0";
+      probe.style.width = cssValue;
+      if (!probe.style.width) return null;
+
+      try {
+        host.appendChild(probe);
+        const width = probe.getBoundingClientRect().width;
+        return Number.isFinite(width) ? width : null;
+      } finally {
+        probe.remove();
+      }
+    }
+
+    function getHorizontalPaddingPixels() {
+      return resolveCssSizeToPixels(meta.horizontalPadding) ?? 0;
+    }
+
+    function computeContentOffsetState(referenceWidth, availableWidth, rightInset) {
+      const horizontalPaddingPx = getHorizontalPaddingPixels();
+      const horizontalGutterPx = resolveCssSizeToPixels(meta.horizontalGutter) ?? 0;
+      const contentMaxWidthPx = resolveCssSizeToPixels(meta.contentMaxWidth);
+      const availableContentWidthPx = Math.max(1, availableWidth - horizontalPaddingPx);
+      const renderedContentWidthPx = contentMaxWidthPx == null
+        ? availableContentWidthPx
+        : Math.min(contentMaxWidthPx, availableContentWidthPx);
+      const naturalLeftMarginPx = Math.max(0, (referenceWidth - renderedContentWidthPx) / 2);
+      const requestedLeftShiftPx = rightInset > 0 ? Math.round(rightInset / 2) : 0;
+      const maximumSafeLeftShiftPx = Math.max(0, Math.floor(naturalLeftMarginPx - horizontalGutterPx));
+      const appliedLeftShiftPx = Math.min(requestedLeftShiftPx, maximumSafeLeftShiftPx);
+
+      return {
+        contentOffsetX: appliedLeftShiftPx > 0 ? "-" + appliedLeftShiftPx + "px" : "0px",
+        requestedContentOffsetX: requestedLeftShiftPx > 0 ? "-" + requestedLeftShiftPx + "px" : "0px",
+        maximumSafeContentOffsetX: maximumSafeLeftShiftPx > 0 ? "-" + maximumSafeLeftShiftPx + "px" : "0px",
+        requestedLeftShiftPx,
+        maximumSafeLeftShiftPx,
+        appliedLeftShiftPx,
+        horizontalPaddingPx,
+        horizontalGutterPx,
+        renderedContentWidthPx: Math.round(renderedContentWidthPx),
+        naturalLeftMarginPx: Math.round(naturalLeftMarginPx)
+      };
+    }
+
+    function parseTransformTranslateX(transform) {
+      if (!transform || transform === "none") return 0;
+      const matrix = transform.match(/^matrix\\(([^)]+)\\)$/);
+      if (matrix) {
+        const values = matrix[1].split(",").map((item) => Number(item.trim()));
+        return Number.isFinite(values[4]) ? values[4] : 0;
+      }
+      const matrix3d = transform.match(/^matrix3d\\(([^)]+)\\)$/);
+      if (matrix3d) {
+        const values = matrix3d[1].split(",").map((item) => Number(item.trim()));
+        return Number.isFinite(values[12]) ? values[12] : 0;
+      }
+      return 0;
+    }
+
+    function findNativeContentLayerShift(reference) {
+      if (!reference?.element) return null;
+      const containers = Array.from(reference.element.querySelectorAll("[class]")).filter((element) => {
+        if (!(element instanceof HTMLElement) || !isVisibleElement(element)) return false;
+        const className = String(element.className || "");
+        return className.includes("max-w-(--thread-content-max-width)")
+          || className.includes("max-w-[var(--thread-content-max-width)]")
+          || className.includes("max-w-[var(--thread-composer-max-width)]");
+      });
+
+      for (const container of containers) {
+        for (let element = container.parentElement; element && element !== reference.element; element = element.parentElement) {
+          if (!(element instanceof HTMLElement)) continue;
+          const transform = getComputedStyle(element).transform;
+          const shiftPx = parseTransformTranslateX(transform);
+          if (Math.abs(shiftPx) < 1) continue;
+          return {
+            shiftPx: Math.round(shiftPx),
+            summary: describeLayoutElement(element, "native-content-layer-shift")
+          };
+        }
+      }
+
+      return null;
+    }
+
+    function compensateNativeContentShift(contentOffsetState, nativeContentShift) {
+      const nativeLeftShiftPx = nativeContentShift?.shiftPx < 0 ? Math.abs(nativeContentShift.shiftPx) : 0;
+      const adjustedLeftShiftPx = Math.max(0, contentOffsetState.appliedLeftShiftPx - nativeLeftShiftPx);
+      return {
+        ...contentOffsetState,
+        contentOffsetX: adjustedLeftShiftPx > 0 ? "-" + adjustedLeftShiftPx + "px" : "0px",
+        appliedLeftShiftPx: adjustedLeftShiftPx,
+        nativeContentShiftPx: nativeContentShift?.shiftPx || 0,
+        nativeContentShift: nativeContentShift?.summary || null
+      };
     }
 
     function computeLayoutWidthState() {
       const fallbackWidth = variables["--thread-content-max-width"];
       const reference = findLayoutWidthReference();
-      const effectiveSidePadding = variables["--codex-app-extension-effective-side-padding"];
+      const horizontalPadding = variables["--codex-app-extension-horizontal-padding"];
       if (!reference) {
         return {
           reason: "no-layout-reference",
           width: fallbackWidth,
           fallbackWidth,
-          effectiveSidePadding,
-          minimumSideGutter: meta.minSideGutter,
+          horizontalPadding,
+          horizontalGutter: meta.horizontalGutter,
+          contentOffsetX: "0px",
           reference: null,
           rightFloatingRail: null
         };
       }
 
       // Codex 新版右侧悬浮栏可能覆盖主区域；先按真实主聊天容器收敛，再避让右侧悬浮栏。
+      const viewportRight = window.innerWidth || reference.rect.right;
+      const referenceRight = Math.min(reference.rect.right, viewportRight);
       const rightFloatingRail = findRightFloatingRail(reference);
+      // 部分滚动容器在左侧栏之后仍保留 viewport 宽度，右边界需先夹到可视区内。
       const rightBoundary = rightFloatingRail
-        ? Math.min(reference.rect.right, rightFloatingRail.rect.left)
-        : reference.rect.right;
+        ? Math.min(referenceRight, rightFloatingRail.rect.left)
+        : referenceRight;
       const availableWidth = Math.max(1, Math.floor(rightBoundary - reference.rect.left));
+      const rightInset = Math.max(0, Math.floor(referenceRight - rightBoundary));
+      const referenceWidth = Math.max(1, referenceRight - reference.rect.left);
+      // 内容容器仍由 Codex 的 mx-auto 居中；左移时必须保留最小左侧 gutter，避免临界宽度下被父级裁剪。
+      const contentOffsetState = compensateNativeContentShift(
+        computeContentOffsetState(referenceWidth, availableWidth, rightInset),
+        findNativeContentLayerShift(reference)
+      );
 
       return {
         reason: rightFloatingRail ? "layout-reference-with-right-floating-rail" : "layout-reference",
         width: buildWidthExpression(availableWidth),
         fallbackWidth,
         availableWidth,
-        effectiveSidePadding,
-        minimumSideGutter: meta.minSideGutter,
+        rightInset,
+        referenceWidth: Math.round(referenceWidth),
+        ...contentOffsetState,
+        horizontalPadding,
+        horizontalGutter: meta.horizontalGutter,
         reference: describeLayoutElement(reference.element, reference.selector),
         rightFloatingRail: rightFloatingRail?.summary || null
       };
     }
 
     function applyVariables() {
+      if (!meta.wideLayoutEnhancement) {
+        clearWideLayoutVariables();
+        applyStyleVariables(variables);
+        const disabledState = {
+          reason: "wide-layout-enhancement-disabled",
+          disabled: true,
+          width: null,
+          fallbackWidth: null,
+          horizontalPadding: null,
+          horizontalGutter: meta.horizontalGutter,
+          contentOffsetX: "0px",
+          reference: null,
+          rightFloatingRail: null
+        };
+        window.__codexAppExtensionLayoutWidth = disabledState;
+        return disabledState;
+      }
+
       const layoutWidthState = computeLayoutWidthState();
       const appliedVariables = {
         ...variables,
         "--thread-content-max-width": layoutWidthState.width,
         "--thread-composer-max-width": layoutWidthState.width,
-        "--markdown-wide-block-max-width": layoutWidthState.width
+        "--markdown-wide-block-max-width": layoutWidthState.width,
+        "--codex-app-extension-content-offset-x": layoutWidthState.contentOffsetX
       };
-      const targets = [
-        document.documentElement,
-        document.body,
-        ...document.querySelectorAll(".app-shell-main-content-viewport, [data-app-shell-main-content-layout]")
-      ].filter(Boolean);
-
-      for (const target of targets) {
-        for (const [name, value] of Object.entries(appliedVariables)) {
-          if (target.style.getPropertyValue(name) !== value || target.style.getPropertyPriority(name) !== "important") {
-            target.style.setProperty(name, value, "important");
-          }
-        }
-      }
-
+      applyStyleVariables(appliedVariables);
       window.__codexAppExtensionLayoutWidth = layoutWidthState;
       return layoutWidthState;
     }
@@ -1151,19 +1401,84 @@ function buildInstallerSource(options) {
       return enabled;
     }
 
+    function runLayoutRefresh() {
+      upsertStyle();
+      applyVariables();
+      applyFullscreenState();
+      applyLayoutFocusRingFixState();
+      applyThemeEnhancementState();
+    }
+
+    function scheduleLayoutRefresh() {
+      const previous = window.__codexAppExtensionLayoutRefresh;
+      if (previous?.frame) cancelAnimationFrame(previous.frame);
+      for (const timer of previous?.timers || []) clearTimeout(timer);
+
+      const state = {
+        frame: 0,
+        timers: [],
+        scheduledAt: Date.now(),
+        lastRunAt: previous?.lastRunAt || 0,
+        runCount: previous?.runCount || 0
+      };
+
+      const refresh = () => {
+        runLayoutRefresh();
+        state.lastRunAt = Date.now();
+        state.runCount += 1;
+      };
+
+      state.frame = requestAnimationFrame(() => {
+        state.frame = 0;
+        refresh();
+        for (const delay of [50, 150, 300, 600]) {
+          state.timers.push(setTimeout(refresh, delay));
+        }
+      });
+      window.__codexAppExtensionLayoutRefresh = state;
+    }
+
     function installResizeListener() {
       window.__codexAppExtensionApplyFullscreenState = applyFullscreenState;
-      if (window.__codexAppExtensionResizeHandler) {
-        window.removeEventListener("resize", window.__codexAppExtensionResizeHandler);
+      const previousResizeHandler = window.__codexAppExtensionResizeHandler;
+      if (previousResizeHandler) {
+        window.removeEventListener("resize", previousResizeHandler);
+        window.visualViewport?.removeEventListener("resize", previousResizeHandler);
       }
 
-      window.__codexAppExtensionResizeHandler = () => {
-        requestAnimationFrame(() => {
-          applyVariables();
-          window.__codexAppExtensionApplyFullscreenState?.();
-        });
-      };
+      window.__codexAppExtensionResizeHandler = () => scheduleLayoutRefresh();
       window.addEventListener("resize", window.__codexAppExtensionResizeHandler, { passive: true });
+      window.visualViewport?.addEventListener("resize", window.__codexAppExtensionResizeHandler, { passive: true });
+    }
+
+    function installLayoutResizeObserver() {
+      if (window.__codexAppExtensionResizeObserver) {
+        try {
+          window.__codexAppExtensionResizeObserver.observer.disconnect();
+        } catch {
+          // Ignore stale observer cleanup failures.
+        }
+      }
+      if (typeof ResizeObserver !== "function") return;
+
+      const observed = new WeakSet();
+      const observer = new ResizeObserver(() => scheduleLayoutRefresh());
+      const observeTargets = () => {
+        const targets = [
+          document.documentElement,
+          document.body,
+          ...document.querySelectorAll(".main-surface, .app-shell-main-content-viewport, [data-app-shell-main-content-layout], .thread-scroll-container")
+        ].filter((target) => target instanceof Element);
+
+        for (const target of targets) {
+          if (observed.has(target)) continue;
+          observed.add(target);
+          observer.observe(target);
+        }
+      };
+
+      observeTargets();
+      window.__codexAppExtensionResizeObserver = { observer, observeTargets };
     }
 
     function installObserver() {
@@ -1181,11 +1496,8 @@ function buildInstallerSource(options) {
         queued = true;
         requestAnimationFrame(() => {
           queued = false;
-          upsertStyle();
-          applyVariables();
-          applyFullscreenState();
-          applyLayoutFocusRingFixState();
-          applyThemeEnhancementState();
+          window.__codexAppExtensionResizeObserver?.observeTargets?.();
+          scheduleLayoutRefresh();
         });
       });
       observer.observe(document.documentElement, {
@@ -1894,6 +2206,7 @@ function buildInstallerSource(options) {
       const layoutFocusRingFix = applyLayoutFocusRingFixState();
       const themeEnhancement = applyThemeEnhancementState();
       installResizeListener();
+      installLayoutResizeObserver();
       const imeGuard = installImeEnterGuard();
       const longTextSend = installLongTextSendEnhancement();
       const tabIndent = installTabIndentEnhancement();
@@ -1906,6 +2219,7 @@ function buildInstallerSource(options) {
           applyFullscreenState();
           applyLayoutFocusRingFixState();
           applyThemeEnhancementState();
+          installLayoutResizeObserver();
           installImeEnterGuard();
           installLongTextSendEnhancement();
           installTabIndentEnhancement();
@@ -1916,7 +2230,7 @@ function buildInstallerSource(options) {
       }
 
       const computedTarget = document.body || document.documentElement;
-      const main = document.querySelector("main.main-surface");
+      const main = document.querySelector(".main-surface");
       return {
         tool: ${JSON.stringify(APP_NAME)},
         styleId: STYLE_ID,
@@ -1948,10 +2262,14 @@ function buildInstallerSource(options) {
 }
 
 function buildMeta(options) {
+  const horizontalPadding = buildHorizontalPadding(options.horizontalGutter);
   return {
     configPath: options.configPath,
     configCreated: options.configCreated,
+    wideLayoutEnhancement: options.wideLayoutEnhancement,
     contentMaxWidth: options.contentMaxWidth,
+    horizontalGutter: options.horizontalGutter,
+    horizontalPadding,
     fullscreenHeaderOffset: options.fullscreenHeaderOffset,
     imeEnterGuard: options.imeEnterGuard,
     longTextSendEnhancement: options.longTextSendEnhancement,
@@ -1960,15 +2278,40 @@ function buildMeta(options) {
     themeEnhancement: options.themeEnhancement,
     themeEnhancementColors: options.themeEnhancementColors,
     themeEnhancementTypography: options.themeEnhancementTypography,
-    sidePadding: options.sidePadding,
-    minSideGutter: MIN_SIDE_GUTTER,
-    minTotalSidePadding: MIN_TOTAL_SIDE_PADDING,
   };
 }
 
 function buildCss(options) {
-  const effectiveSidePadding = `max(${options.sidePadding}, ${MIN_TOTAL_SIDE_PADDING})`;
-  const width = `min(${options.contentMaxWidth}, max(1px, calc(100vw - ${effectiveSidePadding})))`;
+  const horizontalPadding = buildHorizontalPadding(options.horizontalGutter);
+  const width = `min(${options.contentMaxWidth}, max(1px, calc(100vw - ${horizontalPadding})))`;
+  const wideLayoutRootVariables = options.wideLayoutEnhancement ? `
+  --thread-content-max-width: ${width} !important;
+  --thread-composer-max-width: ${width} !important;
+  --markdown-wide-block-max-width: ${width} !important;
+  --codex-app-extension-content-offset-x: 0px !important;
+  --codex-app-extension-horizontal-padding: ${horizontalPadding} !important;` : "";
+  const wideLayoutCss = options.wideLayoutEnhancement ? `
+
+.max-w-\\(--thread-content-max-width\\),
+.max-w-\\[var\\(--thread-content-max-width\\)\\] {
+  max-width: var(--thread-content-max-width) !important;
+  translate: var(--codex-app-extension-content-offset-x) 0 !important;
+}
+
+.max-w-\\[var\\(--thread-composer-max-width\\)\\] {
+  max-width: var(--thread-composer-max-width) !important;
+  translate: var(--codex-app-extension-content-offset-x) 0 !important;
+}
+
+.max-w-\\[var\\(--markdown-wide-block-max-width\\)\\],
+.max-w-\\[min\\(90vw\\,var\\(--markdown-wide-block-max-width\\)\\)\\] {
+  max-width: var(--markdown-wide-block-max-width) !important;
+}
+
+.w-\\[min\\(100\\%\\,var\\(--thread-content-max-width\\)\\)\\] {
+  width: min(100%, var(--thread-content-max-width)) !important;
+}
+` : "";
   const strongTypographyCss = [
     options.themeEnhancementTypography.strongFontWeight
       ? `  font-weight: ${options.themeEnhancementTypography.strongFontWeight} !important;`
@@ -1980,12 +2323,10 @@ function buildCss(options) {
 
   return `
 body[data-codex-window-type="electron"],
+.main-surface,
 .app-shell-main-content-viewport,
 [data-app-shell-main-content-layout] {
-  --thread-content-max-width: ${width} !important;
-  --thread-composer-max-width: ${width} !important;
-  --markdown-wide-block-max-width: ${width} !important;
-  --codex-app-extension-effective-side-padding: ${effectiveSidePadding} !important;
+${wideLayoutRootVariables}
   --codex-app-extension-fullscreen-header-offset: ${options.fullscreenHeaderOffset} !important;
   --codex-app-extension-theme-ordered-list-marker: ${options.themeEnhancementColors.orderedListMarker} !important;
   --codex-app-extension-theme-unordered-list-marker: ${options.themeEnhancementColors.unorderedListMarker} !important;
@@ -1998,26 +2339,9 @@ body[data-codex-window-type="electron"],
   --codex-app-extension-theme-heading-text: ${options.themeEnhancementColors.headingText} !important;
   --codex-app-extension-theme-strong-text: ${options.themeEnhancementColors.strongText} !important;
 }
+${wideLayoutCss}
 
-.max-w-\\(--thread-content-max-width\\),
-.max-w-\\[var\\(--thread-content-max-width\\)\\] {
-  max-width: var(--thread-content-max-width) !important;
-}
-
-.max-w-\\[var\\(--thread-composer-max-width\\)\\] {
-  max-width: var(--thread-composer-max-width) !important;
-}
-
-.max-w-\\[var\\(--markdown-wide-block-max-width\\)\\],
-.max-w-\\[min\\(90vw\\,var\\(--markdown-wide-block-max-width\\)\\)\\] {
-  max-width: var(--markdown-wide-block-max-width) !important;
-}
-
-.w-\\[min\\(100\\%\\,var\\(--thread-content-max-width\\)\\)\\] {
-  width: min(100%, var(--thread-content-max-width)) !important;
-}
-
-html[data-codex-app-extension-fullscreen="true"] main.main-surface {
+:where(main.main-surface, .main-surface) {
   box-sizing: border-box !important;
   padding-top: var(--codex-app-extension-fullscreen-header-offset) !important;
 }
@@ -2025,6 +2349,7 @@ html[data-codex-app-extension-fullscreen="true"] main.main-surface {
 /* Only suppress accidental focus chrome on top-level layout shells; real controls keep their focus styles. */
 html[data-codex-app-extension-layout-focus-ring-fix="true"] :where(
   main.main-surface,
+  .main-surface,
   .app-shell-main-content-viewport,
   [data-app-shell-main-content-layout],
   .thread-scroll-container
@@ -2035,6 +2360,7 @@ html[data-codex-app-extension-layout-focus-ring-fix="true"] :where(
 
 html[data-codex-app-extension-layout-focus-ring-fix="true"] :where(
   main.main-surface,
+  .main-surface,
   .app-shell-main-content-viewport,
   [data-app-shell-main-content-layout],
   .thread-scroll-container

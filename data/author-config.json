@@ -1,0 +1,27 @@
+{
+  "wideLayoutEnhancement": true,
+  "contentMaxWidth": "1800px",
+  "horizontalGutter": "50px",
+  "fullscreenHeaderOffset": "46px",
+  "imeEnterGuard": true,
+  "longTextSendEnhancement": false,
+  "tabIndentEnhancement": true,
+  "layoutFocusRingFix": true,
+  "themeEnhancement": true,
+  "themeEnhancementColors": {
+    "orderedListMarker": "#fcfcfc",
+    "unorderedListMarker": "#fcfcfc",
+    "inlineCodeText": "#df3079",
+    "inlineCodeBackground": "rgba(223, 48, 121, 0.10)",
+    "inlineCodeBorder": "rgba(223, 48, 121, 0.18)",
+    "blockquoteBorder": "#00a67d",
+    "blockquoteText": "rgba(252, 252, 252, 0.78)",
+    "blockquoteBackground": "rgba(0, 166, 125, 0.06)",
+    "headingText": "#00a67d",
+    "strongText": "#00a67d"
+  },
+  "themeEnhancementTypography": {
+    "strongFontWeight": null,
+    "strongFontSize": null
+  }
+}
