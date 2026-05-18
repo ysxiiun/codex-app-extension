@@ -919,6 +919,7 @@ function buildDiagnoseSource(options) {
     } : null;
 
     const layoutWidthState = window.__codexAppExtensionLayoutWidth || null;
+    const layoutWidthScopes = window.__codexAppExtensionLayoutWidthScopes || [];
 
     return {
       tool: ${JSON.stringify(APP_NAME)},
@@ -938,6 +939,7 @@ function buildDiagnoseSource(options) {
       wideLayoutEnhancementEnabled: Boolean(meta.wideLayoutEnhancement),
       wideLayoutEnhancementDisabled: !meta.wideLayoutEnhancement,
       layoutWidthState,
+      layoutWidthScopes,
       viewport: {
         innerWidth: window.innerWidth,
         innerHeight: window.innerHeight,
@@ -1008,6 +1010,18 @@ function buildInstallerSource(options) {
     const css = ${JSON.stringify(css)};
     const variables = ${JSON.stringify(variables)};
     const meta = ${JSON.stringify(meta)};
+    const LAYOUT_SCOPE_SELECTORS = [
+      "[data-app-shell-main-content-layout]",
+      ".app-shell-main-content-viewport",
+      "main.main-surface",
+      ".main-surface",
+      ".thread-scroll-container"
+    ];
+    const WIDTH_VARIABLE_CONSUMER_SELECTOR = [
+      "[class*='thread-content-max-width']",
+      "[class*='thread-composer-max-width']",
+      "[class*='markdown-wide-block-max-width']"
+    ].join(", ");
     const WIDE_LAYOUT_VARIABLE_NAMES = [
       "--thread-content-max-width",
       "--thread-composer-max-width",
@@ -1044,12 +1058,46 @@ function buildInstallerSource(options) {
       }
     }
 
+    function uniqueElements(elements) {
+      const seen = new Set();
+      return elements.filter((element) => {
+        if (!(element instanceof HTMLElement) || seen.has(element)) return false;
+        seen.add(element);
+        return true;
+      });
+    }
+
+    function getRootVariableTargets() {
+      return [document.documentElement, document.body].filter((target) => target instanceof HTMLElement);
+    }
+
+    function getLayoutScopeElements() {
+      const elements = [];
+      for (const selector of LAYOUT_SCOPE_SELECTORS) {
+        elements.push(...document.querySelectorAll(selector));
+      }
+      return uniqueElements(elements);
+    }
+
+    function getWidthVariableConsumers() {
+      return Array.from(document.querySelectorAll(WIDTH_VARIABLE_CONSUMER_SELECTOR))
+        .filter((element) => element instanceof HTMLElement);
+    }
+
+    function getInlineWideLayoutVariableTargets() {
+      return Array.from(document.querySelectorAll("[style]")).filter((element) => {
+        if (!(element instanceof HTMLElement)) return false;
+        return WIDE_LAYOUT_VARIABLE_NAMES.some((name) => element.style.getPropertyValue(name));
+      });
+    }
+
     function getVariableTargets() {
-      return [
-        document.documentElement,
-        document.body,
-        ...document.querySelectorAll(".main-surface, .app-shell-main-content-viewport, [data-app-shell-main-content-layout]")
-      ].filter(Boolean);
+      return uniqueElements([
+        ...getRootVariableTargets(),
+        ...getLayoutScopeElements(),
+        ...getWidthVariableConsumers(),
+        ...getInlineWideLayoutVariableTargets()
+      ]);
     }
 
     function clearWideLayoutVariables() {
@@ -1060,8 +1108,8 @@ function buildInstallerSource(options) {
       }
     }
 
-    function applyStyleVariables(nextVariables) {
-      for (const target of getVariableTargets()) {
+    function applyStyleVariables(nextVariables, targets = getVariableTargets()) {
+      for (const target of uniqueElements(targets)) {
         for (const [name, value] of Object.entries(nextVariables)) {
           if (target.style.getPropertyValue(name) !== value || target.style.getPropertyPriority(name) !== "important") {
             target.style.setProperty(name, value, "important");
@@ -1092,31 +1140,53 @@ function buildInstallerSource(options) {
       };
     }
 
-    function findLayoutWidthReference() {
-      const selectors = [
-        "[data-app-shell-main-content-layout]",
-        ".app-shell-main-content-viewport",
-        "main.main-surface",
-        ".main-surface",
-        ".thread-scroll-container"
-      ];
-      const seen = new Set();
+    function buildLayoutReference(element, selector) {
+      if (!(element instanceof HTMLElement) || !isVisibleElement(element)) return null;
+      const rect = element.getBoundingClientRect();
+      if (rect.width < 1) return null;
+      return { element, selector, rect };
+    }
 
-      for (const selector of selectors) {
+    function findLayoutWidthReferences() {
+      const references = [];
+
+      for (const selector of LAYOUT_SCOPE_SELECTORS) {
         for (const element of document.querySelectorAll(selector)) {
-          if (!(element instanceof HTMLElement) || seen.has(element)) continue;
-          seen.add(element);
-          if (!isVisibleElement(element)) continue;
-          const rect = element.getBoundingClientRect();
-          if (rect.width < 1) continue;
-          return { element, selector, rect };
+          const reference = buildLayoutReference(element, selector);
+          if (reference) references.push(reference);
         }
       }
 
+      // 子 agent 右侧窗格可能表现为 Codex 的 absolute/floating rail，而不是常规 app-shell 容器。
+      for (const reference of [...references]) {
+        const rightFloatingRail = findRightFloatingRail(reference);
+        if (rightFloatingRail?.element) {
+          references.push({
+            element: rightFloatingRail.element,
+            selector: "right-floating-rail-scope",
+            rect: rightFloatingRail.rect
+          });
+        }
+      }
+
+      const seen = new Set();
+      const uniqueReferences = references.filter((reference) => {
+        if (seen.has(reference.element)) return false;
+        seen.add(reference.element);
+        return true;
+      });
+
+      if (uniqueReferences.length) {
+        return uniqueReferences.sort((a, b) => {
+          if (Math.abs(a.rect.left - b.rect.left) > 2) return a.rect.left - b.rect.left;
+          if (Math.abs(a.rect.top - b.rect.top) > 2) return a.rect.top - b.rect.top;
+          return a.rect.width - b.rect.width;
+        });
+      }
+
       const fallback = document.body || document.documentElement;
-      if (!(fallback instanceof HTMLElement)) return null;
-      const rect = fallback.getBoundingClientRect();
-      return { element: fallback, selector: fallback.tagName.toLowerCase(), rect };
+      const reference = buildLayoutReference(fallback, fallback?.tagName?.toLowerCase?.() || "document");
+      return reference ? [reference] : [];
     }
 
     function findRightFloatingRail(reference) {
@@ -1164,6 +1234,7 @@ function buildInstallerSource(options) {
       if (!best) return null;
 
       return {
+        element: best.element,
         rect: best.rect,
         summary: describeLayoutElement(best.element, "right-floating-rail-candidate")
       };
@@ -1291,9 +1362,8 @@ function buildInstallerSource(options) {
       };
     }
 
-    function computeLayoutWidthState() {
+    function computeLayoutWidthScopeState(reference) {
       const fallbackWidth = variables["--thread-content-max-width"];
-      const reference = findLayoutWidthReference();
       const horizontalPadding = variables["--codex-app-extension-horizontal-padding"];
       if (!reference) {
         return {
@@ -1340,10 +1410,24 @@ function buildInstallerSource(options) {
       };
     }
 
+    function computeLayoutWidthStates() {
+      const references = findLayoutWidthReferences();
+      const scopedStates = references.map((reference) => ({
+        element: reference.element,
+        state: computeLayoutWidthScopeState(reference)
+      }));
+      const scopes = scopedStates.map((scope) => scope.state);
+      return {
+        primary: scopes[0] || computeLayoutWidthScopeState(null),
+        scopedStates,
+        scopes
+      };
+    }
+
     function applyVariables() {
       if (!meta.wideLayoutEnhancement) {
         clearWideLayoutVariables();
-        applyStyleVariables(variables);
+        applyStyleVariables(variables, getRootVariableTargets());
         const disabledState = {
           reason: "wide-layout-enhancement-disabled",
           disabled: true,
@@ -1356,20 +1440,36 @@ function buildInstallerSource(options) {
           rightFloatingRail: null
         };
         window.__codexAppExtensionLayoutWidth = disabledState;
+        window.__codexAppExtensionLayoutWidthScopes = [];
         return disabledState;
       }
 
-      const layoutWidthState = computeLayoutWidthState();
-      const appliedVariables = {
+      const layoutWidthStates = computeLayoutWidthStates();
+      const rootState = layoutWidthStates.primary;
+      const rootVariables = {
         ...variables,
-        "--thread-content-max-width": layoutWidthState.width,
-        "--thread-composer-max-width": layoutWidthState.width,
-        "--markdown-wide-block-max-width": layoutWidthState.width,
-        "--codex-app-extension-content-offset-x": layoutWidthState.contentOffsetX
+        "--thread-content-max-width": rootState.width,
+        "--thread-composer-max-width": rootState.width,
+        "--markdown-wide-block-max-width": rootState.width,
+        "--codex-app-extension-content-offset-x": rootState.contentOffsetX
       };
-      applyStyleVariables(appliedVariables);
-      window.__codexAppExtensionLayoutWidth = layoutWidthState;
-      return layoutWidthState;
+      clearWideLayoutVariables();
+      // 底部输入框等固定层不一定在主内容 scope 内，根节点必须保留主区域避让状态；右侧子 agent 再用局部变量覆盖。
+      applyStyleVariables(rootVariables, getRootVariableTargets());
+      for (const scope of layoutWidthStates.scopedStates) {
+        const scopeState = scope.state;
+        if (!scope.element || !scopeState.reference) continue;
+        applyStyleVariables({
+          ...variables,
+          "--thread-content-max-width": scopeState.width,
+          "--thread-composer-max-width": scopeState.width,
+          "--markdown-wide-block-max-width": scopeState.width,
+          "--codex-app-extension-content-offset-x": scopeState.contentOffsetX
+        }, [scope.element]);
+      }
+      window.__codexAppExtensionLayoutWidth = layoutWidthStates.primary;
+      window.__codexAppExtensionLayoutWidthScopes = layoutWidthStates.scopes;
+      return layoutWidthStates.primary;
     }
 
     function isProbablyFullscreen() {
@@ -2264,6 +2364,7 @@ function buildInstallerSource(options) {
         bodyComposerMaxWidth: getComputedStyle(computedTarget).getPropertyValue("--thread-composer-max-width").trim(),
         bodyMarkdownWideBlockMaxWidth: getComputedStyle(computedTarget).getPropertyValue("--markdown-wide-block-max-width").trim(),
         layoutWidthState: window.__codexAppExtensionLayoutWidth || layoutWidthState,
+        layoutWidthScopes: window.__codexAppExtensionLayoutWidthScopes || [],
         mainPaddingTop: main ? getComputedStyle(main).paddingTop : null,
         layoutFocusRingFixEnabled: Boolean(meta.layoutFocusRingFix),
         layoutFocusRingFixInstalled: layoutFocusRingFix,
