@@ -896,7 +896,8 @@ function buildDiagnoseSource(options) {
       enabled: Boolean(imeGuard.enabled),
       lastCompositionEvent: imeGuard.lastCompositionEvent || null,
       lastKeydownEvent: imeGuard.lastKeydownEvent || null,
-      lastBlockedEvent: imeGuard.lastBlockedEvent || null
+      lastBlockedEvent: imeGuard.lastBlockedEvent || null,
+      lastSkippedEvent: imeGuard.lastSkippedEvent || null
     } : null;
 
     const longText = window.__codexAppExtensionLongTextSendEnhancement || null;
@@ -1692,6 +1693,10 @@ function buildInstallerSource(options) {
         || targetComposing;
     }
 
+    function isNativeRequestInputPanelEditable(editable) {
+      return getLongTextManagedInput(editable)?.kind === "request-input-panel-textarea";
+    }
+
     function findSendButton(editable) {
       const root = getComposerRoot(editable);
       if (!root) return null;
@@ -1866,6 +1871,7 @@ function buildInstallerSource(options) {
         lastCompositionEvent: null,
         lastKeydownEvent: null,
         lastBlockedEvent: null,
+        lastSkippedEvent: null,
         handlers: null
       };
       window.__codexAppExtensionImeGuard = state;
@@ -1909,7 +1915,11 @@ function buildInstallerSource(options) {
         const now = Date.now();
         const recentCompositionEnd = state.lastCompositionEndAt > 0 && now - state.lastCompositionEndAt < 120;
         const targetComposing = state.composingTargets.has(editable) || state.activeTarget === editable;
-        const imeManagedKey = event.isComposing || event.keyCode === 229 || targetComposing || recentCompositionEnd;
+        const activeCompositionEnter = Boolean(event.isComposing)
+          || event.keyCode === 229
+          || (targetComposing && !recentCompositionEnd);
+        const graceCompositionEnter = !activeCompositionEnter && recentCompositionEnd;
+        const imeManagedKey = activeCompositionEnter || graceCompositionEnter;
         const enterLike = event.key === "Enter"
           || event.code === "Enter"
           || event.code === "NumpadEnter"
@@ -1923,6 +1933,8 @@ function buildInstallerSource(options) {
           isComposing: Boolean(event.isComposing),
           enterLike,
           imeManagedKey,
+          activeCompositionEnter,
+          graceCompositionEnter,
           recentCompositionEnd,
           targetComposing,
           blocked: false,
@@ -1931,8 +1943,19 @@ function buildInstallerSource(options) {
 
         if (!enterLike || !imeManagedKey) return;
 
+        if (isNativeRequestInputPanelEditable(editable) && graceCompositionEnter) {
+          // 原生选择框在组合刚结束后的普通 Enter 仍应走 Codex 原生提交，避免 textarea 默认换行。
+          state.lastKeydownEvent.skipped = true;
+          state.lastKeydownEvent.skipReason = "native-request-input-panel-after-composition";
+          state.lastSkippedEvent = state.lastKeydownEvent;
+          return;
+        }
+
         event.stopImmediatePropagation();
         state.lastKeydownEvent.blocked = true;
+        state.lastKeydownEvent.blockReason = isNativeRequestInputPanelEditable(editable)
+          ? "native-request-input-panel-active-composition"
+          : (activeCompositionEnter ? "active-composition" : "recent-composition-end");
         state.lastBlockedEvent = state.lastKeydownEvent;
       };
 

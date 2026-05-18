@@ -348,7 +348,8 @@ node <repo>/inject-wide-layout.mjs --port 9229 --diagnose
 - `detectedFullscreen`：当前是否识别为全屏。
 - `main.paddingTop`：顶部避让是否生效。
 - `imeEnterGuardEnabled` / `imeEnterGuardInstalled`：中文输入法 Enter 防护是否启用并安装。
-- `imeEnterGuardState.lastBlockedEvent`：最近一次被防护逻辑拦截的 IME Enter 事件。
+- `imeEnterGuardState.lastBlockedEvent`：最近一次被防护逻辑拦截的 IME Enter 事件，`blockReason` 会区分原生选择框组合态与普通组合态。
+- `imeEnterGuardState.lastSkippedEvent`：最近一次被防护逻辑识别但主动让给 Codex 原生处理的 IME Enter 事件，例如原生选择框组合结束后的普通提交。
 - `longTextSendEnhancementEnabled` / `longTextSendEnhancementInstalled`：长文本发送增强是否启用并安装。
 - `longTextSendEnhancementState.lastSeenEnterEvent`：最近一次被增强逻辑看到的 Enter 事件。
 - `longTextSendEnhancementState.lastHandledEvent`：最近一次被增强逻辑处理的 Enter 事件。
