@@ -13,24 +13,24 @@ const DEFAULT_PORT = 9229;
 const DEFAULT_HORIZONTAL_GUTTER = "20px";
 const DEFAULT_TARGET_TIMEOUT_MS = 30000;
 const TARGET_POLL_INTERVAL_MS = 250;
+const DEFAULT_HEADING_TEXT_ENHANCEMENT_STYLE = Object.freeze({
+  color: "#F2C94C",
+});
+const HEADING_TEXT_ENHANCEMENT_STYLE_KEYS = Object.freeze(Object.keys(DEFAULT_HEADING_TEXT_ENHANCEMENT_STYLE));
+const DEFAULT_STRONG_TEXT_ENHANCEMENT_STYLE = Object.freeze({
+  color: "#F2C94C",
+  fontWeight: "800",
+});
+const STRONG_TEXT_ENHANCEMENT_STYLE_KEYS = Object.freeze(Object.keys(DEFAULT_STRONG_TEXT_ENHANCEMENT_STYLE));
 const DEFAULT_THEME_ENHANCEMENT_COLORS = Object.freeze({
-  orderedListMarker: "#fcfcfc",
-  unorderedListMarker: "#fcfcfc",
   inlineCodeText: "#df3079",
   inlineCodeBackground: "rgba(223, 48, 121, 0.10)",
   inlineCodeBorder: "rgba(223, 48, 121, 0.18)",
-  blockquoteBorder: "#00a67d",
+  blockquoteBorder: "#df3079",
   blockquoteText: "rgba(252, 252, 252, 0.78)",
-  blockquoteBackground: "rgba(0, 166, 125, 0.06)",
-  headingText: "#00a67d",
-  strongText: "#00a67d",
+  blockquoteBackground: "rgba(223, 48, 121, 0.06)",
 });
 const THEME_ENHANCEMENT_COLOR_KEYS = Object.freeze(Object.keys(DEFAULT_THEME_ENHANCEMENT_COLORS));
-const DEFAULT_THEME_ENHANCEMENT_TYPOGRAPHY = Object.freeze({
-  strongFontWeight: null,
-  strongFontSize: null,
-});
-const THEME_ENHANCEMENT_TYPOGRAPHY_KEYS = Object.freeze(Object.keys(DEFAULT_THEME_ENHANCEMENT_TYPOGRAPHY));
 const DEFAULT_CONFIG = Object.freeze({
   wideLayoutEnhancement: true,
   contentMaxWidth: "1800px",
@@ -40,9 +40,12 @@ const DEFAULT_CONFIG = Object.freeze({
   longTextSendEnhancement: false,
   tabIndentEnhancement: false,
   layoutFocusRingFix: true,
+  headingTextEnhancement: false,
+  headingTextEnhancementStyle: DEFAULT_HEADING_TEXT_ENHANCEMENT_STYLE,
+  strongTextEnhancement: false,
+  strongTextEnhancementStyle: DEFAULT_STRONG_TEXT_ENHANCEMENT_STYLE,
   themeEnhancement: false,
   themeEnhancementColors: DEFAULT_THEME_ENHANCEMENT_COLORS,
-  themeEnhancementTypography: DEFAULT_THEME_ENHANCEMENT_TYPOGRAPHY,
 });
 const DEPRECATED_CONFIG_KEYS = new Set([
   "minimumSideGutter",
@@ -50,6 +53,7 @@ const DEPRECATED_CONFIG_KEYS = new Set([
   "minSideGutter",
   "minTotalSidePadding",
   "sidePadding",
+  "themeEnhancementTypography",
 ]);
 
 function parseCliArgs(argv) {
@@ -104,6 +108,14 @@ function parseCliArgs(argv) {
       cli.layoutFocusRingFix = false;
     } else if (arg === "--enable-layout-focus-ring-fix") {
       cli.layoutFocusRingFix = true;
+    } else if (arg === "--disable-heading-text-enhancement") {
+      cli.headingTextEnhancement = false;
+    } else if (arg === "--enable-heading-text-enhancement") {
+      cli.headingTextEnhancement = true;
+    } else if (arg === "--disable-strong-text-enhancement") {
+      cli.strongTextEnhancement = false;
+    } else if (arg === "--enable-strong-text-enhancement") {
+      cli.strongTextEnhancement = true;
     } else if (arg === "--disable-theme-enhancement") {
       cli.themeEnhancement = false;
     } else if (arg === "--enable-theme-enhancement") {
@@ -145,6 +157,10 @@ Options:
   --enable-tab-indent-enhancement    Enable Tab indentation enhancement for this run.
   --disable-layout-focus-ring-fix    Disable accidental layout focus ring fix for this run.
   --enable-layout-focus-ring-fix     Enable accidental layout focus ring fix for this run.
+  --disable-heading-text-enhancement Disable Markdown heading text color enhancement for this run.
+  --enable-heading-text-enhancement  Enable Markdown heading text color enhancement for this run.
+  --disable-strong-text-enhancement  Disable Markdown strong text readability enhancement for this run.
+  --enable-strong-text-enhancement   Enable Markdown strong text readability enhancement for this run.
   --disable-theme-enhancement        Disable Markdown theme enhancement for this run.
   --enable-theme-enhancement         Enable Markdown theme enhancement for this run.
   --configure                        Review and complete ~/.codex-app-extension/config.json.
@@ -257,9 +273,12 @@ function ensureConfig({ createIfMissing = false } = {}) {
       longTextSendEnhancement: booleanOrUndefined(parsed.longTextSendEnhancement, "longTextSendEnhancement"),
       tabIndentEnhancement: booleanOrUndefined(parsed.tabIndentEnhancement, "tabIndentEnhancement"),
       layoutFocusRingFix: booleanOrUndefined(parsed.layoutFocusRingFix, "layoutFocusRingFix"),
+      headingTextEnhancement: booleanOrUndefined(parsed.headingTextEnhancement, "headingTextEnhancement"),
+      headingTextEnhancementStyle: headingTextStyleOrUndefined(parsed.headingTextEnhancementStyle),
+      strongTextEnhancement: booleanOrUndefined(parsed.strongTextEnhancement, "strongTextEnhancement"),
+      strongTextEnhancementStyle: strongTextStyleOrUndefined(parsed.strongTextEnhancementStyle),
       themeEnhancement: booleanOrUndefined(parsed.themeEnhancement, "themeEnhancement"),
       themeEnhancementColors: themeColorsOrUndefined(parsed.themeEnhancementColors),
-      themeEnhancementTypography: themeTypographyOrUndefined(parsed.themeEnhancementTypography),
     },
   };
 }
@@ -311,6 +330,14 @@ async function configureConfig() {
       label: "Enable layout focus ring fix",
       current: nextConfig.layoutFocusRingFix,
     });
+    nextConfig.headingTextEnhancement = await askBoolean(promptSession, {
+      label: "Enable Markdown heading text color enhancement",
+      current: nextConfig.headingTextEnhancement,
+    });
+    nextConfig.strongTextEnhancement = await askBoolean(promptSession, {
+      label: "Enable Markdown strong text readability enhancement",
+      current: nextConfig.strongTextEnhancement,
+    });
     nextConfig.themeEnhancement = await askBoolean(promptSession, {
       label: "Enable Markdown theme enhancement",
       current: nextConfig.themeEnhancement,
@@ -322,9 +349,9 @@ async function configureConfig() {
     console.log(`[${APP_NAME}] Config completed and saved.`);
     console.log(`[${APP_NAME}] Full config keys are now present in ${configInfo.path}.`);
     if (nextConfig.themeEnhancement) {
-      console.log(`[${APP_NAME}] Markdown theme enhancement is enabled. Edit themeEnhancementColors and themeEnhancementTypography in the config file for colors and typography.`);
+      console.log(`[${APP_NAME}] Markdown theme enhancement is enabled. Edit themeEnhancementColors in the config file for inline code and blockquotes.`);
     } else {
-      console.log(`[${APP_NAME}] Theme color and typography defaults were still written, so enabling themeEnhancement later has a complete config block ready.`);
+      console.log(`[${APP_NAME}] Theme color defaults were still written, so enabling themeEnhancement later has a complete config block ready.`);
     }
   } finally {
     promptSession.close();
@@ -341,15 +368,21 @@ function buildCompleteConfig(values) {
     longTextSendEnhancement: parseBooleanOption("longTextSendEnhancement", firstValue(values.longTextSendEnhancement, DEFAULT_CONFIG.longTextSendEnhancement)),
     tabIndentEnhancement: parseBooleanOption("tabIndentEnhancement", firstValue(values.tabIndentEnhancement, DEFAULT_CONFIG.tabIndentEnhancement)),
     layoutFocusRingFix: parseBooleanOption("layoutFocusRingFix", firstValue(values.layoutFocusRingFix, DEFAULT_CONFIG.layoutFocusRingFix)),
+    headingTextEnhancement: parseBooleanOption("headingTextEnhancement", firstValue(values.headingTextEnhancement, DEFAULT_CONFIG.headingTextEnhancement)),
+    headingTextEnhancementStyle: {
+      ...DEFAULT_HEADING_TEXT_ENHANCEMENT_STYLE,
+      ...(values.headingTextEnhancementStyle || {}),
+    },
+    strongTextEnhancement: parseBooleanOption("strongTextEnhancement", firstValue(values.strongTextEnhancement, DEFAULT_CONFIG.strongTextEnhancement)),
+    strongTextEnhancementStyle: {
+      ...DEFAULT_STRONG_TEXT_ENHANCEMENT_STYLE,
+      ...(values.strongTextEnhancementStyle || {}),
+    },
     themeEnhancement: parseBooleanOption("themeEnhancement", firstValue(values.themeEnhancement, DEFAULT_CONFIG.themeEnhancement)),
     // Complex theme values are completed but not edited interactively; users need the JSON context to tune them safely.
     themeEnhancementColors: {
       ...DEFAULT_THEME_ENHANCEMENT_COLORS,
       ...(values.themeEnhancementColors || {}),
-    },
-    themeEnhancementTypography: {
-      ...DEFAULT_THEME_ENHANCEMENT_TYPOGRAPHY,
-      ...(values.themeEnhancementTypography || {}),
     },
   };
 }
@@ -449,11 +482,10 @@ function assertCompleteConfigValues(config) {
   assertCssSize("contentMaxWidth", config.contentMaxWidth);
   assertCssSize("horizontalGutter", config.horizontalGutter);
   assertCssSize("fullscreenHeaderOffset", config.fullscreenHeaderOffset);
+  assertHeadingTextStyle("headingTextEnhancementStyle", config.headingTextEnhancementStyle);
+  assertStrongTextStyle("strongTextEnhancementStyle", config.strongTextEnhancementStyle);
   for (const [key, value] of Object.entries(config.themeEnhancementColors)) {
     assertCssColor(`themeEnhancementColors.${key}`, value);
-  }
-  for (const [key, value] of Object.entries(config.themeEnhancementTypography)) {
-    if (value !== null) assertCssValue(`themeEnhancementTypography.${key}`, value);
   }
 }
 
@@ -534,6 +566,26 @@ function buildOptions(cli, configInfo) {
       configInfo.values.layoutFocusRingFix,
       DEFAULT_CONFIG.layoutFocusRingFix,
     )),
+    headingTextEnhancement: parseBooleanOption("headingTextEnhancement", firstValue(
+      cli.headingTextEnhancement,
+      env.CODEX_APP_EXTENSION_HEADING_TEXT_ENHANCEMENT,
+      configInfo.values.headingTextEnhancement,
+      DEFAULT_CONFIG.headingTextEnhancement,
+    )),
+    headingTextEnhancementStyle: {
+      ...DEFAULT_HEADING_TEXT_ENHANCEMENT_STYLE,
+      ...(configInfo.values.headingTextEnhancementStyle || {}),
+    },
+    strongTextEnhancement: parseBooleanOption("strongTextEnhancement", firstValue(
+      cli.strongTextEnhancement,
+      env.CODEX_APP_EXTENSION_STRONG_TEXT_ENHANCEMENT,
+      configInfo.values.strongTextEnhancement,
+      DEFAULT_CONFIG.strongTextEnhancement,
+    )),
+    strongTextEnhancementStyle: {
+      ...DEFAULT_STRONG_TEXT_ENHANCEMENT_STYLE,
+      ...(configInfo.values.strongTextEnhancementStyle || {}),
+    },
     themeEnhancement: parseBooleanOption("themeEnhancement", firstValue(
       cli.themeEnhancement,
       env.CODEX_APP_EXTENSION_THEME_ENHANCEMENT,
@@ -544,10 +596,6 @@ function buildOptions(cli, configInfo) {
       ...DEFAULT_THEME_ENHANCEMENT_COLORS,
       ...(configInfo.values.themeEnhancementColors || {}),
     },
-    themeEnhancementTypography: {
-      ...DEFAULT_THEME_ENHANCEMENT_TYPOGRAPHY,
-      ...(configInfo.values.themeEnhancementTypography || {}),
-    },
     diagnose: Boolean(cli.diagnose),
     configPath: configInfo.path,
     configCreated: configInfo.created,
@@ -556,11 +604,10 @@ function buildOptions(cli, configInfo) {
   assertCssSize("contentMaxWidth", options.contentMaxWidth);
   assertCssSize("horizontalGutter", options.horizontalGutter);
   assertCssSize("fullscreenHeaderOffset", options.fullscreenHeaderOffset);
+  assertHeadingTextStyle("headingTextEnhancementStyle", options.headingTextEnhancementStyle);
+  assertStrongTextStyle("strongTextEnhancementStyle", options.strongTextEnhancementStyle);
   for (const [key, value] of Object.entries(options.themeEnhancementColors)) {
     assertCssColor(`themeEnhancementColors.${key}`, value);
-  }
-  for (const [key, value] of Object.entries(options.themeEnhancementTypography)) {
-    if (value !== null) assertCssValue(`themeEnhancementTypography.${key}`, value);
   }
 
   return options;
@@ -603,24 +650,32 @@ function themeColorsOrUndefined(value) {
   return colors;
 }
 
-function themeTypographyOrUndefined(value) {
+function headingTextStyleOrUndefined(value) {
   if (value === undefined || value === null) return undefined;
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("Invalid themeEnhancementTypography: expected a JSON object");
+    throw new Error("Invalid headingTextEnhancementStyle: expected a JSON object");
   }
 
-  const typography = {};
-  for (const key of THEME_ENHANCEMENT_TYPOGRAPHY_KEYS) {
-    const setting = cssStringOrNullOrUndefined(value[key]);
-    if (setting !== undefined) typography[key] = setting;
+  const style = {};
+  for (const key of HEADING_TEXT_ENHANCEMENT_STYLE_KEYS) {
+    const setting = stringOrUndefined(value[key]);
+    if (setting) style[key] = setting;
   }
-  return typography;
+  return style;
 }
 
-function cssStringOrNullOrUndefined(value) {
-  if (value === undefined) return undefined;
-  if (value === null) return null;
-  return stringOrUndefined(value);
+function strongTextStyleOrUndefined(value) {
+  if (value === undefined || value === null) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Invalid strongTextEnhancementStyle: expected a JSON object");
+  }
+
+  const style = {};
+  for (const key of STRONG_TEXT_ENHANCEMENT_STYLE_KEYS) {
+    const setting = stringOrUndefined(value[key]);
+    if (setting) style[key] = setting;
+  }
+  return style;
 }
 
 function parseBooleanOption(name, value) {
@@ -639,6 +694,21 @@ function assertCssSize(name, value) {
 
 function assertCssColor(name, value) {
   assertCssValue(name, value);
+}
+
+function assertHeadingTextStyle(name, value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid ${name}: expected a JSON object`);
+  }
+  assertCssColor(`${name}.color`, value.color);
+}
+
+function assertStrongTextStyle(name, value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid ${name}: expected a JSON object`);
+  }
+  assertCssColor(`${name}.color`, value.color);
+  assertCssValue(`${name}.fontWeight`, value.fontWeight);
 }
 
 function assertCssValue(name, value) {
@@ -952,10 +1022,15 @@ function buildDiagnoseSource(options) {
       fullscreenAttribute: document.documentElement.dataset.codexAppExtensionFullscreen || "",
       layoutFocusRingFixEnabled: Boolean(meta.layoutFocusRingFix),
       layoutFocusRingFixAttribute: document.documentElement.dataset.codexAppExtensionLayoutFocusRingFix || "",
+      headingTextEnhancementEnabled: Boolean(meta.headingTextEnhancement),
+      headingTextEnhancementAttribute: document.documentElement.dataset.codexAppExtensionHeadingTextEnhancement || "",
+      headingTextEnhancementStyle: meta.headingTextEnhancementStyle,
+      strongTextEnhancementEnabled: Boolean(meta.strongTextEnhancement),
+      strongTextEnhancementAttribute: document.documentElement.dataset.codexAppExtensionStrongTextEnhancement || "",
+      strongTextEnhancementStyle: meta.strongTextEnhancementStyle,
       themeEnhancementEnabled: Boolean(meta.themeEnhancement),
       themeEnhancementAttribute: document.documentElement.dataset.codexAppExtensionThemeEnhancement || "",
       themeEnhancementColors: meta.themeEnhancementColors,
-      themeEnhancementTypography: meta.themeEnhancementTypography,
       injectedStyleExists: Boolean(document.getElementById(${JSON.stringify(STYLE_ID)})),
       legacyStyleExists: Boolean(document.getElementById(${JSON.stringify(LEGACY_STYLE_ID)})),
       root: pick("html"),
@@ -983,16 +1058,15 @@ function buildInstallerSource(options) {
   const unifiedWidth = `min(${options.contentMaxWidth}, max(1px, calc(100vw - ${horizontalPadding})))`;
   const variables = {
     "--codex-app-extension-fullscreen-header-offset": options.fullscreenHeaderOffset,
-    "--codex-app-extension-theme-ordered-list-marker": options.themeEnhancementColors.orderedListMarker,
-    "--codex-app-extension-theme-unordered-list-marker": options.themeEnhancementColors.unorderedListMarker,
+    "--codex-app-extension-heading-text-color": options.headingTextEnhancementStyle.color,
+    "--codex-app-extension-strong-text-color": options.strongTextEnhancementStyle.color,
+    "--codex-app-extension-strong-font-weight": options.strongTextEnhancementStyle.fontWeight,
     "--codex-app-extension-theme-inline-code-text": options.themeEnhancementColors.inlineCodeText,
     "--codex-app-extension-theme-inline-code-background": options.themeEnhancementColors.inlineCodeBackground,
     "--codex-app-extension-theme-inline-code-border": options.themeEnhancementColors.inlineCodeBorder,
     "--codex-app-extension-theme-blockquote-border": options.themeEnhancementColors.blockquoteBorder,
     "--codex-app-extension-theme-blockquote-text": options.themeEnhancementColors.blockquoteText,
     "--codex-app-extension-theme-blockquote-background": options.themeEnhancementColors.blockquoteBackground,
-    "--codex-app-extension-theme-heading-text": options.themeEnhancementColors.headingText,
-    "--codex-app-extension-theme-strong-text": options.themeEnhancementColors.strongText,
   };
   if (options.wideLayoutEnhancement) {
     Object.assign(variables, {
@@ -1496,6 +1570,18 @@ function buildInstallerSource(options) {
       return enabled;
     }
 
+    function applyHeadingTextEnhancementState() {
+      const enabled = Boolean(meta.headingTextEnhancement);
+      document.documentElement.dataset.codexAppExtensionHeadingTextEnhancement = enabled ? "true" : "false";
+      return enabled;
+    }
+
+    function applyStrongTextEnhancementState() {
+      const enabled = Boolean(meta.strongTextEnhancement);
+      document.documentElement.dataset.codexAppExtensionStrongTextEnhancement = enabled ? "true" : "false";
+      return enabled;
+    }
+
     function applyLayoutFocusRingFixState() {
       const enabled = Boolean(meta.layoutFocusRingFix);
       document.documentElement.dataset.codexAppExtensionLayoutFocusRingFix = enabled ? "true" : "false";
@@ -1507,6 +1593,8 @@ function buildInstallerSource(options) {
       applyVariables();
       applyFullscreenState();
       applyLayoutFocusRingFixState();
+      applyHeadingTextEnhancementState();
+      applyStrongTextEnhancementState();
       applyThemeEnhancementState();
     }
 
@@ -2327,6 +2415,8 @@ function buildInstallerSource(options) {
       const layoutWidthState = applyVariables();
       const fullscreen = applyFullscreenState();
       const layoutFocusRingFix = applyLayoutFocusRingFixState();
+      const headingTextEnhancement = applyHeadingTextEnhancementState();
+      const strongTextEnhancement = applyStrongTextEnhancementState();
       const themeEnhancement = applyThemeEnhancementState();
       installResizeListener();
       installLayoutResizeObserver();
@@ -2368,10 +2458,15 @@ function buildInstallerSource(options) {
         mainPaddingTop: main ? getComputedStyle(main).paddingTop : null,
         layoutFocusRingFixEnabled: Boolean(meta.layoutFocusRingFix),
         layoutFocusRingFixInstalled: layoutFocusRingFix,
+        headingTextEnhancementEnabled: Boolean(meta.headingTextEnhancement),
+        headingTextEnhancementInstalled: headingTextEnhancement,
+        headingTextEnhancementStyle: meta.headingTextEnhancementStyle,
+        strongTextEnhancementEnabled: Boolean(meta.strongTextEnhancement),
+        strongTextEnhancementInstalled: strongTextEnhancement,
+        strongTextEnhancementStyle: meta.strongTextEnhancementStyle,
         themeEnhancementEnabled: Boolean(meta.themeEnhancement),
         themeEnhancementInstalled: themeEnhancement,
         themeEnhancementColors: meta.themeEnhancementColors,
-        themeEnhancementTypography: meta.themeEnhancementTypography,
         imeEnterGuardEnabled: Boolean(meta.imeEnterGuard),
         imeEnterGuardInstalled: Boolean(imeGuard?.installed),
         longTextSendEnhancementEnabled: Boolean(meta.longTextSendEnhancement),
@@ -2399,9 +2494,12 @@ function buildMeta(options) {
     longTextSendEnhancement: options.longTextSendEnhancement,
     tabIndentEnhancement: options.tabIndentEnhancement,
     layoutFocusRingFix: options.layoutFocusRingFix,
+    headingTextEnhancement: options.headingTextEnhancement,
+    headingTextEnhancementStyle: options.headingTextEnhancementStyle,
+    strongTextEnhancement: options.strongTextEnhancement,
+    strongTextEnhancementStyle: options.strongTextEnhancementStyle,
     themeEnhancement: options.themeEnhancement,
     themeEnhancementColors: options.themeEnhancementColors,
-    themeEnhancementTypography: options.themeEnhancementTypography,
   };
 }
 
@@ -2436,15 +2534,6 @@ function buildCss(options) {
   width: min(100%, var(--thread-content-max-width)) !important;
 }
 ` : "";
-  const strongTypographyCss = [
-    options.themeEnhancementTypography.strongFontWeight
-      ? `  font-weight: ${options.themeEnhancementTypography.strongFontWeight} !important;`
-      : "",
-    options.themeEnhancementTypography.strongFontSize
-      ? `  font-size: ${options.themeEnhancementTypography.strongFontSize} !important;`
-      : "",
-  ].filter(Boolean).join("\n");
-
   return `
 body[data-codex-window-type="electron"],
 .main-surface,
@@ -2452,16 +2541,15 @@ body[data-codex-window-type="electron"],
 [data-app-shell-main-content-layout] {
 ${wideLayoutRootVariables}
   --codex-app-extension-fullscreen-header-offset: ${options.fullscreenHeaderOffset} !important;
-  --codex-app-extension-theme-ordered-list-marker: ${options.themeEnhancementColors.orderedListMarker} !important;
-  --codex-app-extension-theme-unordered-list-marker: ${options.themeEnhancementColors.unorderedListMarker} !important;
+  --codex-app-extension-heading-text-color: ${options.headingTextEnhancementStyle.color} !important;
+  --codex-app-extension-strong-text-color: ${options.strongTextEnhancementStyle.color} !important;
+  --codex-app-extension-strong-font-weight: ${options.strongTextEnhancementStyle.fontWeight} !important;
   --codex-app-extension-theme-inline-code-text: ${options.themeEnhancementColors.inlineCodeText} !important;
   --codex-app-extension-theme-inline-code-background: ${options.themeEnhancementColors.inlineCodeBackground} !important;
   --codex-app-extension-theme-inline-code-border: ${options.themeEnhancementColors.inlineCodeBorder} !important;
   --codex-app-extension-theme-blockquote-border: ${options.themeEnhancementColors.blockquoteBorder} !important;
   --codex-app-extension-theme-blockquote-text: ${options.themeEnhancementColors.blockquoteText} !important;
   --codex-app-extension-theme-blockquote-background: ${options.themeEnhancementColors.blockquoteBackground} !important;
-  --codex-app-extension-theme-heading-text: ${options.themeEnhancementColors.headingText} !important;
-  --codex-app-extension-theme-strong-text: ${options.themeEnhancementColors.strongText} !important;
 }
 ${wideLayoutCss}
 
@@ -2493,14 +2581,13 @@ html[data-codex-app-extension-layout-focus-ring-fix="true"] :where(
 }
 
 /* Theme enhancement is intentionally scoped to Markdown-like tags in the main surface. */
-html[data-codex-app-extension-theme-enhancement="true"] main.main-surface :where(ol) > li::marker {
-  color: var(--codex-app-extension-theme-ordered-list-marker) !important;
-  font-weight: 700 !important;
+html[data-codex-app-extension-heading-text-enhancement="true"] main.main-surface :where(h1, h2, h3, h4, h5, h6) {
+  color: var(--codex-app-extension-heading-text-color) !important;
 }
 
-html[data-codex-app-extension-theme-enhancement="true"] main.main-surface :where(ul) > li::marker {
-  color: var(--codex-app-extension-theme-unordered-list-marker) !important;
-  font-weight: 700 !important;
+html[data-codex-app-extension-strong-text-enhancement="true"] main.main-surface :where(p, li, blockquote, td, th) :where(strong) {
+  color: var(--codex-app-extension-strong-text-color) !important;
+  font-weight: var(--codex-app-extension-strong-font-weight) !important;
 }
 
 html[data-codex-app-extension-theme-enhancement="true"] main.main-surface :where(.inline-markdown),
@@ -2526,15 +2613,6 @@ html[data-codex-app-extension-theme-enhancement="true"] main.main-surface :where
   border-radius: 0 6px 6px 0 !important;
   margin-inline: 0 !important;
   padding: 0.65em 0.9em !important;
-}
-
-html[data-codex-app-extension-theme-enhancement="true"] main.main-surface :where(h1, h2, h3, h4, h5, h6) {
-  color: var(--codex-app-extension-theme-heading-text) !important;
-}
-
-html[data-codex-app-extension-theme-enhancement="true"] main.main-surface :where(strong) {
-  color: var(--codex-app-extension-theme-strong-text) !important;
-${strongTypographyCss ? `${strongTypographyCss}\n` : ""}
 }
 
 `.trim();
