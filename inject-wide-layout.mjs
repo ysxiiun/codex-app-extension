@@ -1104,6 +1104,9 @@ function buildInstallerSource(options) {
       "--codex-app-extension-horizontal-padding",
       "--codex-app-extension-effective-side-padding"
     ];
+    const IMMEDIATE_LAYOUT_REFRESH_FOLLOW_UP_DELAYS_MS = [50, 150, 300, 600];
+    const SETTLED_LAYOUT_REFRESH_DELAY_MS = 80;
+    const SETTLED_LAYOUT_REFRESH_FOLLOW_UP_DELAYS_MS = [160, 320];
 
     function cleanupLegacyWideLayout() {
       const legacyStyle = document.getElementById(LEGACY_STYLE_ID);
@@ -1174,12 +1177,20 @@ function buildInstallerSource(options) {
       ]);
     }
 
-    function clearWideLayoutVariables() {
-      for (const target of getVariableTargets()) {
+    function getTrackedWideLayoutVariableTargets() {
+      const targets = window.__codexAppExtensionWideLayoutVariableTargets;
+      return Array.isArray(targets)
+        ? targets.filter((target) => target instanceof HTMLElement)
+        : [];
+    }
+
+    function clearWideLayoutVariables(targets = getVariableTargets()) {
+      for (const target of uniqueElements([...targets, ...getTrackedWideLayoutVariableTargets()])) {
         for (const name of WIDE_LAYOUT_VARIABLE_NAMES) {
           target.style.removeProperty(name);
         }
       }
+      window.__codexAppExtensionWideLayoutVariableTargets = [];
     }
 
     function applyStyleVariables(nextVariables, targets = getVariableTargets()) {
@@ -1190,6 +1201,18 @@ function buildInstallerSource(options) {
           }
         }
       }
+    }
+
+    function clearStaleWideLayoutVariables(activeTargets) {
+      const active = new Set(uniqueElements(activeTargets));
+      // 侧边栏开合期间 ResizeObserver 会被样式回写反复触发，只清理过期目标，避免每轮刷新先清空再重写。
+      for (const target of uniqueElements([...getTrackedWideLayoutVariableTargets(), ...getInlineWideLayoutVariableTargets()])) {
+        if (active.has(target)) continue;
+        for (const name of WIDE_LAYOUT_VARIABLE_NAMES) {
+          target.style.removeProperty(name);
+        }
+      }
+      window.__codexAppExtensionWideLayoutVariableTargets = Array.from(active);
     }
 
     function describeLayoutElement(element, selector = "") {
@@ -1527,9 +1550,13 @@ function buildInstallerSource(options) {
         "--markdown-wide-block-max-width": rootState.width,
         "--codex-app-extension-content-offset-x": rootState.contentOffsetX
       };
-      clearWideLayoutVariables();
+      const rootTargets = getRootVariableTargets();
+      const scopedTargets = layoutWidthStates.scopedStates
+        .filter((scope) => scope.element && scope.state?.reference)
+        .map((scope) => scope.element);
+      clearStaleWideLayoutVariables([...rootTargets, ...scopedTargets]);
       // 底部输入框等固定层不一定在主内容 scope 内，根节点必须保留主区域避让状态；右侧子 agent 再用局部变量覆盖。
-      applyStyleVariables(rootVariables, getRootVariableTargets());
+      applyStyleVariables(rootVariables, rootTargets);
       for (const scope of layoutWidthStates.scopedStates) {
         const scopeState = scope.state;
         if (!scope.element || !scopeState.reference) continue;
@@ -1598,7 +1625,7 @@ function buildInstallerSource(options) {
       applyThemeEnhancementState();
     }
 
-    function scheduleLayoutRefresh() {
+    function scheduleLayoutRefresh({ immediate = false, reason = "layout-change" } = {}) {
       const previous = window.__codexAppExtensionLayoutRefresh;
       if (previous?.frame) cancelAnimationFrame(previous.frame);
       for (const timer of previous?.timers || []) clearTimeout(timer);
@@ -1606,6 +1633,8 @@ function buildInstallerSource(options) {
       const state = {
         frame: 0,
         timers: [],
+        immediate,
+        reason,
         scheduledAt: Date.now(),
         lastRunAt: previous?.lastRunAt || 0,
         runCount: previous?.runCount || 0
@@ -1617,14 +1646,37 @@ function buildInstallerSource(options) {
         state.runCount += 1;
       };
 
+      const queueRefreshTimer = (delay) => {
+        state.timers.push(setTimeout(refresh, delay));
+      };
+
       state.frame = requestAnimationFrame(() => {
         state.frame = 0;
-        refresh();
-        for (const delay of [50, 150, 300, 600]) {
-          state.timers.push(setTimeout(refresh, delay));
+        if (immediate) {
+          refresh();
+          for (const delay of IMMEDIATE_LAYOUT_REFRESH_FOLLOW_UP_DELAYS_MS) {
+            queueRefreshTimer(delay);
+          }
+          return;
         }
+
+        // 右侧栏开合会连续触发 observer；先等布局动画趋稳，避免测量-写入-再测量的反馈抖动。
+        state.timers.push(setTimeout(() => {
+          refresh();
+          for (const delay of SETTLED_LAYOUT_REFRESH_FOLLOW_UP_DELAYS_MS) {
+            queueRefreshTimer(delay);
+          }
+        }, SETTLED_LAYOUT_REFRESH_DELAY_MS));
       });
       window.__codexAppExtensionLayoutRefresh = state;
+    }
+
+    function scheduleSettledLayoutRefresh(reason) {
+      scheduleLayoutRefresh({ reason });
+    }
+
+    function scheduleImmediateLayoutRefresh(reason) {
+      scheduleLayoutRefresh({ immediate: true, reason });
     }
 
     function installResizeListener() {
@@ -1635,7 +1687,7 @@ function buildInstallerSource(options) {
         window.visualViewport?.removeEventListener("resize", previousResizeHandler);
       }
 
-      window.__codexAppExtensionResizeHandler = () => scheduleLayoutRefresh();
+      window.__codexAppExtensionResizeHandler = () => scheduleImmediateLayoutRefresh("viewport-resize");
       window.addEventListener("resize", window.__codexAppExtensionResizeHandler, { passive: true });
       window.visualViewport?.addEventListener("resize", window.__codexAppExtensionResizeHandler, { passive: true });
     }
@@ -1651,7 +1703,7 @@ function buildInstallerSource(options) {
       if (typeof ResizeObserver !== "function") return;
 
       const observed = new WeakSet();
-      const observer = new ResizeObserver(() => scheduleLayoutRefresh());
+      const observer = new ResizeObserver(() => scheduleSettledLayoutRefresh("observed-layout-resize"));
       const observeTargets = () => {
         const targets = [
           document.documentElement,
@@ -1686,7 +1738,7 @@ function buildInstallerSource(options) {
         requestAnimationFrame(() => {
           queued = false;
           window.__codexAppExtensionResizeObserver?.observeTargets?.();
-          scheduleLayoutRefresh();
+          scheduleSettledLayoutRefresh("layout-mutation");
         });
       });
       observer.observe(document.documentElement, {

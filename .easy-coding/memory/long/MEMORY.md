@@ -1,35 +1,46 @@
-# 长期记忆
+---
+memory_schema: 2
+memory_file: MEMORY
+last_updated: 2026-05-28
+---
 
-> 最后更新：2026-05-11
-> 长度：初始化，占位内容
+# 长期记忆索引
 
-## 架构决策
+> 本文件只作为索引与读取导航，不承载大量正文。
+> 业务事实写入 `BUSINESS.md`，技术/架构/工程事实写入 `TECHNICAL.md`。
+> 状态仅使用 `active / deprecated / superseded`；默认分析只读取 `active` 主题。
 
-| 日期 | 决策 | 原因 | 状态 |
-|---|---|---|---|
-| 2026-05-11 | 使用运行时注入而非修改 Codex App 包体 | 保持本地增强可撤销，降低升级和数据风险 | 有效 |
-| 2026-05-11 | 配置读取优先级保持“内置默认值 < 配置文件 < 环境变量 < CLI 参数” | 兼顾默认稳定性、本机常驻配置和临时覆盖能力 | 有效 |
+## 快速导航
 
-## 技术选型
+| 主题 | 类型 | 关键词 | 详情文件 | 状态 | 最近更新 | 来源 |
+|---|---|---|---|---|---|---|
+| 项目边界与交付约束 | business | Codex App 本地增强、只读包体、README 同步、兼容入口 | BUSINESS.md | active | 2026-05-28 | legacy long memory |
+| 运行时注入架构 | technical | Node.js ESM、Chrome DevTools Protocol、Bash、远程调试端口 | TECHNICAL.md | active | 2026-05-28 | legacy long memory |
+| 配置化增强链路 | technical | DEFAULT_CONFIG、配置文件、环境变量、CLI 参数、diagnose | TECHNICAL.md | active | 2026-05-28 | legacy long memory + short memories |
+| 当前实例重注入流程 | technical | inject-current.sh、端口发现、/json/version、--diagnose | TECHNICAL.md | active | 2026-05-28 | short memory 1 |
+| 输入与布局增强边界 | technical | layoutFocusRingFix、IME guard、tabIndentEnhancement、选择器边界 | TECHNICAL.md | active | 2026-05-28 | short memories 2/3 |
+| 配置脚本维护模式 | technical | --configure、config.sh、旧配置补齐、未知字段保留 | TECHNICAL.md | active | 2026-05-28 | short memory 4 |
 
-- **2026-05-11**：Node.js ESM + Chrome DevTools Protocol - 适合在不改应用包体的前提下向 Electron 页面注入运行时增强。
-- **2026-05-11**：Bash 启动脚本 - 负责本机启动、端口探测和注入脚本编排，保持依赖轻量。
+## 当前重点业务域
 
-## 可复用经验
+- Codex App 本地运行时增强的安全边界和交付约束。
 
-### 增强能力配置化
+## 当前重点技术域
 
-**场景**：新增影响阅读、输入或页面布局的本地增强能力。  
-**方案**：内置默认值保守，接入配置文件、环境变量、CLI 参数和诊断输出。  
-**来源**：初始化架构分析
+- `inject-wide-layout.mjs` 作为注入、配置合并、诊断和页面增强的核心入口。
+- `inject-current.sh` 作为配置变更后的当前实例重注入入口。
+- 宽屏布局、输入行为和主题阅读增强均需保持可配置、可诊断、可回退。
 
-## 业务规则
+## 读取策略
 
-- 本项目只做 Codex App 本地运行时增强，不修改 Codex App 安装包体、账号数据或历史会话数据。
-- 用户可配置能力、新增 CLI 参数、新增环境变量、新增诊断字段必须同步更新 README。
-- 旧兼容入口默认保留，除非用户明确要求清理。
+- 涉及业务概念、字段语义、业务流程、业务规则、上下游契约或业务排障时，读取 `BUSINESS.md`。
+- 涉及架构决策、接口决策、工程规则、实现模式、易错点、验证或发布经验时，读取 `TECHNICAL.md`。
+- 默认只读取状态为 `active` 的主题；`deprecated` / `superseded` 仅在迁移、冲突排查或用户追溯历史原因时读取。
+- 若长期记忆与当前代码或用户最新表达冲突，优先相信当前代码和用户最新表达，并在后续沉淀中更新记忆状态。
 
-## 已淘汰记录
+## 迁移审计
 
-| 淘汰日期 | 原内容摘要 | 淘汰原因 |
+| 日期 | 来源 | 处理结果 |
 |---|---|---|
+| 2026-05-28 | legacy long memory | 拆分为 `BUSINESS.md` 的项目边界与 `TECHNICAL.md` 的架构/配置主题 |
+| 2026-05-28 | legacy short memories 1-4 | 一次性沉淀可复用技术主题，删除旧版短期文件 |
