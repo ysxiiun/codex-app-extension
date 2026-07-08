@@ -933,13 +933,17 @@ function buildDiagnoseSource(options) {
         top: Math.round(rect.top),
         left: Math.round(rect.left),
         right: Math.round(rect.right),
+        bottom: Math.round(rect.bottom),
         maxWidth: style.maxWidth,
         translate: style.translate,
         marginLeft: style.marginLeft,
         marginRight: style.marginRight,
         contentOffsetX: style.getPropertyValue("--codex-app-extension-content-offset-x").trim(),
         horizontalPadding: style.getPropertyValue("--codex-app-extension-horizontal-padding").trim(),
-        position: style.position
+        position: style.position,
+        pointerEvents: style.pointerEvents,
+        zIndex: style.zIndex,
+        nativeFloatingPanel: element.getAttribute("data-codex-app-extension-native-floating-panel") || ""
       };
     };
 
@@ -954,6 +958,24 @@ function buildDiagnoseSource(options) {
       .filter((item) => item.top > window.innerHeight - 260 && item.width >= 300)
       .sort((a, b) => b.width - a.width)
       .slice(0, 30);
+
+    const nativeFloatingCandidates = Array.from(document.querySelectorAll("body *"))
+      .filter((element) => {
+        const className = String(element.className || "");
+        const text = (element.innerText || element.textContent || "").replace(/\s+/g, " ").trim();
+        return /thread-floating-content|bottom-full|diff-stat|git-decoration/i.test(className)
+          || /文件已更改|已更改|files? changed|changed files|\\+\\d+\\s*-\\d+/i.test(text);
+      })
+      .filter((element) => {
+        const rect = element.getBoundingClientRect();
+        return rect.width >= 1 && rect.height >= 1;
+      })
+      .map(describeElement)
+      .slice(0, 50);
+
+    const nativeFloatingResetTargets = Array.from(document.querySelectorAll("[data-codex-app-extension-native-floating-panel='true']"))
+      .map(describeElement)
+      .slice(0, 50);
 
     const classSamples = Array.from(document.querySelectorAll("[class]"))
       .map((element) => String(element.className))
@@ -1046,6 +1068,8 @@ function buildDiagnoseSource(options) {
       minThreadWidth: pick(".w-\\\\[min\\\\(100\\\\%\\\\,var\\\\(--thread-content-max-width\\\\)\\\\)\\\\]"),
       composerAncestors,
       bottomCandidates,
+      nativeFloatingCandidates,
+      nativeFloatingResetTargets,
       sampleClasses: classSamples
     };
   })();`;
@@ -1096,6 +1120,21 @@ function buildInstallerSource(options) {
       "[class*='thread-composer-max-width']",
       "[class*='markdown-wide-block-max-width']"
     ].join(", ");
+    const NATIVE_FLOATING_PANEL_ATTRIBUTE = "data-codex-app-extension-native-floating-panel";
+    const NATIVE_FLOATING_STRUCTURAL_SELECTOR = [
+      "[class*='thread-floating-content']",
+      "[class*='bottom-full']",
+      "[class*='diff-stat']",
+      "[class*='repoAndDiffStats']"
+    ].join(", ");
+    const NATIVE_FLOATING_INTERACTIVE_TEXT_SELECTOR = [
+      "button",
+      "[role='button']",
+      "a[href]",
+      "[tabindex]:not([tabindex='-1'])"
+    ].join(", ");
+    const NATIVE_FLOATING_STRUCTURAL_SIGNAL = /thread-floating-content|bottom-full|diff-stat|repoAndDiffStats/i;
+    const NATIVE_FLOATING_TEXT_SIGNAL = /文件已更改|已更改|files? changed|changed files|\\+\\d+\\s*-\\d+/i;
     const WIDE_LAYOUT_VARIABLE_NAMES = [
       "--thread-content-max-width",
       "--thread-composer-max-width",
@@ -1161,11 +1200,163 @@ function buildInstallerSource(options) {
         .filter((element) => element instanceof HTMLElement);
     }
 
+    function getElementStructuralSignal(element) {
+      if (!(element instanceof HTMLElement)) return "";
+      return [
+        String(element.className || ""),
+        element.id || "",
+        element.getAttribute("role") || "",
+        element.getAttribute("data-testid") || "",
+        element.getAttribute("aria-label") || "",
+        element.getAttribute("title") || ""
+      ].join(" ");
+    }
+
+    function getElementTextSignal(element) {
+      if (!(element instanceof HTMLElement)) return "";
+      return (element.innerText || element.textContent || "").replace(/\\s+/g, " ").trim();
+    }
+
+    function isLayoutShell(element) {
+      if (!(element instanceof HTMLElement)) return false;
+      return element === document.documentElement
+        || element === document.body
+        || element.matches("main.main-surface, .main-surface, .app-shell-main-content-viewport, [data-app-shell-main-content-layout], .thread-scroll-container");
+    }
+
+    function hasInteractiveAncestorBeforeLayoutShell(element) {
+      for (let current = element; current instanceof HTMLElement && !isLayoutShell(current); current = current.parentElement) {
+        if (current.matches("button, [role='button'], a[href], [tabindex]")) return true;
+        if (getComputedStyle(current).cursor === "pointer") return true;
+      }
+      return false;
+    }
+
+    function isTextOnlyNativeFloatingPanel(element) {
+      if (!(element instanceof HTMLElement)) return false;
+
+      const rect = element.getBoundingClientRect();
+      if (rect.width < 1 || rect.height < 1) return false;
+      const viewportWidth = window.innerWidth || rect.width;
+      const viewportHeight = window.innerHeight || rect.height;
+      const maxReasonableWidth = Math.min(720, viewportWidth * 0.85);
+      const maxReasonableHeight = Math.min(260, viewportHeight * 0.50);
+      if (rect.width > maxReasonableWidth || rect.height > maxReasonableHeight) return false;
+
+      const style = getComputedStyle(element);
+      const hasFloatingContext = ["absolute", "fixed", "sticky"].includes(style.position)
+        || Boolean(element.closest("[class*='thread-floating-content'], [class*='bottom-full']"))
+        || hasInteractiveAncestorBeforeLayoutShell(element);
+      if (!hasFloatingContext) return false;
+      return NATIVE_FLOATING_TEXT_SIGNAL.test(getElementTextSignal(element));
+    }
+
+    function getNativeFloatingPanelTarget(element) {
+      if (!(element instanceof HTMLElement)) return null;
+      const structuralAncestor = element.closest(NATIVE_FLOATING_STRUCTURAL_SELECTOR);
+      if (structuralAncestor instanceof HTMLElement && !isLayoutShell(structuralAncestor)) {
+        return structuralAncestor;
+      }
+
+      let target = element;
+      const viewportWidth = window.innerWidth || target.getBoundingClientRect().width;
+      const viewportHeight = window.innerHeight || target.getBoundingClientRect().height;
+      const maxReasonableWidth = Math.min(720, viewportWidth * 0.85);
+      const maxReasonableHeight = Math.min(260, viewportHeight * 0.50);
+
+      for (let parent = element.parentElement; parent && !isLayoutShell(parent); parent = parent.parentElement) {
+        const rect = parent.getBoundingClientRect();
+        if (rect.width < 1 || rect.height < 1) break;
+        if (rect.width > maxReasonableWidth || rect.height > maxReasonableHeight) break;
+
+        const parentStructuralSignal = getElementStructuralSignal(parent);
+        const parentTextSignal = getElementTextSignal(parent);
+        if (!NATIVE_FLOATING_STRUCTURAL_SIGNAL.test(parentStructuralSignal)
+          && !NATIVE_FLOATING_TEXT_SIGNAL.test(parentTextSignal)) {
+          break;
+        }
+
+        target = parent;
+        const style = getComputedStyle(parent);
+        if (["absolute", "fixed", "sticky"].includes(style.position)
+          || NATIVE_FLOATING_STRUCTURAL_SIGNAL.test(parentStructuralSignal)) {
+          break;
+        }
+      }
+
+      return target;
+    }
+
+    function isCodexNativeFloatingPanel(element) {
+      if (!(element instanceof HTMLElement) || isLayoutShell(element)) return false;
+      return NATIVE_FLOATING_STRUCTURAL_SIGNAL.test(getElementStructuralSignal(element))
+        || isTextOnlyNativeFloatingPanel(element);
+    }
+
+    function shouldUseRightFloatingRailAsLayoutScope(element) {
+      if (!(element instanceof HTMLElement)) return false;
+      // 新版 Codex 把环境信息、来源、git/diff 摘要等原生面板放在 thread-floating-content rail 里；
+      // 这些面板只用于主区域避让测量，不能写入 thread/composer 宽度变量，否则会把 diff chip 压窄或错位。
+      if (isCodexNativeFloatingPanel(element)) return false;
+      return Boolean(element.querySelector(WIDTH_VARIABLE_CONSUMER_SELECTOR));
+    }
+
     function getInlineWideLayoutVariableTargets() {
       return Array.from(document.querySelectorAll("[style]")).filter((element) => {
         if (!(element instanceof HTMLElement)) return false;
         return WIDE_LAYOUT_VARIABLE_NAMES.some((name) => element.style.getPropertyValue(name));
       });
+    }
+
+    function getNativeFloatingPanelTargets() {
+      if (!meta.wideLayoutEnhancement || !document.body) return [];
+      const targets = [];
+      const structuralCandidates = Array.from(document.querySelectorAll(NATIVE_FLOATING_STRUCTURAL_SELECTOR));
+      const textCandidates = Array.from(document.querySelectorAll(NATIVE_FLOATING_INTERACTIVE_TEXT_SELECTOR));
+
+      for (const element of structuralCandidates) {
+        if (!(element instanceof HTMLElement) || !isVisibleElement(element)) continue;
+        if (!NATIVE_FLOATING_STRUCTURAL_SIGNAL.test(getElementStructuralSignal(element))) continue;
+        const target = getNativeFloatingPanelTarget(element);
+        if (target) targets.push(target);
+      }
+
+      for (const element of textCandidates) {
+        if (!(element instanceof HTMLElement) || !isVisibleElement(element)) continue;
+        if (!isTextOnlyNativeFloatingPanel(element)) continue;
+        const target = getNativeFloatingPanelTarget(element);
+        if (target) targets.push(target);
+      }
+      return uniqueElements(targets);
+    }
+
+    function getTrackedNativeFloatingPanelTargets() {
+      const targets = window.__codexAppExtensionNativeFloatingPanelTargets;
+      return Array.isArray(targets)
+        ? targets.filter((target) => target instanceof HTMLElement)
+        : [];
+    }
+
+    function markNativeFloatingPanels(targets = getNativeFloatingPanelTargets()) {
+      const active = new Set(uniqueElements(targets));
+      const staleCandidates = uniqueElements([
+        ...getTrackedNativeFloatingPanelTargets(),
+        ...document.querySelectorAll("[" + NATIVE_FLOATING_PANEL_ATTRIBUTE + "]")
+      ]);
+
+      for (const target of staleCandidates) {
+        if (active.has(target)) continue;
+        target.removeAttribute(NATIVE_FLOATING_PANEL_ATTRIBUTE);
+      }
+
+      for (const target of active) {
+        if (target.getAttribute(NATIVE_FLOATING_PANEL_ATTRIBUTE) !== "true") {
+          target.setAttribute(NATIVE_FLOATING_PANEL_ATTRIBUTE, "true");
+        }
+      }
+
+      window.__codexAppExtensionNativeFloatingPanelTargets = Array.from(active);
+      return Array.from(active);
     }
 
     function getVariableTargets() {
@@ -1191,6 +1382,7 @@ function buildInstallerSource(options) {
         }
       }
       window.__codexAppExtensionWideLayoutVariableTargets = [];
+      markNativeFloatingPanels([]);
     }
 
     function applyStyleVariables(nextVariables, targets = getVariableTargets()) {
@@ -1257,7 +1449,7 @@ function buildInstallerSource(options) {
       // 子 agent 右侧窗格可能表现为 Codex 的 absolute/floating rail，而不是常规 app-shell 容器。
       for (const reference of [...references]) {
         const rightFloatingRail = findRightFloatingRail(reference);
-        if (rightFloatingRail?.element) {
+        if (rightFloatingRail?.element && rightFloatingRail.useAsLayoutScope) {
           references.push({
             element: rightFloatingRail.element,
             selector: "right-floating-rail-scope",
@@ -1333,7 +1525,12 @@ function buildInstallerSource(options) {
       return {
         element: best.element,
         rect: best.rect,
-        summary: describeLayoutElement(best.element, "right-floating-rail-candidate")
+        useAsLayoutScope: shouldUseRightFloatingRailAsLayoutScope(best.element),
+        summary: {
+          ...describeLayoutElement(best.element, "right-floating-rail-candidate"),
+          nativeFloatingPanel: isCodexNativeFloatingPanel(best.element),
+          useAsLayoutScope: shouldUseRightFloatingRailAsLayoutScope(best.element)
+        }
       };
     }
 
@@ -1554,6 +1751,7 @@ function buildInstallerSource(options) {
       const scopedTargets = layoutWidthStates.scopedStates
         .filter((scope) => scope.element && scope.state?.reference)
         .map((scope) => scope.element);
+      markNativeFloatingPanels();
       clearStaleWideLayoutVariables([...rootTargets, ...scopedTargets]);
       // 底部输入框等固定层不一定在主内容 scope 内，根节点必须保留主区域避让状态；右侧子 agent 再用局部变量覆盖。
       applyStyleVariables(rootVariables, rootTargets);
@@ -2584,6 +2782,23 @@ function buildCss(options) {
 
 .w-\\[min\\(100\\%\\,var\\(--thread-content-max-width\\)\\)\\] {
   width: min(100%, var(--thread-content-max-width)) !important;
+}
+
+[data-codex-app-extension-native-floating-panel="true"] {
+  --thread-content-max-width: 100vw !important;
+  --thread-composer-max-width: 100vw !important;
+  --markdown-wide-block-max-width: 100vw !important;
+  --codex-app-extension-content-offset-x: 0px !important;
+  --codex-app-extension-horizontal-padding: 0px !important;
+}
+
+[data-codex-app-extension-native-floating-panel="true"].max-w-\\(--thread-content-max-width\\),
+[data-codex-app-extension-native-floating-panel="true"] .max-w-\\(--thread-content-max-width\\),
+[data-codex-app-extension-native-floating-panel="true"].max-w-\\[var\\(--thread-content-max-width\\)\\],
+[data-codex-app-extension-native-floating-panel="true"] .max-w-\\[var\\(--thread-content-max-width\\)\\],
+[data-codex-app-extension-native-floating-panel="true"].max-w-\\[var\\(--thread-composer-max-width\\)\\],
+[data-codex-app-extension-native-floating-panel="true"] .max-w-\\[var\\(--thread-composer-max-width\\)\\] {
+  translate: none !important;
 }
 ` : "";
   return `

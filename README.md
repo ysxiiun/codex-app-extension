@@ -351,6 +351,8 @@ node <repo>/inject-wide-layout.mjs --port 9229 --diagnose
 - `wideLayoutEnhancementEnabled` / `wideLayoutEnhancementDisabled`：当前运行实例中的宽屏增强状态。
 - `layoutWidthState`：当前主宽屏变量的计算来源，用于兼容旧诊断阅读习惯。
 - `layoutWidthScopes`：各可见工作区的独立宽度计算结果，包括参考容器、可用宽度、有效留白、最终宽度表达式和右侧悬浮栏候选。
+- `nativeFloatingCandidates`：当前页面中疑似 Codex 原生浮层的候选元素，例如 composer 上方浮层、右侧环境/来源面板、git/diff 摘要；用于排查升级后原生浮层被宽屏增强压窄或错位的问题。
+- `nativeFloatingResetTargets`：当前已被宽屏增强隔离的 Codex 原生浮层；这些目标会在自身子树内重置宽屏变量和横向偏移，避免原生组件被增强样式裁剪。
 - `threadMaxWidth.width`：实际正文容器宽度。
 - `detectedFullscreen`：当前是否识别为全屏。
 - `main.paddingTop`：顶部避让是否生效。
@@ -377,6 +379,8 @@ node <repo>/inject-wide-layout.mjs --port 9229 --diagnose
 ## 兼容说明
 
 本项目是 Codex App 的本地增强工具，不是 Codex App 官方功能的一部分。Codex App 自身升级后，页面结构可能变化；如果增强能力失效，可以先使用诊断命令确认注入状态，再根据新的页面结构适配注入逻辑。
+
+Codex 新版本可能会把环境信息、来源、git/diff 摘要等原生组件放入 `thread-floating-content` 或 composer 上方的浮层。宽屏增强会继续用这些浮层测量主区域需要避让的右侧空间，但不会把它们作为独立宽屏 scope 写入 `--thread-content-max-width` / `--thread-composer-max-width`；同时会在这些原生浮层子树内重置宽屏变量和横向偏移，避免原生 git/diff 组件在输入框上方被压窄、错位或残留。
 
 保留的旧兼容入口包括：
 
