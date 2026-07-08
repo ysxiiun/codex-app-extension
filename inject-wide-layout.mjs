@@ -934,10 +934,22 @@ function buildDiagnoseSource(options) {
         left: Math.round(rect.left),
         right: Math.round(rect.right),
         bottom: Math.round(rect.bottom),
+        display: style.display,
         maxWidth: style.maxWidth,
+        minWidth: style.minWidth,
         translate: style.translate,
         marginLeft: style.marginLeft,
         marginRight: style.marginRight,
+        paddingLeft: style.paddingLeft,
+        paddingRight: style.paddingRight,
+        overflowX: style.overflowX,
+        overflowY: style.overflowY,
+        flex: style.flex,
+        flexGrow: style.flexGrow,
+        flexShrink: style.flexShrink,
+        scrollbarGutter: style.scrollbarGutter,
+        threadContentMaxWidth: style.getPropertyValue("--thread-content-max-width").trim(),
+        threadComposerMaxWidth: style.getPropertyValue("--thread-composer-max-width").trim(),
         contentOffsetX: style.getPropertyValue("--codex-app-extension-content-offset-x").trim(),
         horizontalPadding: style.getPropertyValue("--codex-app-extension-horizontal-padding").trim(),
         position: style.position,
@@ -976,6 +988,25 @@ function buildDiagnoseSource(options) {
     const nativeFloatingResetTargets = Array.from(document.querySelectorAll("[data-codex-app-extension-native-floating-panel='true']"))
       .map(describeElement)
       .slice(0, 50);
+
+    const leftSidebarElement = document.querySelector(".app-shell-left-panel");
+    const summarizeSidebarFolderRow = (row) => {
+      const textElement = Array.from(row.querySelectorAll("span, div"))
+        .find((element) => {
+          const text = (element.innerText || element.textContent || "").replace(/\s+/g, " ").trim();
+          return text && String(element.className || "").includes("truncate");
+        }) || null;
+      return {
+        row: describeElement(row),
+        title: textElement ? describeElement(textElement) : null,
+        directChildren: Array.from(row.children).map(describeElement).slice(0, 8)
+      };
+    };
+    const sidebarProjectRows = leftSidebarElement
+      ? Array.from(leftSidebarElement.querySelectorAll("[class*='group/folder-row']"))
+        .map(summarizeSidebarFolderRow)
+        .slice(0, 50)
+      : [];
 
     const classSamples = Array.from(document.querySelectorAll("[class]"))
       .map((element) => String(element.className))
@@ -1070,6 +1101,8 @@ function buildDiagnoseSource(options) {
       bottomCandidates,
       nativeFloatingCandidates,
       nativeFloatingResetTargets,
+      leftSidebar: leftSidebarElement ? describeElement(leftSidebarElement) : null,
+      sidebarProjectRows,
       sampleClasses: classSamples
     };
   })();`;
@@ -2782,6 +2815,58 @@ function buildCss(options) {
 
 .w-\\[min\\(100\\%\\,var\\(--thread-content-max-width\\)\\)\\] {
   width: min(100%, var(--thread-content-max-width)) !important;
+}
+
+/* 左侧栏不是主会话内容区，不能继承主内容宽屏变量和右侧 rail 避让偏移。 */
+.app-shell-left-panel {
+  --thread-content-max-width: 100% !important;
+  --thread-composer-max-width: 100% !important;
+  --markdown-wide-block-max-width: 100% !important;
+  --codex-app-extension-content-offset-x: 0px !important;
+  --codex-app-extension-horizontal-padding: 0px !important;
+}
+
+.app-shell-left-panel [class*="group/folder-row"] {
+  overflow-x: hidden !important;
+  overflow-y: hidden !important;
+  scrollbar-gutter: auto !important;
+}
+
+.app-shell-left-panel [class*="group/folder-row"] > :first-child {
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+.app-shell-left-panel [class*="group/folder-row"] > [class*="min-w-0"][class*="gap-1"]:not([class*="flex-1"]),
+.app-shell-left-panel [class*="group/folder-row"] > [class*="opacity-0"][class*="group-hover/folder-row:opacity-100"],
+.app-shell-left-panel [class*="group/folder-row"] > [class*="grid"][class*="group-hover/folder-row:w-6"] {
+  position: absolute !important;
+  top: 50% !important;
+  translate: 0 -50% !important;
+  z-index: 2 !important;
+  pointer-events: none !important;
+}
+
+.app-shell-left-panel [class*="group/folder-row"] > [class*="min-w-0"][class*="gap-1"]:not([class*="flex-1"]) {
+  right: 0.35rem !important;
+}
+
+.app-shell-left-panel [class*="group/folder-row"] > [class*="opacity-0"][class*="group-hover/folder-row:opacity-100"] {
+  right: 2.25rem !important;
+}
+
+.app-shell-left-panel [class*="group/folder-row"] > [class*="grid"][class*="group-hover/folder-row:w-6"] {
+  right: 0.35rem !important;
+}
+
+.app-shell-left-panel [class*="group/folder-row"]:is(:hover, :focus-within) > :first-child {
+  padding-inline-end: 3.75rem !important;
+}
+
+.app-shell-left-panel [class*="group/folder-row"]:is(:hover, :focus-within) > [class*="min-w-0"][class*="gap-1"]:not([class*="flex-1"]),
+.app-shell-left-panel [class*="group/folder-row"]:is(:hover, :focus-within) > [class*="opacity-0"][class*="group-hover/folder-row:opacity-100"],
+.app-shell-left-panel [class*="group/folder-row"]:is(:hover, :focus-within) > [class*="grid"][class*="group-hover/folder-row:w-6"] {
+  pointer-events: auto !important;
 }
 
 [data-codex-app-extension-native-floating-panel="true"] {
