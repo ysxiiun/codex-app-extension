@@ -2,17 +2,14 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/runtime.sh"
 
 APP_NAME="codex-app-extension"
-NODE_BIN="${NODE_BIN:-node}"
+CODEX_APP_PATH="$(resolve_codex_app_path || true)"
 
-if ! "$NODE_BIN" -e "process.exit(0)" >/dev/null 2>&1; then
-  NODE_BIN="/Applications/Codex.app/Contents/Resources/node"
-fi
-
-if ! "$NODE_BIN" -e "process.exit(0)" >/dev/null 2>&1; then
+if ! NODE_BIN="$(resolve_codex_node_bin "$CODEX_APP_PATH")"; then
   echo "[$APP_NAME] Cannot find a usable Node.js runtime." >&2
-  echo "[$APP_NAME] Set NODE_BIN=/path/to/node and retry." >&2
+  echo "[$APP_NAME] Node.js must expose both fetch and WebSocket." >&2
   exit 1
 fi
 

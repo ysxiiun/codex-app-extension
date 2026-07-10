@@ -13,6 +13,21 @@ const DEFAULT_PORT = 9229;
 const DEFAULT_HORIZONTAL_GUTTER = "20px";
 const DEFAULT_TARGET_TIMEOUT_MS = 30000;
 const TARGET_POLL_INTERVAL_MS = 250;
+const SURFACE_PROBE_TIMEOUT_MS = 10000;
+const CODEX_SURFACE_SELECTORS = Object.freeze({
+  layoutRoot: "[data-app-shell-main-content-layout]",
+  mainViewport: ".app-shell-main-content-viewport",
+  mainSurface: "main.main-surface, .main-surface",
+  threadScroll: ".thread-scroll-container",
+  leftPanel: ".app-shell-left-panel",
+  composer: ".ProseMirror[contenteditable='true'], .ProseMirror[contenteditable='plaintext-only']",
+  requestNavigation: "[data-codex-composer-request-navigation]",
+  requestDismiss: "[data-request-input-dismiss]",
+  requestSkip: "[data-request-input-skip]",
+  requestOther: "[data-request-input-other-row]",
+  legacyRequestInput: "textarea.request-input-panel__inline-freeform, textarea[class*='request-input-panel'], textarea[class*='inline-freeform']",
+  widthConsumers: "[class*='thread-content-max-width'], [class*='thread-composer-max-width'], [class*='markdown-wide-block-max-width']",
+});
 const DEFAULT_HEADING_TEXT_ENHANCEMENT_STYLE = Object.freeze({
   color: "#F2C94C",
 });
@@ -185,8 +200,8 @@ async function main() {
     return;
   }
 
-  if (typeof WebSocket !== "function") {
-    throw new Error("This Node.js runtime does not expose WebSocket. Try NODE_BIN=/Applications/Codex.app/Contents/Resources/node.");
+  if (typeof fetch !== "function" || typeof WebSocket !== "function") {
+    throw new Error("This Node.js runtime must expose both fetch and WebSocket. Set NODE_BIN to a compatible Node.js runtime and retry.");
   }
 
   const configInfo = ensureConfig();
@@ -202,6 +217,17 @@ async function main() {
   try {
     await client.send("Runtime.enable");
     await client.send("Page.enable").catch(() => null);
+
+    const surfaceCompatibility = options.diagnose
+      ? await evaluateSource(client, buildSurfaceCompatibilitySource())
+      : await waitForCodexSurface(client, Math.min(options.targetTimeoutMs, SURFACE_PROBE_TIMEOUT_MS));
+    if (!options.diagnose && !surfaceCompatibility?.supported) {
+      throw new Error(
+        `The selected debugger target is not a supported Codex workspace surface. `
+        + `Refusing to inject into ${target.title || target.url || "the current page"}. `
+        + `Surface facts: ${JSON.stringify(surfaceCompatibility || {})}`,
+      );
+    }
 
     const source = options.diagnose ? buildDiagnoseSource(options) : buildInstallerSource(options);
     if (!options.diagnose) {
@@ -225,6 +251,7 @@ async function main() {
         type: target.type,
         url: target.url,
       },
+      surface: surfaceCompatibility || null,
       applied: value || null,
     }, null, 2));
   } finally {
@@ -784,9 +811,23 @@ function selectTarget(targets, preferredText) {
     if (preferred) return preferred;
   }
 
-  return attachable.find((target) => /codex|app:|file:|localhost/i.test(`${target.title || ""} ${target.url || ""}`))
-    || attachable[0]
-    || null;
+  const scored = attachable
+    .map((target, index) => {
+      const title = target.title || "";
+      const url = target.url || "";
+      const text = `${title} ${url}`;
+      let score = 0;
+      if (/codex/i.test(text)) score += 100;
+      if (/^app:/i.test(url)) score += 60;
+      if (/chatgpt/i.test(text)) score += 40;
+      if (/^file:|localhost|127\.0\.0\.1/i.test(url)) score += 20;
+      return { target, index, score };
+    })
+    .filter((entry) => entry.score > 0)
+    .sort((left, right) => right.score - left.score || left.index - right.index);
+
+  // 不再回退到任意首个页面；真正的 Codex DOM 签名还会在注入前做第二层校验。
+  return scored[0]?.target || null;
 }
 
 async function connectCdp(webSocketUrl) {
@@ -864,6 +905,66 @@ function assertEvaluateSucceeded(result) {
   throw new Error(`Runtime.evaluate failed: ${text}`);
 }
 
+async function evaluateSource(client, source) {
+  const result = await client.send("Runtime.evaluate", {
+    expression: wrapForJsonResult(source),
+    awaitPromise: true,
+    returnByValue: true,
+  });
+  assertEvaluateSucceeded(result);
+  return parseJsonResult(result?.result?.result?.value);
+}
+
+async function waitForCodexSurface(client, timeoutMs) {
+  const deadline = Date.now() + Math.max(TARGET_POLL_INTERVAL_MS, timeoutMs);
+  let lastCompatibility = null;
+
+  while (Date.now() <= deadline) {
+    lastCompatibility = await evaluateSource(client, buildSurfaceCompatibilitySource());
+    if (lastCompatibility?.supported) return lastCompatibility;
+    await sleep(TARGET_POLL_INTERVAL_MS);
+  }
+
+  return lastCompatibility;
+}
+
+function buildSurfaceCompatibilitySource() {
+  return `(() => {
+    const selectors = ${JSON.stringify(CODEX_SURFACE_SELECTORS)};
+    const counts = Object.fromEntries(Object.entries(selectors).map(([name, selector]) => {
+      try {
+        return [name, document.querySelectorAll(selector).length];
+      } catch {
+        return [name, 0];
+      }
+    }));
+    const hasLayoutRoot = counts.layoutRoot > 0 || counts.mainViewport > 0 || counts.mainSurface > 0;
+    const hasWorkspaceAnchor = counts.threadScroll > 0 || counts.leftPanel > 0 || counts.requestNavigation > 0;
+    const hasInteractiveAnchor = counts.composer > 0 || counts.threadScroll > 0 || counts.requestNavigation > 0;
+    const supported = Boolean(hasLayoutRoot && hasWorkspaceAnchor && hasInteractiveAnchor);
+    const requestInputProtocol = counts.requestNavigation > 0
+      || counts.requestDismiss > 0
+      || counts.requestSkip > 0
+      || counts.requestOther > 0
+      ? "chatgpt-codex-data-attributes"
+      : (counts.legacyRequestInput > 0 ? "legacy-classes" : "none-detected");
+    const missing = [];
+    if (!hasLayoutRoot) missing.push("layout-root");
+    if (!hasWorkspaceAnchor) missing.push("workspace-anchor");
+    if (!hasInteractiveAnchor) missing.push("interactive-anchor");
+    return {
+      supported,
+      profile: supported ? "codex-workspace" : "unsupported",
+      requestInputProtocol,
+      missing,
+      counts,
+      href: location.href,
+      title: document.title,
+      readyState: document.readyState
+    };
+  })()`;
+}
+
 function decodeMessage(data) {
   if (typeof data === "string") return data;
   if (data instanceof ArrayBuffer) return Buffer.from(data).toString("utf8");
@@ -877,6 +978,7 @@ function buildDiagnoseSource(options) {
   const meta = buildMeta(options);
   return `(() => {
     const meta = ${JSON.stringify(meta)};
+    const surfaceCompatibility = ${buildSurfaceCompatibilitySource()};
 
     function isProbablyFullscreen() {
       const threshold = 4;
@@ -959,7 +1061,26 @@ function buildDiagnoseSource(options) {
       };
     };
 
-    const composerElement = document.querySelector("textarea, [contenteditable='true'], [role='textbox']");
+    const requestInputCandidates = Array.from(document.querySelectorAll([
+      "[data-codex-composer-request-navigation] textarea",
+      "textarea.request-input-panel__inline-freeform",
+      "textarea[class*='request-input-panel']",
+      "textarea[class*='inline-freeform']"
+    ].join(", "))).map((element) => ({
+      ...describeElement(element),
+      protocol: element.closest("[data-codex-composer-request-navigation]")
+        ? "chatgpt-codex-data-attributes"
+        : "legacy-classes"
+    })).slice(0, 20);
+    const composerElement = document.querySelector([
+      ".ProseMirror[contenteditable='true']",
+      ".ProseMirror[contenteditable='plaintext-only']",
+      "[data-codex-composer-request-navigation] textarea",
+      "textarea.request-input-panel__inline-freeform",
+      "textarea",
+      "[contenteditable='true']",
+      "[role='textbox']"
+    ].join(", "));
     const composerAncestors = [];
     for (let element = composerElement; element && composerAncestors.length < 8; element = element.parentElement) {
       composerAncestors.push(describeElement(element));
@@ -1047,6 +1168,12 @@ function buildDiagnoseSource(options) {
     return {
       tool: ${JSON.stringify(APP_NAME)},
       config: meta,
+      surfaceSupported: Boolean(surfaceCompatibility.supported),
+      surfaceProfile: surfaceCompatibility.profile,
+      surfaceCompatibility,
+      requestInputProtocol: surfaceCompatibility.requestInputProtocol,
+      requestInputCandidates,
+      layoutVariableConsumerCount: surfaceCompatibility.counts.widthConsumers,
       imeEnterGuardEnabled: Boolean(meta.imeEnterGuard),
       imeEnterGuardInstalled: Boolean(imeGuardState?.installed),
       imeEnterGuardState: imeGuardState,
@@ -1154,6 +1281,7 @@ function buildInstallerSource(options) {
       "[class*='markdown-wide-block-max-width']"
     ].join(", ");
     const NATIVE_FLOATING_PANEL_ATTRIBUTE = "data-codex-app-extension-native-floating-panel";
+    const CODEX_SURFACE_ATTRIBUTE = "data-codex-app-extension-surface";
     const NATIVE_FLOATING_STRUCTURAL_SELECTOR = [
       "[class*='thread-floating-content']",
       "[class*='bottom-full']",
@@ -1179,6 +1307,22 @@ function buildInstallerSource(options) {
     const IMMEDIATE_LAYOUT_REFRESH_FOLLOW_UP_DELAYS_MS = [50, 150, 300, 600];
     const SETTLED_LAYOUT_REFRESH_DELAY_MS = 80;
     const SETTLED_LAYOUT_REFRESH_FOLLOW_UP_DELAYS_MS = [160, 320];
+
+    function getCodexSurfaceCompatibility() {
+      return ${buildSurfaceCompatibilitySource()};
+    }
+
+    function applyCodexSurfaceState() {
+      const compatibility = getCodexSurfaceCompatibility();
+      document.documentElement.setAttribute(CODEX_SURFACE_ATTRIBUTE, compatibility.supported ? "true" : "false");
+      window.__codexAppExtensionSurfaceState = compatibility;
+      return compatibility;
+    }
+
+    function isCodexSurfaceActive() {
+      return document.documentElement?.getAttribute(CODEX_SURFACE_ATTRIBUTE) === "true"
+        && Boolean(window.__codexAppExtensionSurfaceState?.supported);
+    }
 
     function cleanupLegacyWideLayout() {
       const legacyStyle = document.getElementById(LEGACY_STYLE_ID);
@@ -1752,6 +1896,26 @@ function buildInstallerSource(options) {
     }
 
     function applyVariables() {
+      const surfaceCompatibility = applyCodexSurfaceState();
+      if (!surfaceCompatibility.supported) {
+        clearWideLayoutVariables([]);
+        const unsupportedState = {
+          reason: "unsupported-surface",
+          disabled: true,
+          width: null,
+          fallbackWidth: null,
+          horizontalPadding: null,
+          horizontalGutter: meta.horizontalGutter,
+          contentOffsetX: "0px",
+          reference: null,
+          rightFloatingRail: null,
+          surfaceCompatibility
+        };
+        window.__codexAppExtensionLayoutWidth = unsupportedState;
+        window.__codexAppExtensionLayoutWidthScopes = [];
+        return unsupportedState;
+      }
+
       if (!meta.wideLayoutEnhancement) {
         clearWideLayoutVariables();
         applyStyleVariables(variables, getRootVariableTargets());
@@ -1848,7 +2012,8 @@ function buildInstallerSource(options) {
 
     function runLayoutRefresh() {
       upsertStyle();
-      applyVariables();
+      const layoutWidthState = applyVariables();
+      if (layoutWidthState?.reason === "unsupported-surface") return;
       applyFullscreenState();
       applyLayoutFocusRingFixState();
       applyHeadingTextEnhancementState();
@@ -1936,9 +2101,8 @@ function buildInstallerSource(options) {
       const observed = new WeakSet();
       const observer = new ResizeObserver(() => scheduleSettledLayoutRefresh("observed-layout-resize"));
       const observeTargets = () => {
+        if (!isCodexSurfaceActive()) return;
         const targets = [
-          document.documentElement,
-          document.body,
           ...document.querySelectorAll(".main-surface, .app-shell-main-content-viewport, [data-app-shell-main-content-layout], .thread-scroll-container")
         ].filter((target) => target instanceof Element);
 
@@ -1968,6 +2132,17 @@ function buildInstallerSource(options) {
         queued = true;
         requestAnimationFrame(() => {
           queued = false;
+          const surfaceCompatibility = applyCodexSurfaceState();
+          if (!surfaceCompatibility.supported) {
+            clearWideLayoutVariables([]);
+            window.__codexAppExtensionLayoutWidth = {
+              reason: "unsupported-surface",
+              disabled: true,
+              surfaceCompatibility
+            };
+            window.__codexAppExtensionLayoutWidthScopes = [];
+            return;
+          }
           window.__codexAppExtensionResizeObserver?.observeTargets?.();
           scheduleSettledLayoutRefresh("layout-mutation");
         });
@@ -1976,7 +2151,15 @@ function buildInstallerSource(options) {
         attributes: true,
         childList: true,
         subtree: true,
-        attributeFilter: ["class", "style", "data-app-shell-main-content-layout"]
+        attributeFilter: [
+          "class",
+          "style",
+          "data-app-shell-main-content-layout",
+          "data-codex-composer-request-navigation",
+          "data-request-input-dismiss",
+          "data-request-input-skip",
+          "data-request-input-other-row"
+        ]
       });
       window.__codexAppExtensionObserver = observer;
     }
@@ -2106,6 +2289,14 @@ function buildInstallerSource(options) {
       if (!(editable instanceof HTMLTextAreaElement)) return null;
       if (!isVisibleElement(editable)) return null;
       if (editable.closest("[role='dialog'], [data-radix-popper-content-wrapper], nav, aside, header")) return null;
+
+      // ChatGPT Codex 的 request input 已移除旧类名，稳定锚点改为外层导航数据属性。
+      const dataAttributeRoot = editable.closest("[data-codex-composer-request-navigation]");
+      if (dataAttributeRoot instanceof HTMLElement) {
+        const rect = dataAttributeRoot.getBoundingClientRect();
+        if (rect.width >= 220 && rect.height >= 20) return dataAttributeRoot;
+      }
+
       const editableClassName = String(editable.className || "");
       if (!/request-input-panel|inline-freeform/i.test(editableClassName)) return null;
 
@@ -2131,11 +2322,14 @@ function buildInstallerSource(options) {
     }
 
     function getLongTextManagedInput(editable) {
+      if (!isCodexSurfaceActive()) return null;
+
       if (isMainComposerEditable(editable)) {
         return {
           kind: "prosemirror-composer",
           element: editable,
-          root: getComposerRoot(editable)
+          root: getComposerRoot(editable),
+          protocol: "prosemirror-composer"
         };
       }
 
@@ -2144,7 +2338,10 @@ function buildInstallerSource(options) {
         return {
           kind: "request-input-panel-textarea",
           element: editable,
-          root: requestInputPanelRoot
+          root: requestInputPanelRoot,
+          protocol: requestInputPanelRoot.hasAttribute("data-codex-composer-request-navigation")
+            ? "chatgpt-codex-data-attributes"
+            : "legacy-classes"
         };
       }
 
@@ -2208,8 +2405,9 @@ function buildInstallerSource(options) {
         if (button.disabled) return false;
         if (button.getAttribute("aria-disabled") === "true") return false;
         if (!isVisibleElement(button)) return false;
+        if (button.matches("[data-request-input-dismiss], [data-request-input-skip]")) return false;
         const { label } = getButtonSignal(button);
-        if (/取消|关闭|返回|Cancel|Close|Back/i.test(label)) return false;
+        if (/取消|关闭|返回|跳过|忽略|Cancel|Close|Back|Skip|Dismiss/i.test(label)) return false;
         if (/添加文件|听写|模型|自定义|Attach|Dictate|Model|Custom/i.test(label)) return false;
         return true;
       });
@@ -2220,10 +2418,12 @@ function buildInstallerSource(options) {
       });
       if (explicit) return explicit;
 
-      return buttons.reverse().find((button) => {
-        const { className, label } = getButtonSignal(button);
-        return /primary|submit|send|accent|solid|button/i.test(className) || label.trim();
-      }) || null;
+      // 没有可识别文案时只接受唯一的主按钮候选；存在歧义就交还 Codex 原生行为。
+      const primaryCandidates = buttons.filter((button) => {
+        const { className } = getButtonSignal(button);
+        return /primary|submit|send|accent|solid|bg-token-text-link-foreground/i.test(className);
+      });
+      return primaryCandidates.length === 1 ? primaryCandidates[0] : null;
     }
 
     function insertComposerLineBreak(editable, state) {
@@ -2350,6 +2550,7 @@ function buildInstallerSource(options) {
       if (!state.enabled) return state;
 
       const compositionStart = (event) => {
+        if (!isCodexSurfaceActive()) return;
         const editable = getEditableElement(event.target);
         if (!isTextInput(editable)) return;
         state.activeTarget = editable;
@@ -2363,6 +2564,7 @@ function buildInstallerSource(options) {
       };
 
       const compositionEnd = (event) => {
+        if (!isCodexSurfaceActive()) return;
         const editable = getEditableElement(event.target) || state.activeTarget;
         if (!isTextInput(editable)) return;
         state.lastCompositionEndAt = Date.now();
@@ -2380,6 +2582,7 @@ function buildInstallerSource(options) {
       };
 
       const keydown = (event) => {
+        if (!isCodexSurfaceActive()) return;
         const editable = getEditableElement(event.target);
         if (!isTextInput(editable)) return;
 
@@ -2485,6 +2688,7 @@ function buildInstallerSource(options) {
         handled: false,
         target: describeImeTarget(editable),
         inputKind: managedInput?.kind || null,
+        inputProtocol: managedInput?.protocol || null,
         managedRoot: describeImeTarget(managedInput?.root || null),
         composerRoot: describeImeTarget(managedInput?.kind === "prosemirror-composer" ? managedInput.root : null),
         ...extra
@@ -2640,6 +2844,7 @@ function buildInstallerSource(options) {
         handled: false,
         target: describeImeTarget(editable),
         inputKind: managedInput?.kind || null,
+        inputProtocol: managedInput?.protocol || null,
         managedRoot: describeImeTarget(managedInput?.root || null),
         ...extra
       });
@@ -2693,6 +2898,7 @@ function buildInstallerSource(options) {
     }
 
     function install() {
+      const surfaceCompatibility = applyCodexSurfaceState();
       cleanupLegacyWideLayout();
       upsertStyle();
       const layoutWidthState = applyVariables();
@@ -2731,6 +2937,9 @@ function buildInstallerSource(options) {
         tool: ${JSON.stringify(APP_NAME)},
         styleId: STYLE_ID,
         config: meta,
+        surfaceSupported: Boolean(surfaceCompatibility.supported),
+        surfaceProfile: surfaceCompatibility.profile,
+        surfaceCompatibility: window.__codexAppExtensionSurfaceState || surfaceCompatibility,
         detectedFullscreen: fullscreen,
         fullscreenAttribute: document.documentElement.dataset.codexAppExtensionFullscreen || "",
         bodyThreadContentMaxWidth: getComputedStyle(computedTarget).getPropertyValue("--thread-content-max-width").trim(),
@@ -2787,6 +2996,7 @@ function buildMeta(options) {
 }
 
 function buildCss(options) {
+  const surfaceSelector = 'html[data-codex-app-extension-surface="true"]';
   const horizontalPadding = buildHorizontalPadding(options.horizontalGutter);
   const width = `min(${options.contentMaxWidth}, max(1px, calc(100vw - ${horizontalPadding})))`;
   const wideLayoutRootVariables = options.wideLayoutEnhancement ? `
@@ -2797,28 +3007,28 @@ function buildCss(options) {
   --codex-app-extension-horizontal-padding: ${horizontalPadding} !important;` : "";
   const wideLayoutCss = options.wideLayoutEnhancement ? `
 
-.max-w-\\(--thread-content-max-width\\),
-.max-w-\\[var\\(--thread-content-max-width\\)\\] {
+${surfaceSelector} .max-w-\\(--thread-content-max-width\\),
+${surfaceSelector} .max-w-\\[var\\(--thread-content-max-width\\)\\] {
   max-width: var(--thread-content-max-width) !important;
   translate: var(--codex-app-extension-content-offset-x) 0 !important;
 }
 
-.max-w-\\[var\\(--thread-composer-max-width\\)\\] {
+${surfaceSelector} .max-w-\\[var\\(--thread-composer-max-width\\)\\] {
   max-width: var(--thread-composer-max-width) !important;
   translate: var(--codex-app-extension-content-offset-x) 0 !important;
 }
 
-.max-w-\\[var\\(--markdown-wide-block-max-width\\)\\],
-.max-w-\\[min\\(90vw\\,var\\(--markdown-wide-block-max-width\\)\\)\\] {
+${surfaceSelector} .max-w-\\[var\\(--markdown-wide-block-max-width\\)\\],
+${surfaceSelector} .max-w-\\[min\\(90vw\\,var\\(--markdown-wide-block-max-width\\)\\)\\] {
   max-width: var(--markdown-wide-block-max-width) !important;
 }
 
-.w-\\[min\\(100\\%\\,var\\(--thread-content-max-width\\)\\)\\] {
+${surfaceSelector} .w-\\[min\\(100\\%\\,var\\(--thread-content-max-width\\)\\)\\] {
   width: min(100%, var(--thread-content-max-width)) !important;
 }
 
 /* 左侧栏不是主会话内容区，不能继承主内容宽屏变量和右侧 rail 避让偏移。 */
-.app-shell-left-panel {
+${surfaceSelector} .app-shell-left-panel {
   --thread-content-max-width: 100% !important;
   --thread-composer-max-width: 100% !important;
   --markdown-wide-block-max-width: 100% !important;
@@ -2826,20 +3036,20 @@ function buildCss(options) {
   --codex-app-extension-horizontal-padding: 0px !important;
 }
 
-.app-shell-left-panel [class*="group/folder-row"] {
+${surfaceSelector} .app-shell-left-panel [class*="group/folder-row"] {
   overflow-x: hidden !important;
   overflow-y: hidden !important;
   scrollbar-gutter: auto !important;
 }
 
-.app-shell-left-panel [class*="group/folder-row"] > :first-child {
+${surfaceSelector} .app-shell-left-panel [class*="group/folder-row"] > :first-child {
   min-width: 0 !important;
   max-width: 100% !important;
 }
 
-.app-shell-left-panel [class*="group/folder-row"] > [class*="min-w-0"][class*="gap-1"]:not([class*="flex-1"]),
-.app-shell-left-panel [class*="group/folder-row"] > [class*="opacity-0"][class*="group-hover/folder-row:opacity-100"],
-.app-shell-left-panel [class*="group/folder-row"] > [class*="grid"][class*="group-hover/folder-row:w-6"] {
+${surfaceSelector} .app-shell-left-panel [class*="group/folder-row"] > [class*="min-w-0"][class*="gap-1"]:not([class*="flex-1"]),
+${surfaceSelector} .app-shell-left-panel [class*="group/folder-row"] > [class*="opacity-0"][class*="group-hover/folder-row:opacity-100"],
+${surfaceSelector} .app-shell-left-panel [class*="group/folder-row"] > [class*="grid"][class*="group-hover/folder-row:w-6"] {
   position: absolute !important;
   top: 50% !important;
   translate: 0 -50% !important;
@@ -2847,29 +3057,29 @@ function buildCss(options) {
   pointer-events: none !important;
 }
 
-.app-shell-left-panel [class*="group/folder-row"] > [class*="min-w-0"][class*="gap-1"]:not([class*="flex-1"]) {
+${surfaceSelector} .app-shell-left-panel [class*="group/folder-row"] > [class*="min-w-0"][class*="gap-1"]:not([class*="flex-1"]) {
   right: 0.35rem !important;
 }
 
-.app-shell-left-panel [class*="group/folder-row"] > [class*="opacity-0"][class*="group-hover/folder-row:opacity-100"] {
+${surfaceSelector} .app-shell-left-panel [class*="group/folder-row"] > [class*="opacity-0"][class*="group-hover/folder-row:opacity-100"] {
   right: 2.25rem !important;
 }
 
-.app-shell-left-panel [class*="group/folder-row"] > [class*="grid"][class*="group-hover/folder-row:w-6"] {
+${surfaceSelector} .app-shell-left-panel [class*="group/folder-row"] > [class*="grid"][class*="group-hover/folder-row:w-6"] {
   right: 0.35rem !important;
 }
 
-.app-shell-left-panel [class*="group/folder-row"]:is(:hover, :focus-within) > :first-child {
+${surfaceSelector} .app-shell-left-panel [class*="group/folder-row"]:is(:hover, :focus-within) > :first-child {
   padding-inline-end: 3.75rem !important;
 }
 
-.app-shell-left-panel [class*="group/folder-row"]:is(:hover, :focus-within) > [class*="min-w-0"][class*="gap-1"]:not([class*="flex-1"]),
-.app-shell-left-panel [class*="group/folder-row"]:is(:hover, :focus-within) > [class*="opacity-0"][class*="group-hover/folder-row:opacity-100"],
-.app-shell-left-panel [class*="group/folder-row"]:is(:hover, :focus-within) > [class*="grid"][class*="group-hover/folder-row:w-6"] {
+${surfaceSelector} .app-shell-left-panel [class*="group/folder-row"]:is(:hover, :focus-within) > [class*="min-w-0"][class*="gap-1"]:not([class*="flex-1"]),
+${surfaceSelector} .app-shell-left-panel [class*="group/folder-row"]:is(:hover, :focus-within) > [class*="opacity-0"][class*="group-hover/folder-row:opacity-100"],
+${surfaceSelector} .app-shell-left-panel [class*="group/folder-row"]:is(:hover, :focus-within) > [class*="grid"][class*="group-hover/folder-row:w-6"] {
   pointer-events: auto !important;
 }
 
-[data-codex-app-extension-native-floating-panel="true"] {
+${surfaceSelector} [data-codex-app-extension-native-floating-panel="true"] {
   --thread-content-max-width: 100vw !important;
   --thread-composer-max-width: 100vw !important;
   --markdown-wide-block-max-width: 100vw !important;
@@ -2877,20 +3087,20 @@ function buildCss(options) {
   --codex-app-extension-horizontal-padding: 0px !important;
 }
 
-[data-codex-app-extension-native-floating-panel="true"].max-w-\\(--thread-content-max-width\\),
-[data-codex-app-extension-native-floating-panel="true"] .max-w-\\(--thread-content-max-width\\),
-[data-codex-app-extension-native-floating-panel="true"].max-w-\\[var\\(--thread-content-max-width\\)\\],
-[data-codex-app-extension-native-floating-panel="true"] .max-w-\\[var\\(--thread-content-max-width\\)\\],
-[data-codex-app-extension-native-floating-panel="true"].max-w-\\[var\\(--thread-composer-max-width\\)\\],
-[data-codex-app-extension-native-floating-panel="true"] .max-w-\\[var\\(--thread-composer-max-width\\)\\] {
+${surfaceSelector} [data-codex-app-extension-native-floating-panel="true"].max-w-\\(--thread-content-max-width\\),
+${surfaceSelector} [data-codex-app-extension-native-floating-panel="true"] .max-w-\\(--thread-content-max-width\\),
+${surfaceSelector} [data-codex-app-extension-native-floating-panel="true"].max-w-\\[var\\(--thread-content-max-width\\)\\],
+${surfaceSelector} [data-codex-app-extension-native-floating-panel="true"] .max-w-\\[var\\(--thread-content-max-width\\)\\],
+${surfaceSelector} [data-codex-app-extension-native-floating-panel="true"].max-w-\\[var\\(--thread-composer-max-width\\)\\],
+${surfaceSelector} [data-codex-app-extension-native-floating-panel="true"] .max-w-\\[var\\(--thread-composer-max-width\\)\\] {
   translate: none !important;
 }
 ` : "";
   return `
-body[data-codex-window-type="electron"],
-.main-surface,
-.app-shell-main-content-viewport,
-[data-app-shell-main-content-layout] {
+${surfaceSelector} body[data-codex-window-type="electron"],
+${surfaceSelector} .main-surface,
+${surfaceSelector} .app-shell-main-content-viewport,
+${surfaceSelector} [data-app-shell-main-content-layout] {
 ${wideLayoutRootVariables}
   --codex-app-extension-fullscreen-header-offset: ${options.fullscreenHeaderOffset} !important;
   --codex-app-extension-heading-text-color: ${options.headingTextEnhancementStyle.color} !important;
@@ -2905,13 +3115,13 @@ ${wideLayoutRootVariables}
 }
 ${wideLayoutCss}
 
-:where(main.main-surface, .main-surface) {
+${surfaceSelector} :where(main.main-surface, .main-surface) {
   box-sizing: border-box !important;
   padding-top: var(--codex-app-extension-fullscreen-header-offset) !important;
 }
 
 /* Only suppress accidental focus chrome on top-level layout shells; real controls keep their focus styles. */
-html[data-codex-app-extension-layout-focus-ring-fix="true"] :where(
+html[data-codex-app-extension-surface="true"][data-codex-app-extension-layout-focus-ring-fix="true"] :where(
   main.main-surface,
   .main-surface,
   .app-shell-main-content-viewport,
@@ -2922,7 +3132,7 @@ html[data-codex-app-extension-layout-focus-ring-fix="true"] :where(
   box-shadow: none !important;
 }
 
-html[data-codex-app-extension-layout-focus-ring-fix="true"] :where(
+html[data-codex-app-extension-surface="true"][data-codex-app-extension-layout-focus-ring-fix="true"] :where(
   main.main-surface,
   .main-surface,
   .app-shell-main-content-viewport,
@@ -2933,17 +3143,17 @@ html[data-codex-app-extension-layout-focus-ring-fix="true"] :where(
 }
 
 /* Theme enhancement is intentionally scoped to Markdown-like tags in the main surface. */
-html[data-codex-app-extension-heading-text-enhancement="true"] main.main-surface :where(h1, h2, h3, h4, h5, h6) {
+html[data-codex-app-extension-surface="true"][data-codex-app-extension-heading-text-enhancement="true"] main.main-surface :where(h1, h2, h3, h4, h5, h6) {
   color: var(--codex-app-extension-heading-text-color) !important;
 }
 
-html[data-codex-app-extension-strong-text-enhancement="true"] main.main-surface :where(p, li, blockquote, td, th) :where(strong) {
+html[data-codex-app-extension-surface="true"][data-codex-app-extension-strong-text-enhancement="true"] main.main-surface :where(p, li, blockquote, td, th) :where(strong) {
   color: var(--codex-app-extension-strong-text-color) !important;
   font-weight: var(--codex-app-extension-strong-font-weight) !important;
 }
 
-html[data-codex-app-extension-theme-enhancement="true"] main.main-surface :where(.inline-markdown),
-html[data-codex-app-extension-theme-enhancement="true"] main.main-surface :where(p, li, blockquote, td, th, h1, h2, h3, h4, h5, h6) > code {
+html[data-codex-app-extension-surface="true"][data-codex-app-extension-theme-enhancement="true"] main.main-surface :where(.inline-markdown),
+html[data-codex-app-extension-surface="true"][data-codex-app-extension-theme-enhancement="true"] main.main-surface :where(p, li, blockquote, td, th, h1, h2, h3, h4, h5, h6) > code {
   color: var(--codex-app-extension-theme-inline-code-text) !important;
   background: var(--codex-app-extension-theme-inline-code-background) !important;
   border: 1px solid var(--codex-app-extension-theme-inline-code-border) !important;
@@ -2951,14 +3161,14 @@ html[data-codex-app-extension-theme-enhancement="true"] main.main-surface :where
   padding: 0.08em 0.36em !important;
 }
 
-html[data-codex-app-extension-theme-enhancement="true"] main.main-surface :where(pre, pre *) code {
+html[data-codex-app-extension-surface="true"][data-codex-app-extension-theme-enhancement="true"] main.main-surface :where(pre, pre *) code {
   color: inherit !important;
   background: transparent !important;
   border: 0 !important;
   padding: 0 !important;
 }
 
-html[data-codex-app-extension-theme-enhancement="true"] main.main-surface :where(blockquote) {
+html[data-codex-app-extension-surface="true"][data-codex-app-extension-theme-enhancement="true"] main.main-surface :where(blockquote) {
   color: var(--codex-app-extension-theme-blockquote-text) !important;
   background: var(--codex-app-extension-theme-blockquote-background) !important;
   border-left: 3px solid var(--codex-app-extension-theme-blockquote-border) !important;
