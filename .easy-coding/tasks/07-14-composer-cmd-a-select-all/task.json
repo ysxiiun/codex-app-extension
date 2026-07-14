@@ -1,0 +1,30 @@
+{
+  "type": "bugfix",
+  "title": "修复主对话输入框 Cmd+A 无法全选",
+  "status": "CLOSED",
+  "created_at": "2026-07-14T02:53:43.172832+00:00",
+  "created_by": "codex",
+  "last_agent": "codex",
+  "stage_history": [
+    {
+      "stage": "INIT",
+      "agent": "codex",
+      "entered_at": "2026-07-14T02:53:43.172832+00:00"
+    },
+    {
+      "stage": "ANALYSIS",
+      "agent": "codex",
+      "entered_at": "2026-07-14T02:54:05.878086+00:00"
+    },
+    {
+      "stage": "CLOSED",
+      "agent": "codex",
+      "entered_at": "2026-07-14T03:23:57.068714+00:00"
+    }
+  ],
+  "context": {},
+  "spawned_from": null,
+  "spawned_tasks": [],
+  "closed_reason": "用户主动终止并确认关闭本次 Cmd+A 修复任务",
+  "repos": []
+}

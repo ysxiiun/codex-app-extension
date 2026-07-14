@@ -42,7 +42,7 @@ const DEFAULT_THEME_ENHANCEMENT_COLORS = Object.freeze({
   inlineCodeBackground: "rgba(223, 48, 121, 0.10)",
   inlineCodeBorder: "rgba(223, 48, 121, 0.18)",
   blockquoteBorder: "#df3079",
-  blockquoteText: "rgba(252, 252, 252, 0.78)",
+  blockquoteText: "inherit",
   blockquoteBackground: "rgba(223, 48, 121, 0.06)",
 });
 const THEME_ENHANCEMENT_COLOR_KEYS = Object.freeze(Object.keys(DEFAULT_THEME_ENHANCEMENT_COLORS));
@@ -3175,6 +3175,15 @@ html[data-codex-app-extension-surface="true"][data-codex-app-extension-theme-enh
   border-radius: 0 6px 6px 0 !important;
   margin-inline: 0 !important;
   padding: 0.65em 0.9em !important;
+}
+
+/* 嵌套引用扁平化：去掉重复的背景/左边框/圆角/间距，消除二层灰块，正文颜色继续继承 */
+html[data-codex-app-extension-surface="true"][data-codex-app-extension-theme-enhancement="true"] main.main-surface :where(blockquote) blockquote {
+  background: transparent !important;
+  border-left: 0 !important;
+  border-radius: 0 !important;
+  margin-inline: 0 !important;
+  padding: 0 !important;
 }
 
 `.trim();

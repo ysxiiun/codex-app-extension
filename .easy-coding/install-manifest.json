@@ -1,0 +1,438 @@
+{
+  "schema_version": 1,
+  "harness_version": "0.8.0",
+  "generated_at": "2026-07-14T02:38:41.130Z",
+  "agents": [
+    "claude-code",
+    "codex",
+    "qoder"
+  ],
+  "files": [
+    {
+      "path": ".agents/skills/ec-analysis/SKILL.md",
+      "kind": "skill",
+      "platform": "codex",
+      "sha256": "e47f285f5ec0b5b22a0bcc87822e41aec454637858fa887fa6452df32f2d7368"
+    },
+    {
+      "path": ".agents/skills/ec-brainstorming/SKILL.md",
+      "kind": "skill",
+      "platform": "codex",
+      "sha256": "dd7ea641937dadc9bed3ecaba15c6abfdf5d7b112abff8d94a4ffea2937b0b11"
+    },
+    {
+      "path": ".agents/skills/ec-git/SKILL.md",
+      "kind": "skill",
+      "platform": "codex",
+      "sha256": "e63c28539588354f87796956f0b1321a979a8eb19843aee5eb512fa2ac347681"
+    },
+    {
+      "path": ".agents/skills/ec-implementing/SKILL.md",
+      "kind": "skill",
+      "platform": "codex",
+      "sha256": "7a3347f218b0b790af43544a4a00d78179b32fe29b98e7b96ac0e165f52ce7aa"
+    },
+    {
+      "path": ".agents/skills/ec-init/references/memory-migration.md",
+      "kind": "skill",
+      "platform": "codex",
+      "sha256": "8d02dbf6bfcb64a69f2e9ad0db17f5cd1ca4940db0ac04678171dfb8d0ac2c0e"
+    },
+    {
+      "path": ".agents/skills/ec-init/SKILL.md",
+      "kind": "skill",
+      "platform": "codex",
+      "sha256": "47cee28083646677334145877c4f847ce05a62c7b9c60b6778c5f640086919eb"
+    },
+    {
+      "path": ".agents/skills/ec-memory/SKILL.md",
+      "kind": "skill",
+      "platform": "codex",
+      "sha256": "b650fe838548bc3125d496b87c95e3c367355ac1472ef6c75096cba6c80e8cdd"
+    },
+    {
+      "path": ".agents/skills/ec-meta/references/customize-local/README.md",
+      "kind": "skill",
+      "platform": "codex",
+      "sha256": "84b0cfd7cc04958abcd1251fc1123e6532a991482c1e2982348a017f734ec8b7"
+    },
+    {
+      "path": ".agents/skills/ec-meta/references/local-architecture/README.md",
+      "kind": "skill",
+      "platform": "codex",
+      "sha256": "56d8937f26e30efe84b38bc3e542b88afd82a116f2e9a7ec30f0addf2541fff8"
+    },
+    {
+      "path": ".agents/skills/ec-meta/references/platform-files/README.md",
+      "kind": "skill",
+      "platform": "codex",
+      "sha256": "ee6cf6db75c6e995a27c2ac3327efbdec624fbc107dd77f22bc69ab725f7680c"
+    },
+    {
+      "path": ".agents/skills/ec-meta/SKILL.md",
+      "kind": "skill",
+      "platform": "codex",
+      "sha256": "10759d5e54f9309f3466384e4e130713d6d84f139f5f9fa56e6f5a3fe7971aae"
+    },
+    {
+      "path": ".agents/skills/ec-no-harness/SKILL.md",
+      "kind": "skill",
+      "platform": "codex",
+      "sha256": "4b9915ead4d401ed25172258b290206c992e8f969bc57be0184a67a7f8fcfbc2"
+    },
+    {
+      "path": ".agents/skills/ec-reviewing/SKILL.md",
+      "kind": "skill",
+      "platform": "codex",
+      "sha256": "21cfc681580ecacae982290681a0033d1d7d1e7e2eecd44799a638f56a9a9268"
+    },
+    {
+      "path": ".agents/skills/ec-task-close/SKILL.md",
+      "kind": "skill",
+      "platform": "codex",
+      "sha256": "4d68e0ea3641ff496101e7b90fd97df8e3f14619695654f75713b7d3ea9cca3f"
+    },
+    {
+      "path": ".agents/skills/ec-task-management/SKILL.md",
+      "kind": "skill",
+      "platform": "codex",
+      "sha256": "2bc62fa65fe24f38573a5fff9f664739b32be04ae83c4d7ec0e86630f77daa79"
+    },
+    {
+      "path": ".agents/skills/ec-verification/SKILL.md",
+      "kind": "skill",
+      "platform": "codex",
+      "sha256": "5b525f9626be190547f468e24c7ea2ac663f2654b4e917f2b9b657be239098bc"
+    },
+    {
+      "path": ".agents/skills/ec-workflow/SKILL.md",
+      "kind": "skill",
+      "platform": "codex",
+      "sha256": "945465634e6225ad06bd6d5d92d2e5987d0a31b5f450da8a7ff37add9dc46fed"
+    },
+    {
+      "path": ".claude/agents/ec-fixer.md",
+      "kind": "agent",
+      "platform": "claude-code",
+      "sha256": "53c1ae473bf98f3fcb64e65cfb709d1e7a619d469fb918a04c868e698bca8a35"
+    },
+    {
+      "path": ".claude/agents/ec-implementer.md",
+      "kind": "agent",
+      "platform": "claude-code",
+      "sha256": "0180445af01af9b69a2685bae73e8e53d38cb8b669577c373beeeea674b1d168"
+    },
+    {
+      "path": ".claude/agents/ec-reviewer.md",
+      "kind": "agent",
+      "platform": "claude-code",
+      "sha256": "4c3e1ad836e83f3d1f01a0474984032ce3f3cf9f74af33aa7ca6abb6e34f2436"
+    },
+    {
+      "path": ".claude/agents/ec-verifier.md",
+      "kind": "agent",
+      "platform": "claude-code",
+      "sha256": "fed02d51a04d2af1304fce4e9355f1abbe1ae8fbb13c80e45c3824bb60e78704"
+    },
+    {
+      "path": ".claude/hooks/easy_coding_state.py",
+      "kind": "hook",
+      "platform": "claude-code",
+      "sha256": "a3b61427db728032ebec190165391402ebb24ecf5b9a0ba5090b19b954202380"
+    },
+    {
+      "path": ".claude/hooks/easy_coding_status.py",
+      "kind": "hook",
+      "platform": "claude-code",
+      "sha256": "a92ad40888e46cab621ab703bc225e994a214a7d299f45ad57e25980cd5c7db4"
+    },
+    {
+      "path": ".claude/hooks/inject-subagent-context.py",
+      "kind": "hook",
+      "platform": "claude-code",
+      "sha256": "315807173bf671d824683d3ff4ec66980d6ec4366a42e1960895210ffff2b89a"
+    },
+    {
+      "path": ".claude/hooks/inject-workflow-state.py",
+      "kind": "hook",
+      "platform": "claude-code",
+      "sha256": "dc7c7d1870a6909218a2887e0b372d9e9f6b839c0d73e425d226179eb3a36fda"
+    },
+    {
+      "path": ".claude/hooks/session-start.py",
+      "kind": "hook",
+      "platform": "claude-code",
+      "sha256": "9c1f289bade16a63668f8b4f5de240f662e1ee501539a2f38f9bbf485bd8e16b"
+    },
+    {
+      "path": ".claude/skills/ec-analysis/SKILL.md",
+      "kind": "skill",
+      "platform": "claude-code",
+      "sha256": "12bf8c5ef1fe22bdf3fdb283f6d0f516296f1825764ab6a248a3cf01c7ada8af"
+    },
+    {
+      "path": ".claude/skills/ec-brainstorming/SKILL.md",
+      "kind": "skill",
+      "platform": "claude-code",
+      "sha256": "327a2691389d80211ddbb756b5a8f79bc068caa40f201f74cdf545609e2d02a2"
+    },
+    {
+      "path": ".claude/skills/ec-git/SKILL.md",
+      "kind": "skill",
+      "platform": "claude-code",
+      "sha256": "e63c28539588354f87796956f0b1321a979a8eb19843aee5eb512fa2ac347681"
+    },
+    {
+      "path": ".claude/skills/ec-implementing/SKILL.md",
+      "kind": "skill",
+      "platform": "claude-code",
+      "sha256": "a750ec74dad5bf0f55186c5ab809d303165ab6b2d9ec4467d072dac52564548d"
+    },
+    {
+      "path": ".claude/skills/ec-init/references/memory-migration.md",
+      "kind": "skill",
+      "platform": "claude-code",
+      "sha256": "8d02dbf6bfcb64a69f2e9ad0db17f5cd1ca4940db0ac04678171dfb8d0ac2c0e"
+    },
+    {
+      "path": ".claude/skills/ec-init/SKILL.md",
+      "kind": "skill",
+      "platform": "claude-code",
+      "sha256": "8aa535b75007fc437a2ea0f375c61993851c649ee5761824a272f2f314aed1b3"
+    },
+    {
+      "path": ".claude/skills/ec-memory/SKILL.md",
+      "kind": "skill",
+      "platform": "claude-code",
+      "sha256": "432bfd68613674331bd02716af144c2897df17f15c39db03c78f68548ff90c4d"
+    },
+    {
+      "path": ".claude/skills/ec-meta/references/customize-local/README.md",
+      "kind": "skill",
+      "platform": "claude-code",
+      "sha256": "84b0cfd7cc04958abcd1251fc1123e6532a991482c1e2982348a017f734ec8b7"
+    },
+    {
+      "path": ".claude/skills/ec-meta/references/local-architecture/README.md",
+      "kind": "skill",
+      "platform": "claude-code",
+      "sha256": "56d8937f26e30efe84b38bc3e542b88afd82a116f2e9a7ec30f0addf2541fff8"
+    },
+    {
+      "path": ".claude/skills/ec-meta/references/platform-files/README.md",
+      "kind": "skill",
+      "platform": "claude-code",
+      "sha256": "ee6cf6db75c6e995a27c2ac3327efbdec624fbc107dd77f22bc69ab725f7680c"
+    },
+    {
+      "path": ".claude/skills/ec-meta/SKILL.md",
+      "kind": "skill",
+      "platform": "claude-code",
+      "sha256": "3ff08465ea7e414f432bb0bdbf4bbb86790a4a066c04e42c7f36aca7c8989306"
+    },
+    {
+      "path": ".claude/skills/ec-no-harness/SKILL.md",
+      "kind": "skill",
+      "platform": "claude-code",
+      "sha256": "a67102aaa920e8e7bfcf957f85ec89ff0312c8375b3bd699b22120856400b2d1"
+    },
+    {
+      "path": ".claude/skills/ec-reviewing/SKILL.md",
+      "kind": "skill",
+      "platform": "claude-code",
+      "sha256": "dd018e7c4bf88364f4855ff8123066053f6dd05eef16e6c4bebb248729e1ea05"
+    },
+    {
+      "path": ".claude/skills/ec-task-close/SKILL.md",
+      "kind": "skill",
+      "platform": "claude-code",
+      "sha256": "013f9a6109215a5f753017bbf67003f87c13a402eea3165e36cab881df0408d9"
+    },
+    {
+      "path": ".claude/skills/ec-task-management/SKILL.md",
+      "kind": "skill",
+      "platform": "claude-code",
+      "sha256": "0e1b8fd513a44928d13dc1eb69c5691dadad9905f9ee2ba36e1fc512442e7167"
+    },
+    {
+      "path": ".claude/skills/ec-verification/SKILL.md",
+      "kind": "skill",
+      "platform": "claude-code",
+      "sha256": "dbf7c34acee5eb966238969f3e31edc560b7bd67a2773096bd9e85b8559e3071"
+    },
+    {
+      "path": ".claude/skills/ec-workflow/SKILL.md",
+      "kind": "skill",
+      "platform": "claude-code",
+      "sha256": "7da3b599f8eb8bca51570e0c15dcf78dbe2bc4d8f7f6aae675d2508c10b0c5ea"
+    },
+    {
+      "path": ".codex/agents/ec-fixer.toml",
+      "kind": "agent",
+      "platform": "codex",
+      "sha256": "045d1efd7ee0d42c80b6de3fad39c8077674ccaf91a98f2331b24adc0c780e67"
+    },
+    {
+      "path": ".codex/agents/ec-implementer.toml",
+      "kind": "agent",
+      "platform": "codex",
+      "sha256": "beaed19057fd01311c75e088dbba3664773f2bb7e4dd89e7e9e8c4eca2b60439"
+    },
+    {
+      "path": ".codex/agents/ec-reviewer.toml",
+      "kind": "agent",
+      "platform": "codex",
+      "sha256": "cc6276efab0cd6d4ccc64c297c8e93ed8c73e55e7c6190c5c7cb06c4e531970a"
+    },
+    {
+      "path": ".codex/agents/ec-verifier.toml",
+      "kind": "agent",
+      "platform": "codex",
+      "sha256": "d87cf994ddae4dea34cb2abfac5b30b26ee2720398cdb309bca8b642fa08b5d1"
+    },
+    {
+      "path": ".codex/config.toml",
+      "kind": "platform-config",
+      "platform": "codex",
+      "sha256": "6e20993f31cd29325844981a8cdcf800fa45e25aa3cd1e52c26d3f6e29b96026"
+    },
+    {
+      "path": ".codex/hooks/easy_coding_state.py",
+      "kind": "hook",
+      "platform": "codex",
+      "sha256": "a3b61427db728032ebec190165391402ebb24ecf5b9a0ba5090b19b954202380"
+    },
+    {
+      "path": ".codex/hooks/easy_coding_status.py",
+      "kind": "hook",
+      "platform": "codex",
+      "sha256": "a92ad40888e46cab621ab703bc225e994a214a7d299f45ad57e25980cd5c7db4"
+    },
+    {
+      "path": ".codex/hooks/inject-workflow-state.py",
+      "kind": "hook",
+      "platform": "codex",
+      "sha256": "dc7c7d1870a6909218a2887e0b372d9e9f6b839c0d73e425d226179eb3a36fda"
+    },
+    {
+      "path": ".codex/hooks/session-start.py",
+      "kind": "hook",
+      "platform": "codex",
+      "sha256": "9c1f289bade16a63668f8b4f5de240f662e1ee501539a2f38f9bbf485bd8e16b"
+    },
+    {
+      "path": ".qoder/agents/ec-fixer.md",
+      "kind": "agent",
+      "platform": "qoder",
+      "sha256": "c2fbbb3b2b42f7740ca13cd6a762507864eae2ee94e6f767a8d64c243c29710d"
+    },
+    {
+      "path": ".qoder/agents/ec-implementer.md",
+      "kind": "agent",
+      "platform": "qoder",
+      "sha256": "b830476fbdad47d5131400e470182d5a64547430f8d32e6474fef76ded7323f9"
+    },
+    {
+      "path": ".qoder/agents/ec-reviewer.md",
+      "kind": "agent",
+      "platform": "qoder",
+      "sha256": "98737cff017312562643998cde37343e87ec10f9875e6968a79bc9dd2947e9e8"
+    },
+    {
+      "path": ".qoder/agents/ec-verifier.md",
+      "kind": "agent",
+      "platform": "qoder",
+      "sha256": "edccc722de8098bcad424ad7c00c4d08b4e3b20ce2eb6d0c8b782ae5b0a64518"
+    },
+    {
+      "path": ".qoder/hooks/easy_coding_state.py",
+      "kind": "hook",
+      "platform": "qoder",
+      "sha256": "a3b61427db728032ebec190165391402ebb24ecf5b9a0ba5090b19b954202380"
+    },
+    {
+      "path": ".qoder/hooks/easy_coding_status.py",
+      "kind": "hook",
+      "platform": "qoder",
+      "sha256": "a92ad40888e46cab621ab703bc225e994a214a7d299f45ad57e25980cd5c7db4"
+    },
+    {
+      "path": ".qoder/hooks/inject-subagent-context.py",
+      "kind": "hook",
+      "platform": "qoder",
+      "sha256": "315807173bf671d824683d3ff4ec66980d6ec4366a42e1960895210ffff2b89a"
+    },
+    {
+      "path": ".qoder/hooks/inject-workflow-state.py",
+      "kind": "hook",
+      "platform": "qoder",
+      "sha256": "dc7c7d1870a6909218a2887e0b372d9e9f6b839c0d73e425d226179eb3a36fda"
+    },
+    {
+      "path": ".qoder/hooks/session-start.py",
+      "kind": "hook",
+      "platform": "qoder",
+      "sha256": "9c1f289bade16a63668f8b4f5de240f662e1ee501539a2f38f9bbf485bd8e16b"
+    }
+  ],
+  "hook_registrations": [
+    {
+      "config_path": ".claude/settings.json",
+      "command": "python3 -c \"import base64;exec(base64.b64decode('aW1wb3J0IGlvLGpzb24sb3MscmUscnVucHksc3lzCnN5cy5kb250X3dyaXRlX2J5dGVjb2RlPVRydWUKZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCnBheWxvYWQ9c3lzLnN0ZGluLnJlYWQoKQp0cnk6CiAgICBkYXRhPWpzb24ubG9hZHMocGF5bG9hZCBvciAne30nKQpleGNlcHQgRXhjZXB0aW9uOgogICAgZGF0YT17fQpleHBlY3RlZF9pZD1zeXMuYXJndlsxXSBpZiBsZW4oc3lzLmFyZ3YpID4gMiBlbHNlIE5vbmUKc2NyaXB0X2FyZz1zeXMuYXJndlsyXSBpZiBsZW4oc3lzLmFyZ3YpID4gMiBlbHNlIChzeXMuYXJndlsxXSBpZiBsZW4oc3lzLmFyZ3YpID4gMSBlbHNlIE5vbmUpCmRlZiBwcm9qZWN0X2lkKHJvb3QpOgogICAgdHJ5OgogICAgICAgIGxpbmVzPShyb290IC8gJy5lYXN5LWNvZGluZycgLyAnY29uZmlnLnlhbWwnKS5yZWFkX3RleHQoZW5jb2Rpbmc9J3V0Zi04Jykuc3BsaXRsaW5lcygpCiAgICBleGNlcHQgRXhjZXB0aW9uOgogICAgICAgIHJldHVybiBOb25lCiAgICBpbl9wcm9qZWN0PUZhbHNlCiAgICBmb3IgbGluZSBpbiBsaW5lczoKICAgICAgICBpZiBub3QgaW5fcHJvamVjdDoKICAgICAgICAgICAgaWYgcmUubWF0Y2gocidecHJvamVjdFxzKjpccyooPzojLiopPyQnLCBsaW5lKToKICAgICAgICAgICAgICAgIGluX3Byb2plY3Q9VHJ1ZQogICAgICAgICAgICBjb250aW51ZQogICAgICAgIGlmIG5vdCBsaW5lLnN0cmlwKCkgb3IgbGluZS5sc3RyaXAoKS5zdGFydHN3aXRoKCcjJyk6CiAgICAgICAgICAgIGNvbnRpbnVlCiAgICAgICAgaWYgbm90IGxpbmUuc3RhcnRzd2l0aCgoJyAnLCAnXHQnKSk6CiAgICAgICAgICAgIHJldHVybiBOb25lCiAgICAgICAgbWF0Y2g9cmUubWF0Y2gociJccytpZFxzKjpccypbJ1wiXT8oW14nXCIjXHNdKykiLCBsaW5lKQogICAgICAgIGlmIG1hdGNoOgogICAgICAgICAgICByZXR1cm4gbWF0Y2guZ3JvdXAoMSkKICAgIHJldHVybiBOb25lCmRlZiByb290c19mcm9tKHJhdyk6CiAgICBpZiBub3QgcmF3OgogICAgICAgIHJldHVybiBbXQogICAgc3RhcnQ9UGF0aChyYXcpLnJlc29sdmUoKQogICAgcmV0dXJuIFtjYW5kaWRhdGUgZm9yIGNhbmRpZGF0ZSBpbiAoc3RhcnQsICpzdGFydC5wYXJlbnRzKSBpZiAoY2FuZGlkYXRlIC8gJy5lYXN5LWNvZGluZycpLmlzX2RpcigpXQpzb3VyY2VzPVtvcy5lbnZpcm9uLmdldCgnQ0xBVURFX1BST0pFQ1RfRElSJyksIG9zLmVudmlyb24uZ2V0KCdRT0RFUl9QUk9KRUNUX0RJUicpLCBkYXRhLmdldCgnY3dkJyksIG9zLmdldGN3ZCgpXQpyb290PU5vbmUKaWYgZXhwZWN0ZWRfaWQ6CiAgICByb290PW5leHQoKGNhbmRpZGF0ZSBmb3IgcmF3IGluIHNvdXJjZXMgZm9yIGNhbmRpZGF0ZSBpbiByb290c19mcm9tKHJhdykgaWYgcHJvamVjdF9pZChjYW5kaWRhdGUpID09IGV4cGVjdGVkX2lkKSwgTm9uZSkKZWxzZToKICAgIHJvb3Q9bmV4dCgoY2FuZGlkYXRlIGZvciByYXcgaW4gc291cmNlcyBmb3IgY2FuZGlkYXRlIGluIHJvb3RzX2Zyb20ocmF3KSksIE5vbmUpCnRhcmdldD0ocm9vdCAvIHNjcmlwdF9hcmcpIGlmIHJvb3QgYW5kIHNjcmlwdF9hcmcgZWxzZSBOb25lCmlmIHRhcmdldCBhbmQgdGFyZ2V0LmlzX2ZpbGUoKToKICAgIG9zLmNoZGlyKHJvb3QpCiAgICBkYXRhWydjd2QnXT1zdHIocm9vdCkKICAgIHN5cy5zdGRpbj1pby5TdHJpbmdJTyhqc29uLmR1bXBzKGRhdGEpKQogICAgc3lzLnBhdGguaW5zZXJ0KDAsIHN0cih0YXJnZXQucGFyZW50KSkKICAgIHJ1bnB5LnJ1bl9wYXRoKHN0cih0YXJnZXQpLCBydW5fbmFtZT0nX19tYWluX18nKQ==').decode())\" \"ec-e86d6639-fb0c-4172-8927-3c21ce1a9fdd\" .claude/hooks/inject-subagent-context.py",
+      "hook_path": ".claude/hooks/inject-subagent-context.py",
+      "platform": "claude-code"
+    },
+    {
+      "config_path": ".claude/settings.json",
+      "command": "python3 -c \"import base64;exec(base64.b64decode('aW1wb3J0IGlvLGpzb24sb3MscmUscnVucHksc3lzCnN5cy5kb250X3dyaXRlX2J5dGVjb2RlPVRydWUKZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCnBheWxvYWQ9c3lzLnN0ZGluLnJlYWQoKQp0cnk6CiAgICBkYXRhPWpzb24ubG9hZHMocGF5bG9hZCBvciAne30nKQpleGNlcHQgRXhjZXB0aW9uOgogICAgZGF0YT17fQpleHBlY3RlZF9pZD1zeXMuYXJndlsxXSBpZiBsZW4oc3lzLmFyZ3YpID4gMiBlbHNlIE5vbmUKc2NyaXB0X2FyZz1zeXMuYXJndlsyXSBpZiBsZW4oc3lzLmFyZ3YpID4gMiBlbHNlIChzeXMuYXJndlsxXSBpZiBsZW4oc3lzLmFyZ3YpID4gMSBlbHNlIE5vbmUpCmRlZiBwcm9qZWN0X2lkKHJvb3QpOgogICAgdHJ5OgogICAgICAgIGxpbmVzPShyb290IC8gJy5lYXN5LWNvZGluZycgLyAnY29uZmlnLnlhbWwnKS5yZWFkX3RleHQoZW5jb2Rpbmc9J3V0Zi04Jykuc3BsaXRsaW5lcygpCiAgICBleGNlcHQgRXhjZXB0aW9uOgogICAgICAgIHJldHVybiBOb25lCiAgICBpbl9wcm9qZWN0PUZhbHNlCiAgICBmb3IgbGluZSBpbiBsaW5lczoKICAgICAgICBpZiBub3QgaW5fcHJvamVjdDoKICAgICAgICAgICAgaWYgcmUubWF0Y2gocidecHJvamVjdFxzKjpccyooPzojLiopPyQnLCBsaW5lKToKICAgICAgICAgICAgICAgIGluX3Byb2plY3Q9VHJ1ZQogICAgICAgICAgICBjb250aW51ZQogICAgICAgIGlmIG5vdCBsaW5lLnN0cmlwKCkgb3IgbGluZS5sc3RyaXAoKS5zdGFydHN3aXRoKCcjJyk6CiAgICAgICAgICAgIGNvbnRpbnVlCiAgICAgICAgaWYgbm90IGxpbmUuc3RhcnRzd2l0aCgoJyAnLCAnXHQnKSk6CiAgICAgICAgICAgIHJldHVybiBOb25lCiAgICAgICAgbWF0Y2g9cmUubWF0Y2gociJccytpZFxzKjpccypbJ1wiXT8oW14nXCIjXHNdKykiLCBsaW5lKQogICAgICAgIGlmIG1hdGNoOgogICAgICAgICAgICByZXR1cm4gbWF0Y2guZ3JvdXAoMSkKICAgIHJldHVybiBOb25lCmRlZiByb290c19mcm9tKHJhdyk6CiAgICBpZiBub3QgcmF3OgogICAgICAgIHJldHVybiBbXQogICAgc3RhcnQ9UGF0aChyYXcpLnJlc29sdmUoKQogICAgcmV0dXJuIFtjYW5kaWRhdGUgZm9yIGNhbmRpZGF0ZSBpbiAoc3RhcnQsICpzdGFydC5wYXJlbnRzKSBpZiAoY2FuZGlkYXRlIC8gJy5lYXN5LWNvZGluZycpLmlzX2RpcigpXQpzb3VyY2VzPVtvcy5lbnZpcm9uLmdldCgnQ0xBVURFX1BST0pFQ1RfRElSJyksIG9zLmVudmlyb24uZ2V0KCdRT0RFUl9QUk9KRUNUX0RJUicpLCBkYXRhLmdldCgnY3dkJyksIG9zLmdldGN3ZCgpXQpyb290PU5vbmUKaWYgZXhwZWN0ZWRfaWQ6CiAgICByb290PW5leHQoKGNhbmRpZGF0ZSBmb3IgcmF3IGluIHNvdXJjZXMgZm9yIGNhbmRpZGF0ZSBpbiByb290c19mcm9tKHJhdykgaWYgcHJvamVjdF9pZChjYW5kaWRhdGUpID09IGV4cGVjdGVkX2lkKSwgTm9uZSkKZWxzZToKICAgIHJvb3Q9bmV4dCgoY2FuZGlkYXRlIGZvciByYXcgaW4gc291cmNlcyBmb3IgY2FuZGlkYXRlIGluIHJvb3RzX2Zyb20ocmF3KSksIE5vbmUpCnRhcmdldD0ocm9vdCAvIHNjcmlwdF9hcmcpIGlmIHJvb3QgYW5kIHNjcmlwdF9hcmcgZWxzZSBOb25lCmlmIHRhcmdldCBhbmQgdGFyZ2V0LmlzX2ZpbGUoKToKICAgIG9zLmNoZGlyKHJvb3QpCiAgICBkYXRhWydjd2QnXT1zdHIocm9vdCkKICAgIHN5cy5zdGRpbj1pby5TdHJpbmdJTyhqc29uLmR1bXBzKGRhdGEpKQogICAgc3lzLnBhdGguaW5zZXJ0KDAsIHN0cih0YXJnZXQucGFyZW50KSkKICAgIHJ1bnB5LnJ1bl9wYXRoKHN0cih0YXJnZXQpLCBydW5fbmFtZT0nX19tYWluX18nKQ==').decode())\" \"ec-e86d6639-fb0c-4172-8927-3c21ce1a9fdd\" .claude/hooks/inject-workflow-state.py",
+      "hook_path": ".claude/hooks/inject-workflow-state.py",
+      "platform": "claude-code"
+    },
+    {
+      "config_path": ".claude/settings.json",
+      "command": "python3 -c \"import base64;exec(base64.b64decode('aW1wb3J0IGlvLGpzb24sb3MscmUscnVucHksc3lzCnN5cy5kb250X3dyaXRlX2J5dGVjb2RlPVRydWUKZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCnBheWxvYWQ9c3lzLnN0ZGluLnJlYWQoKQp0cnk6CiAgICBkYXRhPWpzb24ubG9hZHMocGF5bG9hZCBvciAne30nKQpleGNlcHQgRXhjZXB0aW9uOgogICAgZGF0YT17fQpleHBlY3RlZF9pZD1zeXMuYXJndlsxXSBpZiBsZW4oc3lzLmFyZ3YpID4gMiBlbHNlIE5vbmUKc2NyaXB0X2FyZz1zeXMuYXJndlsyXSBpZiBsZW4oc3lzLmFyZ3YpID4gMiBlbHNlIChzeXMuYXJndlsxXSBpZiBsZW4oc3lzLmFyZ3YpID4gMSBlbHNlIE5vbmUpCmRlZiBwcm9qZWN0X2lkKHJvb3QpOgogICAgdHJ5OgogICAgICAgIGxpbmVzPShyb290IC8gJy5lYXN5LWNvZGluZycgLyAnY29uZmlnLnlhbWwnKS5yZWFkX3RleHQoZW5jb2Rpbmc9J3V0Zi04Jykuc3BsaXRsaW5lcygpCiAgICBleGNlcHQgRXhjZXB0aW9uOgogICAgICAgIHJldHVybiBOb25lCiAgICBpbl9wcm9qZWN0PUZhbHNlCiAgICBmb3IgbGluZSBpbiBsaW5lczoKICAgICAgICBpZiBub3QgaW5fcHJvamVjdDoKICAgICAgICAgICAgaWYgcmUubWF0Y2gocidecHJvamVjdFxzKjpccyooPzojLiopPyQnLCBsaW5lKToKICAgICAgICAgICAgICAgIGluX3Byb2plY3Q9VHJ1ZQogICAgICAgICAgICBjb250aW51ZQogICAgICAgIGlmIG5vdCBsaW5lLnN0cmlwKCkgb3IgbGluZS5sc3RyaXAoKS5zdGFydHN3aXRoKCcjJyk6CiAgICAgICAgICAgIGNvbnRpbnVlCiAgICAgICAgaWYgbm90IGxpbmUuc3RhcnRzd2l0aCgoJyAnLCAnXHQnKSk6CiAgICAgICAgICAgIHJldHVybiBOb25lCiAgICAgICAgbWF0Y2g9cmUubWF0Y2gociJccytpZFxzKjpccypbJ1wiXT8oW14nXCIjXHNdKykiLCBsaW5lKQogICAgICAgIGlmIG1hdGNoOgogICAgICAgICAgICByZXR1cm4gbWF0Y2guZ3JvdXAoMSkKICAgIHJldHVybiBOb25lCmRlZiByb290c19mcm9tKHJhdyk6CiAgICBpZiBub3QgcmF3OgogICAgICAgIHJldHVybiBbXQogICAgc3RhcnQ9UGF0aChyYXcpLnJlc29sdmUoKQogICAgcmV0dXJuIFtjYW5kaWRhdGUgZm9yIGNhbmRpZGF0ZSBpbiAoc3RhcnQsICpzdGFydC5wYXJlbnRzKSBpZiAoY2FuZGlkYXRlIC8gJy5lYXN5LWNvZGluZycpLmlzX2RpcigpXQpzb3VyY2VzPVtvcy5lbnZpcm9uLmdldCgnQ0xBVURFX1BST0pFQ1RfRElSJyksIG9zLmVudmlyb24uZ2V0KCdRT0RFUl9QUk9KRUNUX0RJUicpLCBkYXRhLmdldCgnY3dkJyksIG9zLmdldGN3ZCgpXQpyb290PU5vbmUKaWYgZXhwZWN0ZWRfaWQ6CiAgICByb290PW5leHQoKGNhbmRpZGF0ZSBmb3IgcmF3IGluIHNvdXJjZXMgZm9yIGNhbmRpZGF0ZSBpbiByb290c19mcm9tKHJhdykgaWYgcHJvamVjdF9pZChjYW5kaWRhdGUpID09IGV4cGVjdGVkX2lkKSwgTm9uZSkKZWxzZToKICAgIHJvb3Q9bmV4dCgoY2FuZGlkYXRlIGZvciByYXcgaW4gc291cmNlcyBmb3IgY2FuZGlkYXRlIGluIHJvb3RzX2Zyb20ocmF3KSksIE5vbmUpCnRhcmdldD0ocm9vdCAvIHNjcmlwdF9hcmcpIGlmIHJvb3QgYW5kIHNjcmlwdF9hcmcgZWxzZSBOb25lCmlmIHRhcmdldCBhbmQgdGFyZ2V0LmlzX2ZpbGUoKToKICAgIG9zLmNoZGlyKHJvb3QpCiAgICBkYXRhWydjd2QnXT1zdHIocm9vdCkKICAgIHN5cy5zdGRpbj1pby5TdHJpbmdJTyhqc29uLmR1bXBzKGRhdGEpKQogICAgc3lzLnBhdGguaW5zZXJ0KDAsIHN0cih0YXJnZXQucGFyZW50KSkKICAgIHJ1bnB5LnJ1bl9wYXRoKHN0cih0YXJnZXQpLCBydW5fbmFtZT0nX19tYWluX18nKQ==').decode())\" \"ec-e86d6639-fb0c-4172-8927-3c21ce1a9fdd\" .claude/hooks/session-start.py",
+      "hook_path": ".claude/hooks/session-start.py",
+      "platform": "claude-code"
+    },
+    {
+      "config_path": ".codex/hooks.json",
+      "command": "python3 -c \"import base64;exec(base64.b64decode('aW1wb3J0IGlvLGpzb24sb3MscmUscnVucHksc3lzCnN5cy5kb250X3dyaXRlX2J5dGVjb2RlPVRydWUKZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCnBheWxvYWQ9c3lzLnN0ZGluLnJlYWQoKQp0cnk6CiAgICBkYXRhPWpzb24ubG9hZHMocGF5bG9hZCBvciAne30nKQpleGNlcHQgRXhjZXB0aW9uOgogICAgZGF0YT17fQpleHBlY3RlZF9pZD1zeXMuYXJndlsxXSBpZiBsZW4oc3lzLmFyZ3YpID4gMiBlbHNlIE5vbmUKc2NyaXB0X2FyZz1zeXMuYXJndlsyXSBpZiBsZW4oc3lzLmFyZ3YpID4gMiBlbHNlIChzeXMuYXJndlsxXSBpZiBsZW4oc3lzLmFyZ3YpID4gMSBlbHNlIE5vbmUpCmRlZiBwcm9qZWN0X2lkKHJvb3QpOgogICAgdHJ5OgogICAgICAgIGxpbmVzPShyb290IC8gJy5lYXN5LWNvZGluZycgLyAnY29uZmlnLnlhbWwnKS5yZWFkX3RleHQoZW5jb2Rpbmc9J3V0Zi04Jykuc3BsaXRsaW5lcygpCiAgICBleGNlcHQgRXhjZXB0aW9uOgogICAgICAgIHJldHVybiBOb25lCiAgICBpbl9wcm9qZWN0PUZhbHNlCiAgICBmb3IgbGluZSBpbiBsaW5lczoKICAgICAgICBpZiBub3QgaW5fcHJvamVjdDoKICAgICAgICAgICAgaWYgcmUubWF0Y2gocidecHJvamVjdFxzKjpccyooPzojLiopPyQnLCBsaW5lKToKICAgICAgICAgICAgICAgIGluX3Byb2plY3Q9VHJ1ZQogICAgICAgICAgICBjb250aW51ZQogICAgICAgIGlmIG5vdCBsaW5lLnN0cmlwKCkgb3IgbGluZS5sc3RyaXAoKS5zdGFydHN3aXRoKCcjJyk6CiAgICAgICAgICAgIGNvbnRpbnVlCiAgICAgICAgaWYgbm90IGxpbmUuc3RhcnRzd2l0aCgoJyAnLCAnXHQnKSk6CiAgICAgICAgICAgIHJldHVybiBOb25lCiAgICAgICAgbWF0Y2g9cmUubWF0Y2gociJccytpZFxzKjpccypbJ1wiXT8oW14nXCIjXHNdKykiLCBsaW5lKQogICAgICAgIGlmIG1hdGNoOgogICAgICAgICAgICByZXR1cm4gbWF0Y2guZ3JvdXAoMSkKICAgIHJldHVybiBOb25lCmRlZiByb290c19mcm9tKHJhdyk6CiAgICBpZiBub3QgcmF3OgogICAgICAgIHJldHVybiBbXQogICAgc3RhcnQ9UGF0aChyYXcpLnJlc29sdmUoKQogICAgcmV0dXJuIFtjYW5kaWRhdGUgZm9yIGNhbmRpZGF0ZSBpbiAoc3RhcnQsICpzdGFydC5wYXJlbnRzKSBpZiAoY2FuZGlkYXRlIC8gJy5lYXN5LWNvZGluZycpLmlzX2RpcigpXQpzb3VyY2VzPVtvcy5lbnZpcm9uLmdldCgnQ0xBVURFX1BST0pFQ1RfRElSJyksIG9zLmVudmlyb24uZ2V0KCdRT0RFUl9QUk9KRUNUX0RJUicpLCBkYXRhLmdldCgnY3dkJyksIG9zLmdldGN3ZCgpXQpyb290PU5vbmUKaWYgZXhwZWN0ZWRfaWQ6CiAgICByb290PW5leHQoKGNhbmRpZGF0ZSBmb3IgcmF3IGluIHNvdXJjZXMgZm9yIGNhbmRpZGF0ZSBpbiByb290c19mcm9tKHJhdykgaWYgcHJvamVjdF9pZChjYW5kaWRhdGUpID09IGV4cGVjdGVkX2lkKSwgTm9uZSkKZWxzZToKICAgIHJvb3Q9bmV4dCgoY2FuZGlkYXRlIGZvciByYXcgaW4gc291cmNlcyBmb3IgY2FuZGlkYXRlIGluIHJvb3RzX2Zyb20ocmF3KSksIE5vbmUpCnRhcmdldD0ocm9vdCAvIHNjcmlwdF9hcmcpIGlmIHJvb3QgYW5kIHNjcmlwdF9hcmcgZWxzZSBOb25lCmlmIHRhcmdldCBhbmQgdGFyZ2V0LmlzX2ZpbGUoKToKICAgIG9zLmNoZGlyKHJvb3QpCiAgICBkYXRhWydjd2QnXT1zdHIocm9vdCkKICAgIHN5cy5zdGRpbj1pby5TdHJpbmdJTyhqc29uLmR1bXBzKGRhdGEpKQogICAgc3lzLnBhdGguaW5zZXJ0KDAsIHN0cih0YXJnZXQucGFyZW50KSkKICAgIHJ1bnB5LnJ1bl9wYXRoKHN0cih0YXJnZXQpLCBydW5fbmFtZT0nX19tYWluX18nKQ==').decode())\" \"ec-e86d6639-fb0c-4172-8927-3c21ce1a9fdd\" .codex/hooks/inject-workflow-state.py",
+      "hook_path": ".codex/hooks/inject-workflow-state.py",
+      "platform": "codex"
+    },
+    {
+      "config_path": ".codex/hooks.json",
+      "command": "python3 -c \"import base64;exec(base64.b64decode('aW1wb3J0IGlvLGpzb24sb3MscmUscnVucHksc3lzCnN5cy5kb250X3dyaXRlX2J5dGVjb2RlPVRydWUKZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCnBheWxvYWQ9c3lzLnN0ZGluLnJlYWQoKQp0cnk6CiAgICBkYXRhPWpzb24ubG9hZHMocGF5bG9hZCBvciAne30nKQpleGNlcHQgRXhjZXB0aW9uOgogICAgZGF0YT17fQpleHBlY3RlZF9pZD1zeXMuYXJndlsxXSBpZiBsZW4oc3lzLmFyZ3YpID4gMiBlbHNlIE5vbmUKc2NyaXB0X2FyZz1zeXMuYXJndlsyXSBpZiBsZW4oc3lzLmFyZ3YpID4gMiBlbHNlIChzeXMuYXJndlsxXSBpZiBsZW4oc3lzLmFyZ3YpID4gMSBlbHNlIE5vbmUpCmRlZiBwcm9qZWN0X2lkKHJvb3QpOgogICAgdHJ5OgogICAgICAgIGxpbmVzPShyb290IC8gJy5lYXN5LWNvZGluZycgLyAnY29uZmlnLnlhbWwnKS5yZWFkX3RleHQoZW5jb2Rpbmc9J3V0Zi04Jykuc3BsaXRsaW5lcygpCiAgICBleGNlcHQgRXhjZXB0aW9uOgogICAgICAgIHJldHVybiBOb25lCiAgICBpbl9wcm9qZWN0PUZhbHNlCiAgICBmb3IgbGluZSBpbiBsaW5lczoKICAgICAgICBpZiBub3QgaW5fcHJvamVjdDoKICAgICAgICAgICAgaWYgcmUubWF0Y2gocidecHJvamVjdFxzKjpccyooPzojLiopPyQnLCBsaW5lKToKICAgICAgICAgICAgICAgIGluX3Byb2plY3Q9VHJ1ZQogICAgICAgICAgICBjb250aW51ZQogICAgICAgIGlmIG5vdCBsaW5lLnN0cmlwKCkgb3IgbGluZS5sc3RyaXAoKS5zdGFydHN3aXRoKCcjJyk6CiAgICAgICAgICAgIGNvbnRpbnVlCiAgICAgICAgaWYgbm90IGxpbmUuc3RhcnRzd2l0aCgoJyAnLCAnXHQnKSk6CiAgICAgICAgICAgIHJldHVybiBOb25lCiAgICAgICAgbWF0Y2g9cmUubWF0Y2gociJccytpZFxzKjpccypbJ1wiXT8oW14nXCIjXHNdKykiLCBsaW5lKQogICAgICAgIGlmIG1hdGNoOgogICAgICAgICAgICByZXR1cm4gbWF0Y2guZ3JvdXAoMSkKICAgIHJldHVybiBOb25lCmRlZiByb290c19mcm9tKHJhdyk6CiAgICBpZiBub3QgcmF3OgogICAgICAgIHJldHVybiBbXQogICAgc3RhcnQ9UGF0aChyYXcpLnJlc29sdmUoKQogICAgcmV0dXJuIFtjYW5kaWRhdGUgZm9yIGNhbmRpZGF0ZSBpbiAoc3RhcnQsICpzdGFydC5wYXJlbnRzKSBpZiAoY2FuZGlkYXRlIC8gJy5lYXN5LWNvZGluZycpLmlzX2RpcigpXQpzb3VyY2VzPVtvcy5lbnZpcm9uLmdldCgnQ0xBVURFX1BST0pFQ1RfRElSJyksIG9zLmVudmlyb24uZ2V0KCdRT0RFUl9QUk9KRUNUX0RJUicpLCBkYXRhLmdldCgnY3dkJyksIG9zLmdldGN3ZCgpXQpyb290PU5vbmUKaWYgZXhwZWN0ZWRfaWQ6CiAgICByb290PW5leHQoKGNhbmRpZGF0ZSBmb3IgcmF3IGluIHNvdXJjZXMgZm9yIGNhbmRpZGF0ZSBpbiByb290c19mcm9tKHJhdykgaWYgcHJvamVjdF9pZChjYW5kaWRhdGUpID09IGV4cGVjdGVkX2lkKSwgTm9uZSkKZWxzZToKICAgIHJvb3Q9bmV4dCgoY2FuZGlkYXRlIGZvciByYXcgaW4gc291cmNlcyBmb3IgY2FuZGlkYXRlIGluIHJvb3RzX2Zyb20ocmF3KSksIE5vbmUpCnRhcmdldD0ocm9vdCAvIHNjcmlwdF9hcmcpIGlmIHJvb3QgYW5kIHNjcmlwdF9hcmcgZWxzZSBOb25lCmlmIHRhcmdldCBhbmQgdGFyZ2V0LmlzX2ZpbGUoKToKICAgIG9zLmNoZGlyKHJvb3QpCiAgICBkYXRhWydjd2QnXT1zdHIocm9vdCkKICAgIHN5cy5zdGRpbj1pby5TdHJpbmdJTyhqc29uLmR1bXBzKGRhdGEpKQogICAgc3lzLnBhdGguaW5zZXJ0KDAsIHN0cih0YXJnZXQucGFyZW50KSkKICAgIHJ1bnB5LnJ1bl9wYXRoKHN0cih0YXJnZXQpLCBydW5fbmFtZT0nX19tYWluX18nKQ==').decode())\" \"ec-e86d6639-fb0c-4172-8927-3c21ce1a9fdd\" .codex/hooks/session-start.py",
+      "hook_path": ".codex/hooks/session-start.py",
+      "platform": "codex"
+    },
+    {
+      "config_path": ".qoder/settings.json",
+      "command": "python3 -c \"import base64;exec(base64.b64decode('aW1wb3J0IGlvLGpzb24sb3MscmUscnVucHksc3lzCnN5cy5kb250X3dyaXRlX2J5dGVjb2RlPVRydWUKZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCnBheWxvYWQ9c3lzLnN0ZGluLnJlYWQoKQp0cnk6CiAgICBkYXRhPWpzb24ubG9hZHMocGF5bG9hZCBvciAne30nKQpleGNlcHQgRXhjZXB0aW9uOgogICAgZGF0YT17fQpleHBlY3RlZF9pZD1zeXMuYXJndlsxXSBpZiBsZW4oc3lzLmFyZ3YpID4gMiBlbHNlIE5vbmUKc2NyaXB0X2FyZz1zeXMuYXJndlsyXSBpZiBsZW4oc3lzLmFyZ3YpID4gMiBlbHNlIChzeXMuYXJndlsxXSBpZiBsZW4oc3lzLmFyZ3YpID4gMSBlbHNlIE5vbmUpCmRlZiBwcm9qZWN0X2lkKHJvb3QpOgogICAgdHJ5OgogICAgICAgIGxpbmVzPShyb290IC8gJy5lYXN5LWNvZGluZycgLyAnY29uZmlnLnlhbWwnKS5yZWFkX3RleHQoZW5jb2Rpbmc9J3V0Zi04Jykuc3BsaXRsaW5lcygpCiAgICBleGNlcHQgRXhjZXB0aW9uOgogICAgICAgIHJldHVybiBOb25lCiAgICBpbl9wcm9qZWN0PUZhbHNlCiAgICBmb3IgbGluZSBpbiBsaW5lczoKICAgICAgICBpZiBub3QgaW5fcHJvamVjdDoKICAgICAgICAgICAgaWYgcmUubWF0Y2gocidecHJvamVjdFxzKjpccyooPzojLiopPyQnLCBsaW5lKToKICAgICAgICAgICAgICAgIGluX3Byb2plY3Q9VHJ1ZQogICAgICAgICAgICBjb250aW51ZQogICAgICAgIGlmIG5vdCBsaW5lLnN0cmlwKCkgb3IgbGluZS5sc3RyaXAoKS5zdGFydHN3aXRoKCcjJyk6CiAgICAgICAgICAgIGNvbnRpbnVlCiAgICAgICAgaWYgbm90IGxpbmUuc3RhcnRzd2l0aCgoJyAnLCAnXHQnKSk6CiAgICAgICAgICAgIHJldHVybiBOb25lCiAgICAgICAgbWF0Y2g9cmUubWF0Y2gociJccytpZFxzKjpccypbJ1wiXT8oW14nXCIjXHNdKykiLCBsaW5lKQogICAgICAgIGlmIG1hdGNoOgogICAgICAgICAgICByZXR1cm4gbWF0Y2guZ3JvdXAoMSkKICAgIHJldHVybiBOb25lCmRlZiByb290c19mcm9tKHJhdyk6CiAgICBpZiBub3QgcmF3OgogICAgICAgIHJldHVybiBbXQogICAgc3RhcnQ9UGF0aChyYXcpLnJlc29sdmUoKQogICAgcmV0dXJuIFtjYW5kaWRhdGUgZm9yIGNhbmRpZGF0ZSBpbiAoc3RhcnQsICpzdGFydC5wYXJlbnRzKSBpZiAoY2FuZGlkYXRlIC8gJy5lYXN5LWNvZGluZycpLmlzX2RpcigpXQpzb3VyY2VzPVtvcy5lbnZpcm9uLmdldCgnQ0xBVURFX1BST0pFQ1RfRElSJyksIG9zLmVudmlyb24uZ2V0KCdRT0RFUl9QUk9KRUNUX0RJUicpLCBkYXRhLmdldCgnY3dkJyksIG9zLmdldGN3ZCgpXQpyb290PU5vbmUKaWYgZXhwZWN0ZWRfaWQ6CiAgICByb290PW5leHQoKGNhbmRpZGF0ZSBmb3IgcmF3IGluIHNvdXJjZXMgZm9yIGNhbmRpZGF0ZSBpbiByb290c19mcm9tKHJhdykgaWYgcHJvamVjdF9pZChjYW5kaWRhdGUpID09IGV4cGVjdGVkX2lkKSwgTm9uZSkKZWxzZToKICAgIHJvb3Q9bmV4dCgoY2FuZGlkYXRlIGZvciByYXcgaW4gc291cmNlcyBmb3IgY2FuZGlkYXRlIGluIHJvb3RzX2Zyb20ocmF3KSksIE5vbmUpCnRhcmdldD0ocm9vdCAvIHNjcmlwdF9hcmcpIGlmIHJvb3QgYW5kIHNjcmlwdF9hcmcgZWxzZSBOb25lCmlmIHRhcmdldCBhbmQgdGFyZ2V0LmlzX2ZpbGUoKToKICAgIG9zLmNoZGlyKHJvb3QpCiAgICBkYXRhWydjd2QnXT1zdHIocm9vdCkKICAgIHN5cy5zdGRpbj1pby5TdHJpbmdJTyhqc29uLmR1bXBzKGRhdGEpKQogICAgc3lzLnBhdGguaW5zZXJ0KDAsIHN0cih0YXJnZXQucGFyZW50KSkKICAgIHJ1bnB5LnJ1bl9wYXRoKHN0cih0YXJnZXQpLCBydW5fbmFtZT0nX19tYWluX18nKQ==').decode())\" \"ec-e86d6639-fb0c-4172-8927-3c21ce1a9fdd\" .qoder/hooks/inject-subagent-context.py",
+      "hook_path": ".qoder/hooks/inject-subagent-context.py",
+      "platform": "qoder"
+    },
+    {
+      "config_path": ".qoder/settings.json",
+      "command": "python3 -c \"import base64;exec(base64.b64decode('aW1wb3J0IGlvLGpzb24sb3MscmUscnVucHksc3lzCnN5cy5kb250X3dyaXRlX2J5dGVjb2RlPVRydWUKZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCnBheWxvYWQ9c3lzLnN0ZGluLnJlYWQoKQp0cnk6CiAgICBkYXRhPWpzb24ubG9hZHMocGF5bG9hZCBvciAne30nKQpleGNlcHQgRXhjZXB0aW9uOgogICAgZGF0YT17fQpleHBlY3RlZF9pZD1zeXMuYXJndlsxXSBpZiBsZW4oc3lzLmFyZ3YpID4gMiBlbHNlIE5vbmUKc2NyaXB0X2FyZz1zeXMuYXJndlsyXSBpZiBsZW4oc3lzLmFyZ3YpID4gMiBlbHNlIChzeXMuYXJndlsxXSBpZiBsZW4oc3lzLmFyZ3YpID4gMSBlbHNlIE5vbmUpCmRlZiBwcm9qZWN0X2lkKHJvb3QpOgogICAgdHJ5OgogICAgICAgIGxpbmVzPShyb290IC8gJy5lYXN5LWNvZGluZycgLyAnY29uZmlnLnlhbWwnKS5yZWFkX3RleHQoZW5jb2Rpbmc9J3V0Zi04Jykuc3BsaXRsaW5lcygpCiAgICBleGNlcHQgRXhjZXB0aW9uOgogICAgICAgIHJldHVybiBOb25lCiAgICBpbl9wcm9qZWN0PUZhbHNlCiAgICBmb3IgbGluZSBpbiBsaW5lczoKICAgICAgICBpZiBub3QgaW5fcHJvamVjdDoKICAgICAgICAgICAgaWYgcmUubWF0Y2gocidecHJvamVjdFxzKjpccyooPzojLiopPyQnLCBsaW5lKToKICAgICAgICAgICAgICAgIGluX3Byb2plY3Q9VHJ1ZQogICAgICAgICAgICBjb250aW51ZQogICAgICAgIGlmIG5vdCBsaW5lLnN0cmlwKCkgb3IgbGluZS5sc3RyaXAoKS5zdGFydHN3aXRoKCcjJyk6CiAgICAgICAgICAgIGNvbnRpbnVlCiAgICAgICAgaWYgbm90IGxpbmUuc3RhcnRzd2l0aCgoJyAnLCAnXHQnKSk6CiAgICAgICAgICAgIHJldHVybiBOb25lCiAgICAgICAgbWF0Y2g9cmUubWF0Y2gociJccytpZFxzKjpccypbJ1wiXT8oW14nXCIjXHNdKykiLCBsaW5lKQogICAgICAgIGlmIG1hdGNoOgogICAgICAgICAgICByZXR1cm4gbWF0Y2guZ3JvdXAoMSkKICAgIHJldHVybiBOb25lCmRlZiByb290c19mcm9tKHJhdyk6CiAgICBpZiBub3QgcmF3OgogICAgICAgIHJldHVybiBbXQogICAgc3RhcnQ9UGF0aChyYXcpLnJlc29sdmUoKQogICAgcmV0dXJuIFtjYW5kaWRhdGUgZm9yIGNhbmRpZGF0ZSBpbiAoc3RhcnQsICpzdGFydC5wYXJlbnRzKSBpZiAoY2FuZGlkYXRlIC8gJy5lYXN5LWNvZGluZycpLmlzX2RpcigpXQpzb3VyY2VzPVtvcy5lbnZpcm9uLmdldCgnQ0xBVURFX1BST0pFQ1RfRElSJyksIG9zLmVudmlyb24uZ2V0KCdRT0RFUl9QUk9KRUNUX0RJUicpLCBkYXRhLmdldCgnY3dkJyksIG9zLmdldGN3ZCgpXQpyb290PU5vbmUKaWYgZXhwZWN0ZWRfaWQ6CiAgICByb290PW5leHQoKGNhbmRpZGF0ZSBmb3IgcmF3IGluIHNvdXJjZXMgZm9yIGNhbmRpZGF0ZSBpbiByb290c19mcm9tKHJhdykgaWYgcHJvamVjdF9pZChjYW5kaWRhdGUpID09IGV4cGVjdGVkX2lkKSwgTm9uZSkKZWxzZToKICAgIHJvb3Q9bmV4dCgoY2FuZGlkYXRlIGZvciByYXcgaW4gc291cmNlcyBmb3IgY2FuZGlkYXRlIGluIHJvb3RzX2Zyb20ocmF3KSksIE5vbmUpCnRhcmdldD0ocm9vdCAvIHNjcmlwdF9hcmcpIGlmIHJvb3QgYW5kIHNjcmlwdF9hcmcgZWxzZSBOb25lCmlmIHRhcmdldCBhbmQgdGFyZ2V0LmlzX2ZpbGUoKToKICAgIG9zLmNoZGlyKHJvb3QpCiAgICBkYXRhWydjd2QnXT1zdHIocm9vdCkKICAgIHN5cy5zdGRpbj1pby5TdHJpbmdJTyhqc29uLmR1bXBzKGRhdGEpKQogICAgc3lzLnBhdGguaW5zZXJ0KDAsIHN0cih0YXJnZXQucGFyZW50KSkKICAgIHJ1bnB5LnJ1bl9wYXRoKHN0cih0YXJnZXQpLCBydW5fbmFtZT0nX19tYWluX18nKQ==').decode())\" \"ec-e86d6639-fb0c-4172-8927-3c21ce1a9fdd\" .qoder/hooks/inject-workflow-state.py",
+      "hook_path": ".qoder/hooks/inject-workflow-state.py",
+      "platform": "qoder"
+    },
+    {
+      "config_path": ".qoder/settings.json",
+      "command": "python3 -c \"import base64;exec(base64.b64decode('aW1wb3J0IGlvLGpzb24sb3MscmUscnVucHksc3lzCnN5cy5kb250X3dyaXRlX2J5dGVjb2RlPVRydWUKZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCnBheWxvYWQ9c3lzLnN0ZGluLnJlYWQoKQp0cnk6CiAgICBkYXRhPWpzb24ubG9hZHMocGF5bG9hZCBvciAne30nKQpleGNlcHQgRXhjZXB0aW9uOgogICAgZGF0YT17fQpleHBlY3RlZF9pZD1zeXMuYXJndlsxXSBpZiBsZW4oc3lzLmFyZ3YpID4gMiBlbHNlIE5vbmUKc2NyaXB0X2FyZz1zeXMuYXJndlsyXSBpZiBsZW4oc3lzLmFyZ3YpID4gMiBlbHNlIChzeXMuYXJndlsxXSBpZiBsZW4oc3lzLmFyZ3YpID4gMSBlbHNlIE5vbmUpCmRlZiBwcm9qZWN0X2lkKHJvb3QpOgogICAgdHJ5OgogICAgICAgIGxpbmVzPShyb290IC8gJy5lYXN5LWNvZGluZycgLyAnY29uZmlnLnlhbWwnKS5yZWFkX3RleHQoZW5jb2Rpbmc9J3V0Zi04Jykuc3BsaXRsaW5lcygpCiAgICBleGNlcHQgRXhjZXB0aW9uOgogICAgICAgIHJldHVybiBOb25lCiAgICBpbl9wcm9qZWN0PUZhbHNlCiAgICBmb3IgbGluZSBpbiBsaW5lczoKICAgICAgICBpZiBub3QgaW5fcHJvamVjdDoKICAgICAgICAgICAgaWYgcmUubWF0Y2gocidecHJvamVjdFxzKjpccyooPzojLiopPyQnLCBsaW5lKToKICAgICAgICAgICAgICAgIGluX3Byb2plY3Q9VHJ1ZQogICAgICAgICAgICBjb250aW51ZQogICAgICAgIGlmIG5vdCBsaW5lLnN0cmlwKCkgb3IgbGluZS5sc3RyaXAoKS5zdGFydHN3aXRoKCcjJyk6CiAgICAgICAgICAgIGNvbnRpbnVlCiAgICAgICAgaWYgbm90IGxpbmUuc3RhcnRzd2l0aCgoJyAnLCAnXHQnKSk6CiAgICAgICAgICAgIHJldHVybiBOb25lCiAgICAgICAgbWF0Y2g9cmUubWF0Y2gociJccytpZFxzKjpccypbJ1wiXT8oW14nXCIjXHNdKykiLCBsaW5lKQogICAgICAgIGlmIG1hdGNoOgogICAgICAgICAgICByZXR1cm4gbWF0Y2guZ3JvdXAoMSkKICAgIHJldHVybiBOb25lCmRlZiByb290c19mcm9tKHJhdyk6CiAgICBpZiBub3QgcmF3OgogICAgICAgIHJldHVybiBbXQogICAgc3RhcnQ9UGF0aChyYXcpLnJlc29sdmUoKQogICAgcmV0dXJuIFtjYW5kaWRhdGUgZm9yIGNhbmRpZGF0ZSBpbiAoc3RhcnQsICpzdGFydC5wYXJlbnRzKSBpZiAoY2FuZGlkYXRlIC8gJy5lYXN5LWNvZGluZycpLmlzX2RpcigpXQpzb3VyY2VzPVtvcy5lbnZpcm9uLmdldCgnQ0xBVURFX1BST0pFQ1RfRElSJyksIG9zLmVudmlyb24uZ2V0KCdRT0RFUl9QUk9KRUNUX0RJUicpLCBkYXRhLmdldCgnY3dkJyksIG9zLmdldGN3ZCgpXQpyb290PU5vbmUKaWYgZXhwZWN0ZWRfaWQ6CiAgICByb290PW5leHQoKGNhbmRpZGF0ZSBmb3IgcmF3IGluIHNvdXJjZXMgZm9yIGNhbmRpZGF0ZSBpbiByb290c19mcm9tKHJhdykgaWYgcHJvamVjdF9pZChjYW5kaWRhdGUpID09IGV4cGVjdGVkX2lkKSwgTm9uZSkKZWxzZToKICAgIHJvb3Q9bmV4dCgoY2FuZGlkYXRlIGZvciByYXcgaW4gc291cmNlcyBmb3IgY2FuZGlkYXRlIGluIHJvb3RzX2Zyb20ocmF3KSksIE5vbmUpCnRhcmdldD0ocm9vdCAvIHNjcmlwdF9hcmcpIGlmIHJvb3QgYW5kIHNjcmlwdF9hcmcgZWxzZSBOb25lCmlmIHRhcmdldCBhbmQgdGFyZ2V0LmlzX2ZpbGUoKToKICAgIG9zLmNoZGlyKHJvb3QpCiAgICBkYXRhWydjd2QnXT1zdHIocm9vdCkKICAgIHN5cy5zdGRpbj1pby5TdHJpbmdJTyhqc29uLmR1bXBzKGRhdGEpKQogICAgc3lzLnBhdGguaW5zZXJ0KDAsIHN0cih0YXJnZXQucGFyZW50KSkKICAgIHJ1bnB5LnJ1bl9wYXRoKHN0cih0YXJnZXQpLCBydW5fbmFtZT0nX19tYWluX18nKQ==').decode())\" \"ec-e86d6639-fb0c-4172-8927-3c21ce1a9fdd\" .qoder/hooks/session-start.py",
+      "hook_path": ".qoder/hooks/session-start.py",
+      "platform": "qoder"
+    }
+  ],
+  "constraint_regions": [
+    {
+      "path": "AGENTS.md",
+      "platform": "qoder"
+    },
+    {
+      "path": "CLAUDE.md",
+      "platform": "claude-code"
+    }
+  ]
+}

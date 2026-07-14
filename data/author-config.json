@@ -22,7 +22,7 @@
     "inlineCodeBackground": "rgba(223, 48, 121, 0.10)",
     "inlineCodeBorder": "rgba(223, 48, 121, 0.18)",
     "blockquoteBorder": "#df3079",
-    "blockquoteText": "rgba(252, 252, 252, 0.78)",
+    "blockquoteText": "inherit",
     "blockquoteBackground": "rgba(223, 48, 121, 0.06)"
   }
 }

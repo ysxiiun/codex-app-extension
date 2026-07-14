@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(source lib/runtime.sh\necho \"== 候选监听端口 ==\"\nports=\"$\\(discover_codex_debug_ports || true\\)\"\necho \"${ports:-<none>}\"\necho\necho \"== 逐端口探测 /json/version ==\"\nif [[ -z \"${ports:-}\" ]]; then\n  echo \"未发现任何 ChatGPT/Codex 监听端口\"\nelse\n  for p in $ports; do\n    echo \"--- 127.0.0.1:$p ---\"\n    curl -sS --max-time 3 \"http://127.0.0.1:$p/json/version\" 2>&1 | head -c 800 || echo \"\\(探测失败\\)\"\n    echo\n  done\nfi)"
+    ]
+  }
+}

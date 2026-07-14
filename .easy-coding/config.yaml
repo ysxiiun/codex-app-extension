@@ -1,0 +1,19 @@
+version: 2
+harness_version: 0.8.0
+agents:
+  - claude-code
+  - codex
+  - qoder
+project:
+  id: ec-e86d6639-fb0c-4172-8927-3c21ce1a9fdd
+  name: codex-app-extension
+memory:
+  short_term_max: 10
+  short_term_keep: 5
+  schema_version: 2
+tasks:
+  auto_archive_days: 30
+behavior:
+  confirm_mode: guard
+supermodule:
+  role: standalone

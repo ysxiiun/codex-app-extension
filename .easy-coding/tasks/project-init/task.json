@@ -1,0 +1,79 @@
+{
+  "type": "project-init",
+  "status": "COMPLETE",
+  "created_at": "2026-07-10T02:48:57.580Z",
+  "created_by": "cli-init",
+  "last_agent": "codex",
+  "stage_history": [
+    {
+      "stage": "COMPLETE",
+      "agent": "codex",
+      "entered_at": "2026-07-10T02:55:17.152838+00:00"
+    }
+  ],
+  "context": {
+    "agents_installed": [
+      "claude-code",
+      "codex",
+      "qoder"
+    ],
+    "cli_version": "0.5.3",
+    "init_source": "legacy-easy-coding",
+    "legacy_assets": [
+      ".easy-coding/ABSTRACT.md",
+      ".easy-coding/RULES.md",
+      ".easy-coding/SOUL.md",
+      ".easy-coding/memory/long/MEMORY.md",
+      ".easy-coding/memory/short/002_20260708_原生git浮层兼容修复.md",
+      ".easy-coding/memory/short/003_20260708_左侧栏项目行布局修复.md",
+      ".easy-coding/memory/short/004_20260710_ChatGPT-Codex兼容适配.md",
+      ".easy-coding/memory/short/1_2026-05-28_侧边栏开合布局抖动修复.md"
+    ],
+    "legacy_missing_harness_files": [
+      ".easy-coding/config.yaml",
+      ".easy-coding/tasks/project-init/task.json"
+    ]
+  },
+  "init_log": [
+    {
+      "step": "project-mode-detection",
+      "summary": "Detected an iterative JavaScript ESM and Bash project from substantive runtime injection and launcher sources; verified ./verify.sh as the project test command and created the ec-init-owned project.yaml profile.",
+      "timestamp": "2026-07-10T02:50:51Z"
+    },
+    {
+      "step": "soul",
+      "summary": "Refreshed SOUL.md from README, AGENTS.md, launcher and injector evidence with the ChatGPT Codex identity, Chinese dialogue standard, runtime evidence requirements, and concrete package/input/config prohibitions.",
+      "timestamp": "2026-07-10T02:51:19Z"
+    },
+    {
+      "step": "rules",
+      "summary": "Regenerated RULES.md with mechanically checkable JavaScript ESM, macOS Bash 3.2, JSON, Markdown, encoding, comment-language, surface-guard, input-fail-open, and verification rules grounded in current files.",
+      "timestamp": "2026-07-10T02:51:54Z"
+    },
+    {
+      "step": "abstract",
+      "summary": "Regenerated ABSTRACT.md with named runtime, launcher, injector, configuration, verification, and documentation modules; documented the CDP data flow, verified runtime versions, dependencies, commands, and architecture constraints.",
+      "timestamp": "2026-07-10T02:52:41Z"
+    },
+    {
+      "step": "test-strategy",
+      "summary": "Created TEST_STRATEGY.md around the verified ./verify.sh custom harness, with deterministic checks, conditional live CDP diagnostics, manual UI/IME acceptance, tested and skipped classes, and change-to-verification mapping; project.yaml test fields point to the verified command.",
+      "timestamp": "2026-07-10T02:53:38Z"
+    },
+    {
+      "step": "memory-migration-probe",
+      "summary": "Confirmed MEMORY.md, BUSINESS.md, TECHNICAL.md, SHORT_MEMORY_TEMPLATE.md, and all four short memories already use memory_schema 2; no migration procedure was required.",
+      "timestamp": "2026-07-10T02:54:30Z"
+    },
+    {
+      "step": "memory-init",
+      "summary": "Confirmed memory/short and memory/long exist with all three long-memory files and SHORT_MEMORY_TEMPLATE.md; preserved all existing entries and created no fake memory.",
+      "timestamp": "2026-07-10T02:54:31Z"
+    },
+    {
+      "step": "complete",
+      "summary": "Validated all five ec-init-owned knowledge/profile assets, parsed task.json, confirmed SOUL.md is 26 lines, reran ./verify.sh successfully, and prepared the project-init task for completion.",
+      "timestamp": "2026-07-10T02:55:02Z"
+    }
+  ]
+}

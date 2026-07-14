@@ -1,0 +1,1 @@
+{"type":"plan","strategy":"single","units":[{"id":"U1","title":"输出全屏切换后输入框光标丢失的只读诊断报告","type":"analysis","files":[],"depends_on":[],"rules_sections":["General","JavaScript ESM — `inject-wide-layout.mjs`"],"abstract_modules":["模块：核心注入（`inject-wide-layout.mjs`）","模块：启动与当前实例（`launch.sh`、`inject-current.sh`）"]}],"parallel_groups":[{"level":0,"units":["U1"]}]}

@@ -106,6 +106,30 @@ for (const optionVariant of [options, { ...options, wideLayoutEnhancement: false
   if (/\n(?:\.max-w-|\.w-|\.app-shell-left-panel|\[data-codex-app-extension-native-floating-panel)/.test(css)) {
     throw new Error("Generated enhancement CSS contains an unscoped Codex selector");
   }
+  if (!css.includes("--codex-app-extension-theme-blockquote-text: inherit !important")) {
+    throw new Error("Generated CSS blockquote text should default to inherit");
+  }
+  const nestedBlockquoteRule = css.match(/main\.main-surface :where\(blockquote\) blockquote \{([^}]*)\}/);
+  if (!nestedBlockquoteRule) {
+    throw new Error("Generated CSS is missing the nested blockquote flattening rule");
+  }
+  for (const declaration of [
+    "background: transparent !important;",
+    "border-left: 0 !important;",
+    "border-radius: 0 !important;",
+    "margin-inline: 0 !important;",
+    "padding: 0 !important;",
+  ]) {
+    if (!nestedBlockquoteRule[1].includes(declaration)) {
+      throw new Error("Nested blockquote reset is missing declaration: " + declaration);
+    }
+  }
+  const topBlockquoteRule = css.match(/main\.main-surface :where\(blockquote\) \{([^}]*)\}/);
+  if (!topBlockquoteRule
+    || !topBlockquoteRule[1].includes("background: var(--codex-app-extension-theme-blockquote-background) !important;")
+    || !topBlockquoteRule[1].includes("border-left: 3px solid var(--codex-app-extension-theme-blockquote-border) !important;")) {
+    throw new Error("Top-level blockquote background/border should be preserved");
+  }
 }
 
 const arbitraryTarget = {

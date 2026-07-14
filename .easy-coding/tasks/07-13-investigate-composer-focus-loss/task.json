@@ -1,0 +1,30 @@
+{
+  "type": "analysis",
+  "title": "排查全屏切换后对话输入框光标丢失",
+  "status": "CLOSED",
+  "created_at": "2026-07-13T09:54:05.546390+00:00",
+  "created_by": "codex",
+  "last_agent": "codex",
+  "stage_history": [
+    {
+      "stage": "INIT",
+      "agent": "codex",
+      "entered_at": "2026-07-13T09:54:05.546390+00:00"
+    },
+    {
+      "stage": "ANALYSIS",
+      "agent": "codex",
+      "entered_at": "2026-07-13T09:54:06.401997+00:00"
+    },
+    {
+      "stage": "CLOSED",
+      "agent": "codex",
+      "entered_at": "2026-07-14T01:57:21.074337+00:00"
+    }
+  ],
+  "context": {},
+  "spawned_from": null,
+  "spawned_tasks": [],
+  "closed_reason": "用户确认终止当前排查任务",
+  "repos": []
+}

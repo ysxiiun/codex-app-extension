@@ -1,89 +1,43 @@
-# 编码规范
+# codex-app-extension 编码规则
 
-> 本文件由 AI 根据项目实际编程语言自动生成。
+> 由 ec-init 根据 `inject-wide-layout.mjs`、Shell 入口、配置和验证脚本提取；规则必须可机械检查。
 
----
+## General
 
-## 项目语言检测
+- 项目无 `package.json`、构建系统、依赖管理器、formatter 或 linter；不得为单个增强引入这些设施，除非用户明确确认架构变更。
+- 修改前用 `file -I` 核对编码并保持原编码：当前 `inject-wide-layout.mjs`、`launch.sh`、`lib/runtime.sh`、Markdown 和 HTML 为 UTF-8；`config.sh`、`inject-current.sh`、`follow-author-config.sh`、`verify.sh` 为 US-ASCII。
+- 现有源码注释超过 70% 为中文；新增注释使用简体中文，只解释兼容原因、协议边界、失败策略或非直观风险，不逐行解释语法。
+- 用户可见配置、环境变量、CLI 参数、诊断字段、启动方式或兼容策略变化必须同步 `README.md`；模块或数据流变化同时同步 `.easy-coding/ABSTRACT.md`。
+- `.easy-coding/config.yaml` 和平台 hook 配置由 CLI 管理，代码任务不得编辑；ec-init 只维护白名单结构的 `.easy-coding/project.yaml`。
+- 不写入令牌、Cookie、账号数据、应用包体或调试响应快照；临时探针数据不得加入仓库。
+- 提交前至少执行 `./verify.sh`；有调试端口时再执行 `CODEX_APP_EXTENSION_VERIFY_LIVE=1 ./verify.sh`。
 
-- 主要语言：JavaScript（Node.js ESM）
-- 辅助脚本：Bash
-- 配置格式：JSON
-- 文档格式：Markdown
-- 现有编码：`README.md` 与 `inject-wide-layout.mjs` 为 UTF-8，`launch.sh` 与 `LICENSE` 为 ASCII；新建中文文档默认使用 UTF-8。
+## JavaScript ESM — `inject-wide-layout.mjs`
 
----
+- 使用 Node.js ESM、`node:` 内置模块导入、双引号、分号和 2 空格缩进；多行对象与数组保持尾逗号。
+- 运行时不固定单一 Node 版本，但必须通过 `typeof fetch === "function"` 与 `typeof WebSocket === "function"` 能力检查；初始化时已验证 Node `v22.16.0` 和应用内置 Node `v24.14.0`。
+- 顶层常量使用 `UPPER_SNAKE_CASE`，函数和变量使用 `lowerCamelCase`，布尔配置使用正向语义名称。
+- CLI 配置链保持职责分离：`parseCliArgs` 解析参数，`ensureConfig` 读取配置，`buildOptions` 合并并校验，`buildMeta` 生成诊断元信息，`buildCss` 生成 CSS。
+- 配置优先级固定为“内置默认值 < 配置文件 < 环境变量 < CLI”；新增配置必须接入该链，旧 alias 不得静默删除。
+- 参数、JSON、布尔值、正整数、CSS size/color 校验失败必须抛出含字段名的 `Error`；主入口统一输出 `[codex-app-extension]` 前缀并返回非零状态。
+- 页面注入源码不得调用 Node.js API；Node 与页面上下文之间只通过生成字符串、CDP 和 JSON 可序列化值传递。
+- debugger target 不得回退任意页面；写入页面前必须通过 Codex surface 探针。CSS 选择器必须受 `data-codex-app-extension-surface="true"` 约束，离开表面时清理扩展写入的宽屏变量。
+- 输入增强只接管已识别的 ProseMirror composer 或 request input；dismiss/skip 不能作为提交按钮，无法唯一识别提交动作时让 Codex 原生处理。
+- 清理旧 observer、handler、样式或可选 CDP 能力时允许容错；catch 若忽略错误，必须用注释说明该路径为何非关键。
+- 新增运行时行为必须在 `buildDiagnoseSource` 或安装结果中暴露足够状态，以便 `--diagnose` 定位配置、选择器和最近事件。
 
-## 通用编码原则（所有语言适用）
+## Bash — `*.sh` 与 `lib/runtime.sh`
 
-### 【强制】
+- 所有可执行 Shell 脚本使用 `#!/usr/bin/env bash` 和 `set -euo pipefail`，并保持 macOS Bash `3.2` 可运行；不得使用关联数组、`mapfile` 等新版本专属语法。
+- 仓库内路径从 `BASH_SOURCE[0]` 计算；路径、变量展开和命令参数必须加双引号。
+- 应用、Node 和端口发现复用 `lib/runtime.sh`，不得在各入口复制 `/Applications/ChatGPT.app`、Node 能力检查或 `lsof` 解析逻辑。
+- 显式环境变量优先于自动发现；候选发现可以失败开放，但最终 app bundle、Node 能力和 `/json/version` 校验必须决定是否继续。
+- 远程调试地址固定为 `127.0.0.1`；不得改为对外网卡监听。
+- 错误写入 stderr 并返回非零；帮助与成功信息写入 stdout。新增环境变量或优先级变化同步 README。
+- 修改 Shell 后运行 `bash -n`；统一验证由 `./verify.sh` 执行。
 
-- **命名清晰**：禁止使用拼音和无意义的 `a` / `b` / `temp`。
-- **单一职责**：函数应保持聚焦；新增复杂逻辑优先拆成小函数。
-- **禁止魔法值**：可配置值、环境变量名、CLI 参数、CSS 变量名必须集中定义或在配置链路中明确承接。
-- **必要注释**：非直观兼容逻辑、运行时注入边界、配置 key 含义、选择器风险、事件拦截边界必须补充必要注释。
-- **文档同步**：用户可配置能力、新增 CLI 参数、新增环境变量、新增诊断字段必须同步更新 README。
-- **错误处理**：禁止空 catch；允许清理旧 observer、旧样式等非关键路径时吞掉错误，但必须保留简短意图注释。
-- **敏感信息**：禁止硬编码账号、令牌、Cookie、内部服务密钥。
+## JSON、Markdown 与预览 HTML
 
-### 【推荐】
-
-- **保守适配**：优先复用现有 `DEFAULT_CONFIG`、`ensureConfig`、`buildOptions`、`buildMeta`、`buildCss` 链路。
-- **兼容优先**：新增能力默认关闭；如用户明确要求，可只在用户本机配置文件中打开。
-- **可诊断**：新增运行时增强能力应尽量暴露到 `--diagnose` 输出中。
-- **选择器克制**：CSS 选择器尽量基于语义结构、Markdown 常见标签和已有 Codex 类名，避免过度依赖易变 hash 类。
-
----
-
-## JavaScript / Node.js 专属规范
-
-### 命名规范【强制】
-
-- 常量使用 `UPPER_SNAKE_CASE`。
-- 函数、变量使用 `lowerCamelCase`。
-- 布尔配置以正向语义命名，例如 `themeEnhancement`。
-- CSS 变量使用 `--codex-app-extension-*` 前缀，避免污染 Codex App 原生命名空间。
-
-### 代码结构【强制】
-
-- 保持单文件注入工具的当前结构，不为单个小能力引入构建系统或依赖包。
-- `parseCliArgs` 只负责解析 CLI。
-- `ensureConfig` 只负责默认配置创建和配置文件读取。
-- `buildOptions` 负责配置优先级合并、类型转换和校验。
-- `buildMeta` 负责诊断元信息。
-- `buildCss` 负责样式字符串生成。
-- 注入页面上下文中的函数必须避免依赖 Node.js API。
-
-### 文件编码规范【强制】
-
-- 修改已有文件前必须识别原文件编码，写回时保持原编码。
-- 新建 Markdown / JSON / JavaScript 文件默认使用 UTF-8；若同目录同类文件存在不同编码，必须在方案中标注并等待确认。
-- 涉及中文注释或中文文档时，只写入 UTF-8 文件。
-
-### 注释规范【强制】
-
-- 默认使用中文注释。
-- 注释只解释意图、约束、边界、风险和易错点，不解释显而易见的语法动作。
-- CSS 增强中若使用较宽泛的 Markdown 选择器，必须说明其边界和启用条件。
-
-### 异常/错误处理【强制】
-
-- CLI 参数、配置 JSON、CSS size、布尔值解析必须保留明确错误信息。
-- 与 Codex 调试端口连接失败时，必须输出可操作的错误提示。
-- 运行时清理旧 observer / 旧 handler 时允许容错，但不得影响新逻辑安装。
-
-### Bash 脚本规范【强制】
-
-- 保留 `set -euo pipefail`。
-- 路径必须加引号。
-- 新增环境变量要有合理默认值，并同步 README。
-
----
-
-## 项目专属规范
-
-- 本项目是本地增强工具，不是 Codex App 官方功能；实现必须保持可撤销。
-- 不直接修改 Codex App 安装文件、应用包体、账号数据或历史会话数据。
-- 配置读取优先级固定为：内置默认值 < 配置文件 < 环境变量 < CLI 参数。
-- 新增增强能力默认值应保守；若用户要求“默认 false 但帮我打开”，只能在用户本机配置文件里打开，不改内置默认值。
-- 保留旧兼容入口，除非用户明确要求清理。
+- `data/author-config.json` 保持合法 JSON、双引号和 2 空格缩进；字段必须与 `DEFAULT_CONFIG` 的已支持配置对应。
+- README 命令必须真实存在；当前正式入口为 `./launch.sh`、`./config.sh`、`./inject-current.sh` 和 `./verify.sh`，不得记录猜测的 build/lint/test 命令。
+- `strong-text-color-preview.html` 仅用于人工配色预览，不得作为生产注入实现或自动验证替代品。
