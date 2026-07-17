@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "harness_version": "0.8.0",
-  "generated_at": "2026-07-14T02:38:41.130Z",
+  "harness_version": "0.8.1-beta.0",
+  "generated_at": "2026-07-16T08:33:49.491Z",
   "agents": [
     "claude-code",
     "codex",
@@ -12,7 +12,7 @@
       "path": ".agents/skills/ec-analysis/SKILL.md",
       "kind": "skill",
       "platform": "codex",
-      "sha256": "e47f285f5ec0b5b22a0bcc87822e41aec454637858fa887fa6452df32f2d7368"
+      "sha256": "940b1fc7349c3f28726122eb31a127b51ce7ee206ffe2334dacd538cd220f96e"
     },
     {
       "path": ".agents/skills/ec-brainstorming/SKILL.md",
@@ -108,7 +108,7 @@
       "path": ".agents/skills/ec-workflow/SKILL.md",
       "kind": "skill",
       "platform": "codex",
-      "sha256": "945465634e6225ad06bd6d5d92d2e5987d0a31b5f450da8a7ff37add9dc46fed"
+      "sha256": "5d0dd311106f29ed4b80930cc730c62508793c8357fc6809ca4aeb17cae989ac"
     },
     {
       "path": ".claude/agents/ec-fixer.md",
@@ -168,7 +168,7 @@
       "path": ".claude/skills/ec-analysis/SKILL.md",
       "kind": "skill",
       "platform": "claude-code",
-      "sha256": "12bf8c5ef1fe22bdf3fdb283f6d0f516296f1825764ab6a248a3cf01c7ada8af"
+      "sha256": "b9e47b5c53fdfd2011e3e87de96fe7d92d0abe6a155455476c3ce88b1629bf03"
     },
     {
       "path": ".claude/skills/ec-brainstorming/SKILL.md",
@@ -264,7 +264,7 @@
       "path": ".claude/skills/ec-workflow/SKILL.md",
       "kind": "skill",
       "platform": "claude-code",
-      "sha256": "7da3b599f8eb8bca51570e0c15dcf78dbe2bc4d8f7f6aae675d2508c10b0c5ea"
+      "sha256": "b87bcb501deba739e20daa7fbad5a2e605f82aee37701a0ea72011ec3f75b8b3"
     },
     {
       "path": ".codex/agents/ec-fixer.toml",

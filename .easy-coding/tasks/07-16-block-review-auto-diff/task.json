@@ -1,0 +1,45 @@
+{
+  "type": "feature",
+  "title": "新增可配置的 review 自动 Diff 屏蔽功能并为作者启用",
+  "status": "CLOSED",
+  "created_at": "2026-07-16T08:37:36.686484+00:00",
+  "created_by": "codex",
+  "last_agent": "codex",
+  "stage_history": [
+    {
+      "stage": "INIT",
+      "agent": "codex",
+      "entered_at": "2026-07-16T08:37:36.686484+00:00"
+    },
+    {
+      "stage": "ANALYSIS",
+      "agent": "codex",
+      "entered_at": "2026-07-16T08:37:59.536998+00:00"
+    },
+    {
+      "stage": "IMPLEMENT",
+      "agent": "codex",
+      "entered_at": "2026-07-16T09:04:10.496908+00:00"
+    },
+    {
+      "stage": "REVIEW",
+      "agent": "codex",
+      "entered_at": "2026-07-16T09:19:54.651952+00:00"
+    },
+    {
+      "stage": "ANALYSIS",
+      "agent": "codex",
+      "entered_at": "2026-07-16T10:04:21.709905+00:00"
+    },
+    {
+      "stage": "CLOSED",
+      "agent": "codex",
+      "entered_at": "2026-07-16T11:12:11.467364+00:00"
+    }
+  ],
+  "context": {},
+  "spawned_from": null,
+  "spawned_tasks": [],
+  "closed_reason": "用户明确放弃本次 review 自动 Diff 门禁功能并要求回退本任务全部项目改动",
+  "repos": []
+}
