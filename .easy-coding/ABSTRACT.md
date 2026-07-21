@@ -1,6 +1,6 @@
 # codex-app-extension 架构摘要
 
-> 最后更新：2026-07-10；由 ec-init 基于当前入口、配置、README 和验证脚本生成。
+> 最后更新：2026-07-20；由 ec-init 基于当前入口、配置、README 和验证脚本生成。
 
 ## 项目定位
 
@@ -10,7 +10,7 @@
 
 ## 核心数据流
 
-1. `launch.sh` 调用 `lib/runtime.sh` 解析应用与兼容 Node，并在 `127.0.0.1` 上启动远程调试端口。
+1. `launch.sh` 调用 `lib/runtime.sh` 解析应用、兼容 Node 和精确主进程名；优先复用通过 `/json/version` 验证的现有 CDP 端口，否则按主进程的运行、未运行或探测错误状态，分别确认强制重启、正常调试启动或失败安全退出。
 2. `inject-wide-layout.mjs` 读取 `~/.codex-app-extension/config.json`，按“默认值 < 配置文件 < 环境变量 < CLI”合并最终选项。
 3. 注入器轮询 `/json/list`，给 page/webview target 评分，再通过布局根、工作区和交互锚点校验 Codex surface。
 4. CDP `Runtime.evaluate` 安装受 surface 属性约束的 CSS、布局 observer、IME guard、长文本发送与 Tab 事件逻辑。
@@ -18,16 +18,20 @@
 
 ## 模块：运行时发现（`lib/runtime.sh`）
 
-- 读取 app `Info.plist` 并以 bundle id `com.openai.codex` 识别自动发现的 ChatGPT/Codex 应用。
-- 应用优先级：显式 `CODEX_APP`、系统/用户 `ChatGPT.app`、系统/用户 `Codex.app`。
+- 读取 app `Info.plist` 并以 bundle id `com.openai.codex` 识别 ChatGPT/Codex 应用；显式路径与自动发现候选执行相同终检。
+- 应用优先级：显式 `CODEX_APP`、系统/用户 `ChatGPT.app`、系统/用户 `Codex.app`；优先级不绕过 bundle id 校验。
+- 从选中 app 的 `Info.plist` 读取 `CFBundleExecutable` 作为精确主进程名；以 `pgrep -x` 区分运行、未运行和探测错误三态。
+- `Info.plist` 的 bundle id 与 `CFBundleExecutable` 原始输出先写入权限固定为 `0600` 的精确临时文件，在进入 Bash 变量前由 `od` 检测 NUL，再执行精确单行与控制字符校验，最后删除该临时文件。
+- 用户明确确认后仅以 `pkill -KILL -x` 强制终止该精确主进程，并在有界轮询内确认进程已经退出。
 - Node 优先级：显式 `NODE_BIN`、PATH、选中应用内置 `cua_node/bin/node`、旧 `Resources/node`；最终要求原生 `fetch` 与 `WebSocket`。
-- 使用 `lsof` 同时发现 `ChatGPT` 与 `Codex` 进程的监听端口；HTTP `/json/version` 仍是可用性的最终判断。
+- 使用 `lsof` 同时发现 `ChatGPT` 与 `Codex` 进程的监听端口；所有候选端口仍须通过回环地址 HTTP `/json/version` 终检。
 
 ## 模块：启动与当前实例（`launch.sh`、`inject-current.sh`）
 
-- `launch.sh` 负责首次配置分流、回环 CDP 启动、最长约 30 秒端口等待和首次注入。
+- `launch.sh` 负责首次配置分流、最长约 30 秒端口等待和首次注入，并按三条路径运行：发现可用 `/json/version` 端口时直接注入；主进程运行但无可用 CDP 时确认后强制重启；主进程未运行时正常启动调试实例。
+- 配置的启动端口必须是 `1..65535` 的十进制 TCP 端口；无效值会在 CDP 发现、进程探测、交互确认、强制终止或打开/重启应用之前输出 stderr 并以非零状态退出，因此不能终止当前实例。
+- 只有交互终端中明确输入 `Y` 或 `y` 才会立即强制终止精确主进程；取消、确认读取失败、非交互环境或主进程探测错误都失败安全，不执行终止或重启。
 - `inject-current.sh` 不启动应用；它按 CLI、环境变量、进程发现、默认 `9229` 的顺序选择端口，用于重新注入或只读诊断。
-- 已运行但未携带远程调试参数的 Electron 进程不能补开端口，必须退出后通过 `launch.sh` 重启。
 
 ## 模块：核心注入（`inject-wide-layout.mjs`）
 
@@ -46,6 +50,7 @@
 ## 模块：验证（`verify.sh`）
 
 - 作为项目唯一可执行测试基线，运行 Bash/Node 语法检查、生成后 diagnose/installer 源编译和 CSS surface 作用域断言。
+- 以隔离的启动状态机回归覆盖可用 CDP 直注入、运行中确认重启、未运行正常启动、取消与非交互失败安全，并校验 `Y`/`y` 解析、精确 `pgrep -x`/`pkill -KILL -x` 参数和进程探测错误路径。
 - 覆盖 target 不误选、surface 支持与拒绝、新 request input 锚点、当前 app bundle/Node 能力和 `app.asar` 稳定锚点。
 - 默认不重启或连接当前页面；设置 `CODEX_APP_EXTENSION_VERIFY_LIVE=1` 后追加 `inject-current.sh --diagnose`。
 
@@ -64,8 +69,8 @@
 
 ## 外部依赖与服务
 
-- 运行目标：`ChatGPT.app` / `Codex.app`，自动发现时要求 bundle id `com.openai.codex`。
-- 本机命令：`open`、`curl`、`lsof`、`/usr/libexec/PlistBuddy`、`sed`、`awk`；`rg` 仅为验证锚点的优先实现，缺失时回退 `grep`。
+- 运行目标：`ChatGPT.app` / `Codex.app`，显式路径与自动发现候选都要求 bundle id `com.openai.codex`。
+- 本机命令：`open`、`curl`、`lsof`、`pgrep`、`pkill`、`mktemp`、`od`、`/bin/cat`、`rm`、`/usr/libexec/PlistBuddy`、`sed`、`awk`；`rg` 仅为验证锚点的优先实现，缺失时回退 `grep`。
 - 本地服务：`http://127.0.0.1:{port}/json/version`、`/json/list` 与对应 debugger WebSocket；不监听外部网卡。
 - 无 npm 依赖、数据库、后端 API 或部署服务。
 
@@ -82,5 +87,6 @@
 ## 架构约束
 
 - 运行时增强必须可关闭、可诊断、可撤销，不修改应用包体和用户数据。
+- 破坏性重启必须经过显式交互确认，只能精确匹配 app 声明的主进程；确认取消、非交互环境和进程探测异常均须失败安全。
 - 保留旧应用路径、环境变量、CLI alias 和输入选择器，除非用户明确授权破坏性清理。
 - 没有 CDP 端口时只能完成静态/生成代码验证，不得把它表述为在线注入验收。

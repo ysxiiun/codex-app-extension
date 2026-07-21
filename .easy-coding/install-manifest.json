@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "harness_version": "0.8.1-beta.1",
-  "generated_at": "2026-07-17T02:32:09.546Z",
+  "harness_version": "0.8.1",
+  "generated_at": "2026-07-20T08:23:30.479Z",
   "agents": [
     "claude-code",
     "codex",
@@ -24,7 +24,7 @@
       "path": ".agents/skills/ec-git/SKILL.md",
       "kind": "skill",
       "platform": "codex",
-      "sha256": "e63c28539588354f87796956f0b1321a979a8eb19843aee5eb512fa2ac347681"
+      "sha256": "43dd2df048fc5ad65da43243e0d6843e26d0c436e87f3a65c070d148b4f134fd"
     },
     {
       "path": ".agents/skills/ec-implementing/SKILL.md",
@@ -180,7 +180,7 @@
       "path": ".claude/skills/ec-git/SKILL.md",
       "kind": "skill",
       "platform": "claude-code",
-      "sha256": "e63c28539588354f87796956f0b1321a979a8eb19843aee5eb512fa2ac347681"
+      "sha256": "43dd2df048fc5ad65da43243e0d6843e26d0c436e87f3a65c070d148b4f134fd"
     },
     {
       "path": ".claude/skills/ec-implementing/SKILL.md",

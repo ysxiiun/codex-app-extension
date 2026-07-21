@@ -65,12 +65,6 @@ add_candidate_port() {
   CANDIDATE_PORTS+=("$port")
 }
 
-is_debug_port_ready() {
-  local port="$1"
-
-  curl --silent --fail --max-time 2 "http://127.0.0.1:${port}/json/version" >/dev/null 2>&1
-}
-
 for arg in "$@"; do
   if [[ "$arg" == "--help" || "$arg" == "-h" ]]; then
     print_help
