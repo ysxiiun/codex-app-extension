@@ -14,7 +14,7 @@
 2. `inject-wide-layout.mjs` 读取 `~/.codex-app-extension/config.json`，按“默认值 < 配置文件 < 环境变量 < CLI”合并最终选项。
 3. 注入器轮询 `/json/list`，给 page/webview target 评分，再通过布局根、工作区和交互锚点校验 Codex surface。
 4. CDP `Runtime.evaluate` 安装受 surface 属性约束的 CSS、布局 observer、IME guard、长文本发送与 Tab 事件逻辑。
-5. `--diagnose` 只读返回 surface、宽度 scope、原生浮层、侧栏、输入协议和最近事件；`verify.sh` 在无在线端口时验证生成代码与当前 app 静态锚点。
+5. `--diagnose` 只读返回 surface、宽度 scope、原生浮层、瞬态交互菜单候选、composer 附着组件候选、侧栏、输入协议和最近事件；`verify.sh` 在无在线端口时验证生成代码与当前 app 静态锚点。
 
 ## 模块：运行时发现（`lib/runtime.sh`）
 
@@ -36,7 +36,8 @@
 ## 模块：核心注入（`inject-wide-layout.mjs`）
 
 - Node 侧负责 CLI、配置校验、CDP target 发现、WebSocket 请求响应和页面源码生成。
-- 页面侧负责样式注入、宽度 scope 计算、右侧 floating rail 避让、原生 git/diff 浮层隔离、左侧栏隔离和全屏状态。
+- 页面侧负责样式注入、宽度 scope 计算、右侧 floating rail 避让、浮层三类互斥处理（瞬态交互菜单排除避让、composer 附着组件对齐、持久右侧 rail 隔离）、左侧栏隔离和全屏状态。
+- 浮层按职责分三类：`role=menu/listbox` 瞬态交互菜单在 rail 几何测量前整体排除，绝不参与避让；composer 上方 `bottom-full` 附着组件（任务列表/Git 差异）保留内部 native width reset，外层用独立变量 `--codex-app-extension-aligned-overlay-offset-x`（属性 `data-codex-app-extension-aligned-overlay`）跟随 composer 中心线左移，该变量不在原生浮层重置子树清零；`thread-floating-content` 等持久右侧面板沿用原有识别、避让与局部零偏移，不跟随左移。
 - surface 双门禁先阻止选错 target，再用 `data-codex-app-extension-surface="true"` 约束 CSS 与输入事件；路由离开 Codex 时清理扩展写入的宽屏变量。
 - 输入适配识别 ProseMirror composer，以及新版 `data-codex-composer-request-navigation` / 旧类名 request input；提交按钮歧义时让原生行为继续。
 - 配置、安装结果和 `--diagnose` 使用 JSON 可序列化数据跨越 Node/CDP 页面边界。

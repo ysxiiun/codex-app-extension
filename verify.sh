@@ -2027,6 +2027,160 @@ if (!originalSource.includes("data-codex-composer-request-navigation")
   throw new Error("New request input protocol anchors are missing from the injector");
 }
 
+// Overlay classification regression: transient menus, composer-attached overlays, aligned offset variable.
+for (const optionVariant of [options, { ...options, wideLayoutEnhancement: false }]) {
+  const installerSource = injector.buildInstallerSource(optionVariant);
+
+  // T1/T2: transient interactive overlay classifier is symmetric across self/ancestor/descendant.
+  if (!installerSource.includes("function isTransientInteractiveOverlay")) {
+    throw new Error("Missing transient interactive overlay classifier");
+  }
+  if (!installerSource.includes("[role='menu']") || !installerSource.includes("[role='listbox']")) {
+    throw new Error("Transient overlay classifier does not cover role=menu/listbox semantics");
+  }
+  const transientBody = installerSource.match(/function isTransientInteractiveOverlay\(element\) \{([\s\S]*?)\n    \}/);
+  if (!transientBody) {
+    throw new Error("Unable to locate isTransientInteractiveOverlay body");
+  }
+  // Classifier must apply the full menu+listbox selector constant to matches/closest/querySelector,
+  // not the old asymmetric hardcoded role literals, so docs/code/tests cannot drift apart again.
+  if (!/matches\(TRANSIENT_INTERACTIVE_OVERLAY_SELECTOR\)/.test(transientBody[1])
+    || !/closest\(TRANSIENT_INTERACTIVE_OVERLAY_SELECTOR\)/.test(transientBody[1])
+    || !/querySelector\(TRANSIENT_INTERACTIVE_OVERLAY_SELECTOR\)/.test(transientBody[1])) {
+    throw new Error("Transient overlay classifier must apply TRANSIENT_INTERACTIVE_OVERLAY_SELECTOR symmetrically to self/ancestor/descendant");
+  }
+  if (/closest\("\[role='menu'\]"\)/.test(transientBody[1])
+    || /querySelector\("\[role='listbox'\]"\)/.test(transientBody[1])) {
+    throw new Error("Transient overlay classifier regressed to asymmetric hardcoded role selectors");
+  }
+
+  // T2b: real DOM behavior regression. Execute the extracted function body against minimal
+  // HTMLElement stubs. The `fixed wrapper > role=menu` descendant case (and its listbox twin)
+  // MUST fail on the previous asymmetric implementation and MUST pass now.
+  const TRANSIENT_INTERACTIVE_OVERLAY_SELECTOR = "[role='menu'], [role='listbox']";
+  class StubHTMLElement {
+    constructor(spec) {
+      this.selfRoles = spec.selfRoles || [];
+      this.ancestorRoles = spec.ancestorRoles || [];
+      this.descendantRoles = spec.descendantRoles || [];
+    }
+    matchesRole(selector, roles) {
+      return roles.some((role) => selector.includes("[role='" + role + "']"));
+    }
+    matches(selector) {
+      return this.matchesRole(selector, this.selfRoles);
+    }
+    closest(selector) {
+      if (this.matchesRole(selector, this.selfRoles)) return this;
+      return this.matchesRole(selector, this.ancestorRoles) ? this : null;
+    }
+    querySelector(selector) {
+      return this.matchesRole(selector, this.descendantRoles) ? this : null;
+    }
+  }
+  const isTransientFn = new Function(
+    "HTMLElement",
+    "TRANSIENT_INTERACTIVE_OVERLAY_SELECTOR",
+    transientBody[0] + "\n    return isTransientInteractiveOverlay;",
+  )(StubHTMLElement, TRANSIENT_INTERACTIVE_OVERLAY_SELECTOR);
+  const overlayCases = [
+    // Positive: element itself is a menu/listbox.
+    { name: "self role=menu", el: new StubHTMLElement({ selfRoles: ["menu"] }), expected: true },
+    { name: "self role=listbox", el: new StubHTMLElement({ selfRoles: ["listbox"] }), expected: true },
+    // Positive: node inside a menu/listbox ancestor.
+    { name: "node inside menu ancestor", el: new StubHTMLElement({ ancestorRoles: ["menu"] }), expected: true },
+    { name: "node inside listbox ancestor", el: new StubHTMLElement({ ancestorRoles: ["listbox"] }), expected: true },
+    // Positive (key case, MUST fail on the old implementation): a positioned wrapper whose only
+    // menu/listbox signal is a descendant role node (fixed wrapper > role=menu / role=listbox).
+    { name: "fixed wrapper with descendant role=menu", el: new StubHTMLElement({ descendantRoles: ["menu"] }), expected: true },
+    { name: "fixed wrapper with descendant role=listbox", el: new StubHTMLElement({ descendantRoles: ["listbox"] }), expected: true },
+    // Negative: a persistent right rail with no menu/listbox on self/ancestor/descendant.
+    { name: "persistent right rail", el: new StubHTMLElement({}), expected: false },
+  ];
+  for (const overlayCase of overlayCases) {
+    const actual = isTransientFn(overlayCase.el);
+    if (actual !== overlayCase.expected) {
+      throw new Error("isTransientInteractiveOverlay behavior mismatch for '" + overlayCase.name + "': expected " + overlayCase.expected + " got " + actual);
+    }
+  }
+  if (isTransientFn({}) !== false) {
+    throw new Error("isTransientInteractiveOverlay must reject non-HTMLElement input");
+  }
+
+  // T3: composer-attached overlay classifier requires bottom-full anchor plus composer-home-top-menu signal.
+  if (!installerSource.includes("function isComposerAttachedOverlay")) {
+    throw new Error("Missing composer-attached overlay classifier");
+  }
+  if (!installerSource.includes("COMPOSER_ATTACHED_ANCHOR_SIGNAL")
+    || !installerSource.includes("COMPOSER_ATTACHED_OVERLAY_SIGNAL")
+    || !installerSource.includes("composer-home-top-menu")) {
+    throw new Error("Composer-attached overlay classifier is missing anchor or composer signal");
+  }
+
+  // T5: rail geometry scan must exclude both overlay classes before measuring candidates.
+  const railBody = installerSource.match(/function findRightFloatingRail\(reference\) \{([\s\S]*?)\n    \}/);
+  if (!railBody) {
+    throw new Error("Unable to locate findRightFloatingRail body");
+  }
+  const excludeTransientAt = railBody[1].indexOf("isTransientInteractiveOverlay(element)");
+  const excludeAttachedAt = railBody[1].indexOf("isComposerAttachedOverlay(element)");
+  const pushCandidateAt = railBody[1].indexOf("candidates.push(");
+  if (excludeTransientAt < 0 || excludeAttachedAt < 0 || pushCandidateAt < 0) {
+    throw new Error("Rail scan does not exclude transient/attached overlays before pushing candidates");
+  }
+  if (excludeTransientAt > pushCandidateAt || excludeAttachedAt > pushCandidateAt) {
+    throw new Error("Overlay exclusion must run before rail candidates are collected");
+  }
+  // Real rail detection path must remain intact.
+  if (!railBody[1].includes("shouldUseRightFloatingRailAsLayoutScope")) {
+    throw new Error("Rail scan lost its real layout-scope resolution");
+  }
+
+  // T4: aligned overlay offset variable is written by root/scope and applied to attached wrappers.
+  if (!installerSource.includes("--codex-app-extension-aligned-overlay-offset-x")) {
+    throw new Error("Aligned overlay offset variable is not written by the installer");
+  }
+  if (!installerSource.includes("markComposerAttachedOverlays")) {
+    throw new Error("Installer does not mark composer-attached overlays");
+  }
+  if (!installerSource.includes("data-codex-app-extension-aligned-overlay")) {
+    throw new Error("Composer-attached overlay marker attribute is missing");
+  }
+
+  // T6: diagnose exposes the two new read-only fields while keeping existing layout/native fields.
+  const diagnoseSource = injector.buildDiagnoseSource(optionVariant);
+  for (const field of [
+    "transientInteractiveOverlayCandidates",
+    "composerAttachedOverlayCandidates",
+    "layoutWidthState",
+    "layoutWidthScopes",
+    "nativeFloatingResetTargets",
+  ]) {
+    if (!diagnoseSource.includes(field)) {
+      throw new Error("Diagnose source is missing field: " + field);
+    }
+  }
+
+  const css = injector.buildCss(optionVariant);
+  if (optionVariant.wideLayoutEnhancement) {
+    // Aligned overlay wrapper follows composer via the independent offset variable.
+    const alignedRule = css.match(/\[data-codex-app-extension-aligned-overlay="true"\] \{([^}]*)\}/);
+    if (!alignedRule || !alignedRule[1].includes("translate: var(--codex-app-extension-aligned-overlay-offset-x) 0 !important;")) {
+      throw new Error("Aligned overlay wrapper rule does not apply the independent offset variable");
+    }
+    // Native floating reset must keep width isolation but must NOT zero the aligned overlay offset.
+    const nativeResetRule = css.match(/\[data-codex-app-extension-native-floating-panel="true"\] \{([^}]*)\}/);
+    if (!nativeResetRule
+      || !nativeResetRule[1].includes("--thread-content-max-width: 100vw !important;")
+      || !nativeResetRule[1].includes("--codex-app-extension-content-offset-x: 0px !important;")) {
+      throw new Error("Native floating reset lost its width isolation");
+    }
+    if (nativeResetRule[1].includes("--codex-app-extension-aligned-overlay-offset-x")) {
+      throw new Error("Native floating reset must not zero the aligned overlay offset variable");
+    }
+  }
+}
+
 console.log("[codex-app-extension] Generated sources, target guard, surface guard, and request input adapter: ok");
 NODE
 

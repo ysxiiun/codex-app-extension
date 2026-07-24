@@ -1110,6 +1110,57 @@ function buildDiagnoseSource(options) {
       .map(describeElement)
       .slice(0, 50);
 
+    // 只读诊断：瞬态交互浮层候选。除 role=menu/listbox 语义节点外，同时纳入每个语义节点最近的可见
+    // fixed/absolute/sticky 定位祖先 wrapper——模型二级菜单、文件“打开方式”菜单都是 "定位 wrapper > role=menu"，
+    // 真正参与右侧 rail 几何扫描、缩窄 composer 的是外层 wrapper 而非 role 节点，因此二者都要在线可证；按 DOM
+    // 元素去重后再截断。这里 isLayoutShell 不在诊断源作用域内，故内联相同的 layout shell 停止选择器。
+    const isVisibleOverlayNode = (element) => {
+      const rect = element.getBoundingClientRect();
+      return rect.width >= 1 && rect.height >= 1;
+    };
+    const nearestVisiblePositionedWrapper = (element) => {
+      for (let current = element.parentElement;
+        current instanceof HTMLElement
+          && current !== document.body
+          && current !== document.documentElement
+          && !current.matches("main.main-surface, .main-surface, .app-shell-main-content-viewport, [data-app-shell-main-content-layout], .thread-scroll-container");
+        current = current.parentElement) {
+        if (["absolute", "fixed", "sticky"].includes(getComputedStyle(current).position) && isVisibleOverlayNode(current)) {
+          return current;
+        }
+      }
+      return null;
+    };
+    const transientInteractiveOverlayNodes = [];
+    for (const roleNode of Array.from(document.querySelectorAll("[role='menu'], [role='listbox']"))) {
+      if (!isVisibleOverlayNode(roleNode)) continue;
+      if (!transientInteractiveOverlayNodes.includes(roleNode)) transientInteractiveOverlayNodes.push(roleNode);
+      const wrapper = nearestVisiblePositionedWrapper(roleNode);
+      if (wrapper && !transientInteractiveOverlayNodes.includes(wrapper)) transientInteractiveOverlayNodes.push(wrapper);
+    }
+    const transientInteractiveOverlayCandidates = transientInteractiveOverlayNodes
+      .map(describeElement)
+      .slice(0, 50);
+
+    // 只读诊断：composer 附着组件（bottom-full + composer-home-top-menu），含标记状态与坐标，便于核对是否跟随 composer 左移。
+    const composerAttachedOverlayCandidates = Array.from(document.querySelectorAll("[class*='bottom-full']"))
+      .filter((element) => {
+        const className = String(element.className || "");
+        if (!/composer-home-top-menu/i.test(className)
+          && !element.querySelector("[class*='composer-home-top-menu']")
+          && !element.closest("[class*='composer-home-top-menu']")) {
+          return false;
+        }
+        const rect = element.getBoundingClientRect();
+        return rect.width >= 1 && rect.height >= 1;
+      })
+      .map((element) => ({
+        ...describeElement(element),
+        alignedOverlay: element.getAttribute("data-codex-app-extension-aligned-overlay") || "",
+        alignedOverlayOffsetX: getComputedStyle(element).getPropertyValue("--codex-app-extension-aligned-overlay-offset-x").trim()
+      }))
+      .slice(0, 50);
+
     const leftSidebarElement = document.querySelector(".app-shell-left-panel");
     const summarizeSidebarFolderRow = (row) => {
       const textElement = Array.from(row.querySelectorAll("span, div"))
@@ -1228,6 +1279,8 @@ function buildDiagnoseSource(options) {
       bottomCandidates,
       nativeFloatingCandidates,
       nativeFloatingResetTargets,
+      transientInteractiveOverlayCandidates,
+      composerAttachedOverlayCandidates,
       leftSidebar: leftSidebarElement ? describeElement(leftSidebarElement) : null,
       sidebarProjectRows,
       sampleClasses: classSamples
@@ -1258,6 +1311,7 @@ function buildInstallerSource(options) {
       "--thread-composer-max-width": unifiedWidth,
       "--markdown-wide-block-max-width": unifiedWidth,
       "--codex-app-extension-content-offset-x": "0px",
+      "--codex-app-extension-aligned-overlay-offset-x": "0px",
       "--codex-app-extension-horizontal-padding": horizontalPadding,
     });
   }
@@ -1281,7 +1335,18 @@ function buildInstallerSource(options) {
       "[class*='markdown-wide-block-max-width']"
     ].join(", ");
     const NATIVE_FLOATING_PANEL_ATTRIBUTE = "data-codex-app-extension-native-floating-panel";
+    const ALIGNED_OVERLAY_ATTRIBUTE = "data-codex-app-extension-aligned-overlay";
     const CODEX_SURFACE_ATTRIBUTE = "data-codex-app-extension-surface";
+    // 语义浮层（一级设置菜单、二级模型菜单）用 role=menu/listbox 表达；它们靠近右边界时会在 rail 阈值内外往返，
+    // 触发"宽度回写→菜单重定位→再测量"的反馈环，必须在几何候选入列前整体排除，且不改其自身 DOM/样式。
+    const TRANSIENT_INTERACTIVE_OVERLAY_SELECTOR = [
+      "[role='menu']",
+      "[role='listbox']"
+    ].join(", ");
+    // composer 上方的任务列表 / Git 差异组件是 bottom-full 定位 wrapper；带 composer-home-top-menu 关联信号者
+    // 视为"附着组件"，需跟随 composer 中心线左移，但仍保留内部 native width reset。
+    const COMPOSER_ATTACHED_OVERLAY_SIGNAL = /composer-home-top-menu/i;
+    const COMPOSER_ATTACHED_ANCHOR_SIGNAL = /bottom-full/i;
     const NATIVE_FLOATING_STRUCTURAL_SELECTOR = [
       "[class*='thread-floating-content']",
       "[class*='bottom-full']",
@@ -1301,6 +1366,7 @@ function buildInstallerSource(options) {
       "--thread-composer-max-width",
       "--markdown-wide-block-max-width",
       "--codex-app-extension-content-offset-x",
+      "--codex-app-extension-aligned-overlay-offset-x",
       "--codex-app-extension-horizontal-padding",
       "--codex-app-extension-effective-side-padding"
     ];
@@ -1428,6 +1494,29 @@ function buildInstallerSource(options) {
       return NATIVE_FLOATING_TEXT_SIGNAL.test(getElementTextSignal(element));
     }
 
+    // 自身 / 祖先 / 后代三向对同一 menu+listbox 语义闭包：元素自身 matches、祖先 closest、后代 querySelector
+    // 三者都用完整的 TRANSIENT_INTERACTIVE_OVERLAY_SELECTOR，任一命中即视为瞬态交互菜单，整体退出 rail 判定、
+    // 不参与几何避让。这样才能覆盖模型二级菜单、文件“打开方式”等 "定位 wrapper > role=menu" 结构——此类 wrapper
+    // 自身无 role、不在 menu 内部、后代只有 menu 无 listbox，旧的非对称硬编码（closest 只查 menu、querySelector
+    // 只查 listbox）会漏判它，使其进入几何候选并以 wrapper 左边界缩窄 composer。
+    function isTransientInteractiveOverlay(element) {
+      if (!(element instanceof HTMLElement)) return false;
+      if (element.matches(TRANSIENT_INTERACTIVE_OVERLAY_SELECTOR)) return true;
+      if (element.closest(TRANSIENT_INTERACTIVE_OVERLAY_SELECTOR)) return true;
+      return Boolean(element.querySelector(TRANSIENT_INTERACTIVE_OVERLAY_SELECTOR));
+    }
+
+    function isComposerAttachedOverlay(element) {
+      if (!(element instanceof HTMLElement) || isLayoutShell(element)) return false;
+      const structuralSignal = getElementStructuralSignal(element);
+      // 附着组件必须同时具备 bottom-full 锚定信号与 composer 关联信号；信号不完整时不强制移动（失败开放），
+      // 避免把普通 thread-floating-content 右侧持久面板误判为附着组件而跟随左移。
+      if (!COMPOSER_ATTACHED_ANCHOR_SIGNAL.test(structuralSignal)) return false;
+      if (COMPOSER_ATTACHED_OVERLAY_SIGNAL.test(structuralSignal)) return true;
+      return Boolean(element.querySelector("[class*='composer-home-top-menu']"))
+        || Boolean(element.closest("[class*='composer-home-top-menu']"));
+    }
+
     function getNativeFloatingPanelTarget(element) {
       if (!(element instanceof HTMLElement)) return null;
       const structuralAncestor = element.closest(NATIVE_FLOATING_STRUCTURAL_SELECTOR);
@@ -1536,6 +1625,49 @@ function buildInstallerSource(options) {
       return Array.from(active);
     }
 
+    function getComposerAttachedOverlayTargets() {
+      if (!meta.wideLayoutEnhancement || !document.body) return [];
+      const targets = [];
+      // 附着组件锚定在 bottom-full wrapper 上；先按锚定信号收窄扫描面，再逐一确认 composer 关联信号。
+      for (const element of document.body.querySelectorAll("[class*='bottom-full']")) {
+        if (!(element instanceof HTMLElement) || !isVisibleElement(element)) continue;
+        if (!isComposerAttachedOverlay(element)) continue;
+        // 已有原生 transform 位移的 wrapper 交给原生动画处理，扩展只作用于无原生位移的附着 wrapper，避免覆盖原生动画。
+        if (Math.abs(parseTransformTranslateX(getComputedStyle(element).transform)) >= 1) continue;
+        targets.push(element);
+      }
+      return uniqueElements(targets);
+    }
+
+    function getTrackedComposerAttachedOverlayTargets() {
+      const targets = window.__codexAppExtensionComposerAttachedOverlayTargets;
+      return Array.isArray(targets)
+        ? targets.filter((target) => target instanceof HTMLElement)
+        : [];
+    }
+
+    function markComposerAttachedOverlays(targets = getComposerAttachedOverlayTargets()) {
+      const active = new Set(uniqueElements(targets));
+      const staleCandidates = uniqueElements([
+        ...getTrackedComposerAttachedOverlayTargets(),
+        ...document.querySelectorAll("[" + ALIGNED_OVERLAY_ATTRIBUTE + "]")
+      ]);
+
+      for (const target of staleCandidates) {
+        if (active.has(target)) continue;
+        target.removeAttribute(ALIGNED_OVERLAY_ATTRIBUTE);
+      }
+
+      for (const target of active) {
+        if (target.getAttribute(ALIGNED_OVERLAY_ATTRIBUTE) !== "true") {
+          target.setAttribute(ALIGNED_OVERLAY_ATTRIBUTE, "true");
+        }
+      }
+
+      window.__codexAppExtensionComposerAttachedOverlayTargets = Array.from(active);
+      return Array.from(active);
+    }
+
     function getVariableTargets() {
       return uniqueElements([
         ...getRootVariableTargets(),
@@ -1560,6 +1692,7 @@ function buildInstallerSource(options) {
       }
       window.__codexAppExtensionWideLayoutVariableTargets = [];
       markNativeFloatingPanels([]);
+      markComposerAttachedOverlays([]);
     }
 
     function applyStyleVariables(nextVariables, targets = getVariableTargets()) {
@@ -1667,6 +1800,9 @@ function buildInstallerSource(options) {
       for (const element of document.body.querySelectorAll("*")) {
         if (!(element instanceof HTMLElement)) continue;
         if (element === reference.element || element.contains(reference.element)) continue;
+        // 瞬态交互菜单与 composer 附着组件各有独立职责，绝不进入 rail 几何避让候选，从源头切断反馈环。
+        if (isTransientInteractiveOverlay(element)) continue;
+        if (isComposerAttachedOverlay(element)) continue;
 
         const rect = element.getBoundingClientRect();
         if (rect.width < 80 || rect.height < minimumFloatingPanelHeight) continue;
@@ -1942,13 +2078,16 @@ function buildInstallerSource(options) {
         "--thread-content-max-width": rootState.width,
         "--thread-composer-max-width": rootState.width,
         "--markdown-wide-block-max-width": rootState.width,
-        "--codex-app-extension-content-offset-x": rootState.contentOffsetX
+        "--codex-app-extension-content-offset-x": rootState.contentOffsetX,
+        // 附着组件用独立对齐变量跟随 composer 左移；它不在 native-floating reset 里被清零，故与内部 width reset 互不干扰。
+        "--codex-app-extension-aligned-overlay-offset-x": rootState.contentOffsetX
       };
       const rootTargets = getRootVariableTargets();
       const scopedTargets = layoutWidthStates.scopedStates
         .filter((scope) => scope.element && scope.state?.reference)
         .map((scope) => scope.element);
       markNativeFloatingPanels();
+      markComposerAttachedOverlays();
       clearStaleWideLayoutVariables([...rootTargets, ...scopedTargets]);
       // 底部输入框等固定层不一定在主内容 scope 内，根节点必须保留主区域避让状态；右侧子 agent 再用局部变量覆盖。
       applyStyleVariables(rootVariables, rootTargets);
@@ -1960,7 +2099,8 @@ function buildInstallerSource(options) {
           "--thread-content-max-width": scopeState.width,
           "--thread-composer-max-width": scopeState.width,
           "--markdown-wide-block-max-width": scopeState.width,
-          "--codex-app-extension-content-offset-x": scopeState.contentOffsetX
+          "--codex-app-extension-content-offset-x": scopeState.contentOffsetX,
+          "--codex-app-extension-aligned-overlay-offset-x": scopeState.contentOffsetX
         }, [scope.element]);
       }
       window.__codexAppExtensionLayoutWidth = layoutWidthStates.primary;
@@ -3004,6 +3144,7 @@ function buildCss(options) {
   --thread-composer-max-width: ${width} !important;
   --markdown-wide-block-max-width: ${width} !important;
   --codex-app-extension-content-offset-x: 0px !important;
+  --codex-app-extension-aligned-overlay-offset-x: 0px !important;
   --codex-app-extension-horizontal-padding: ${horizontalPadding} !important;` : "";
   const wideLayoutCss = options.wideLayoutEnhancement ? `
 
@@ -3094,6 +3235,12 @@ ${surfaceSelector} [data-codex-app-extension-native-floating-panel="true"] .max-
 ${surfaceSelector} [data-codex-app-extension-native-floating-panel="true"].max-w-\\[var\\(--thread-composer-max-width\\)\\],
 ${surfaceSelector} [data-codex-app-extension-native-floating-panel="true"] .max-w-\\[var\\(--thread-composer-max-width\\)\\] {
   translate: none !important;
+}
+
+/* 运行态 composer 上方的任务列表 / Git 差异附着组件：外层用独立对齐变量跟随 composer 中心线左移；
+   内部 native width reset 仍生效（100vw 宽度隔离 + content-offset 归零），二者互不覆盖。 */
+${surfaceSelector} [data-codex-app-extension-aligned-overlay="true"] {
+  translate: var(--codex-app-extension-aligned-overlay-offset-x) 0 !important;
 }
 ` : "";
   return `
