@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "harness_version": "0.8.1",
-  "generated_at": "2026-07-20T08:23:30.479Z",
+  "harness_version": "0.8.3",
+  "generated_at": "2026-07-24T02:48:17.538Z",
   "agents": [
     "claude-code",
     "codex",
@@ -12,7 +12,7 @@
       "path": ".agents/skills/ec-analysis/SKILL.md",
       "kind": "skill",
       "platform": "codex",
-      "sha256": "940b1fc7349c3f28726122eb31a127b51ce7ee206ffe2334dacd538cd220f96e"
+      "sha256": "ab75a7a1d7bf1c28c06b8dcd38d8c59d5458121e42f965f71ed4272de9d1de9e"
     },
     {
       "path": ".agents/skills/ec-brainstorming/SKILL.md",
@@ -108,7 +108,7 @@
       "path": ".agents/skills/ec-workflow/SKILL.md",
       "kind": "skill",
       "platform": "codex",
-      "sha256": "5d0dd311106f29ed4b80930cc730c62508793c8357fc6809ca4aeb17cae989ac"
+      "sha256": "74bbfef16160638f3235669b5ca6a9397f3a83f600470e9267697b155190dc12"
     },
     {
       "path": ".claude/agents/ec-fixer.md",
@@ -138,7 +138,7 @@
       "path": ".claude/hooks/easy_coding_state.py",
       "kind": "hook",
       "platform": "claude-code",
-      "sha256": "94d0aebfcb13289da42687ffc344c96f9cdc26084900022e7024121cced81de5"
+      "sha256": "8aaa4718019ae097feb4acf4dd2cde387be5123b6e965dd178279f3c2763cbfe"
     },
     {
       "path": ".claude/hooks/easy_coding_status.py",
@@ -150,25 +150,25 @@
       "path": ".claude/hooks/inject-subagent-context.py",
       "kind": "hook",
       "platform": "claude-code",
-      "sha256": "ee4b86d1c6730560ccae0601413f99ad66b425512ce59f1786055e7d79bbc72e"
+      "sha256": "5dae450411e6e31c5009801852e5b26d761862a47f0bdbdd785ad6c7e05c43eb"
     },
     {
       "path": ".claude/hooks/inject-workflow-state.py",
       "kind": "hook",
       "platform": "claude-code",
-      "sha256": "68e6522d08f820b7edb44a4bb053da9582ea92524ff46057ccf4beafab7ded56"
+      "sha256": "642f8500a2b7e885266bfd6e0fb8962e0401d62f85739500663c4e8e67e9cd41"
     },
     {
       "path": ".claude/hooks/session-start.py",
       "kind": "hook",
       "platform": "claude-code",
-      "sha256": "22e33c7fb1bb172d0a4f63fdcb31423cbe94b5b18d39f4f526d6e8a6242890ba"
+      "sha256": "f295b46e6b8ace326b6a895e7a935a0248d7912cb594461e0793326539ce8208"
     },
     {
       "path": ".claude/skills/ec-analysis/SKILL.md",
       "kind": "skill",
       "platform": "claude-code",
-      "sha256": "b9e47b5c53fdfd2011e3e87de96fe7d92d0abe6a155455476c3ce88b1629bf03"
+      "sha256": "310541c8849ecedbb16961398ac3094818fb93550b7dd2de55211d1a04e60800"
     },
     {
       "path": ".claude/skills/ec-brainstorming/SKILL.md",
@@ -264,7 +264,7 @@
       "path": ".claude/skills/ec-workflow/SKILL.md",
       "kind": "skill",
       "platform": "claude-code",
-      "sha256": "b87bcb501deba739e20daa7fbad5a2e605f82aee37701a0ea72011ec3f75b8b3"
+      "sha256": "ef4bd3ddeabb3541bb300c509432a7d51bd597f2780e58760c18b271f64542f1"
     },
     {
       "path": ".codex/agents/ec-fixer.toml",
@@ -300,7 +300,7 @@
       "path": ".codex/hooks/easy_coding_state.py",
       "kind": "hook",
       "platform": "codex",
-      "sha256": "94d0aebfcb13289da42687ffc344c96f9cdc26084900022e7024121cced81de5"
+      "sha256": "8aaa4718019ae097feb4acf4dd2cde387be5123b6e965dd178279f3c2763cbfe"
     },
     {
       "path": ".codex/hooks/easy_coding_status.py",
@@ -312,13 +312,13 @@
       "path": ".codex/hooks/inject-workflow-state.py",
       "kind": "hook",
       "platform": "codex",
-      "sha256": "68e6522d08f820b7edb44a4bb053da9582ea92524ff46057ccf4beafab7ded56"
+      "sha256": "642f8500a2b7e885266bfd6e0fb8962e0401d62f85739500663c4e8e67e9cd41"
     },
     {
       "path": ".codex/hooks/session-start.py",
       "kind": "hook",
       "platform": "codex",
-      "sha256": "22e33c7fb1bb172d0a4f63fdcb31423cbe94b5b18d39f4f526d6e8a6242890ba"
+      "sha256": "f295b46e6b8ace326b6a895e7a935a0248d7912cb594461e0793326539ce8208"
     },
     {
       "path": ".qoder/agents/ec-fixer.md",
@@ -348,7 +348,7 @@
       "path": ".qoder/hooks/easy_coding_state.py",
       "kind": "hook",
       "platform": "qoder",
-      "sha256": "94d0aebfcb13289da42687ffc344c96f9cdc26084900022e7024121cced81de5"
+      "sha256": "8aaa4718019ae097feb4acf4dd2cde387be5123b6e965dd178279f3c2763cbfe"
     },
     {
       "path": ".qoder/hooks/easy_coding_status.py",
@@ -360,19 +360,19 @@
       "path": ".qoder/hooks/inject-subagent-context.py",
       "kind": "hook",
       "platform": "qoder",
-      "sha256": "ee4b86d1c6730560ccae0601413f99ad66b425512ce59f1786055e7d79bbc72e"
+      "sha256": "5dae450411e6e31c5009801852e5b26d761862a47f0bdbdd785ad6c7e05c43eb"
     },
     {
       "path": ".qoder/hooks/inject-workflow-state.py",
       "kind": "hook",
       "platform": "qoder",
-      "sha256": "68e6522d08f820b7edb44a4bb053da9582ea92524ff46057ccf4beafab7ded56"
+      "sha256": "642f8500a2b7e885266bfd6e0fb8962e0401d62f85739500663c4e8e67e9cd41"
     },
     {
       "path": ".qoder/hooks/session-start.py",
       "kind": "hook",
       "platform": "qoder",
-      "sha256": "22e33c7fb1bb172d0a4f63fdcb31423cbe94b5b18d39f4f526d6e8a6242890ba"
+      "sha256": "f295b46e6b8ace326b6a895e7a935a0248d7912cb594461e0793326539ce8208"
     }
   ],
   "hook_registrations": [
