@@ -2107,23 +2107,477 @@ for (const optionVariant of [options, { ...options, wideLayoutEnhancement: false
     throw new Error("isTransientInteractiveOverlay must reject non-HTMLElement input");
   }
 
-  // T3: composer-attached overlay classifier requires bottom-full anchor plus composer-home-top-menu signal.
+  // T3: composer-attached overlay classifier preserves the legacy signal and adds the modern composer top slot path.
   if (!installerSource.includes("function isComposerAttachedOverlay")) {
     throw new Error("Missing composer-attached overlay classifier");
   }
   if (!installerSource.includes("COMPOSER_ATTACHED_ANCHOR_SIGNAL")
     || !installerSource.includes("COMPOSER_ATTACHED_OVERLAY_SIGNAL")
     || !installerSource.includes("composer-home-top-menu")) {
-    throw new Error("Composer-attached overlay classifier is missing anchor or composer signal");
+    throw new Error("Composer-attached overlay classifier lost the legacy bottom-full signal");
+  }
+  const modernAttachedBody = installerSource.match(/function isModernComposerAttachedOverlay\(element, composer\) \{([\s\S]*?)\n    \}/);
+  const sharedComposerHostBody = installerSource.match(/function getClosestSharedComposerHost\(element, composer\) \{([\s\S]*?)\n    \}/);
+  const positionedAncestorBody = installerSource.match(/function hasPositionedAncestorBeforeHost\(element, host\) \{([\s\S]*?)\n    \}/);
+  if (!modernAttachedBody
+    || !sharedComposerHostBody
+    || !positionedAncestorBody
+    || !modernAttachedBody[1].includes("WIDTH_VARIABLE_CONSUMER_SELECTOR")
+    || !modernAttachedBody[1].includes("getClosestSharedComposerHost")
+    || !modernAttachedBody[1].includes("matchesComposerTopSlotGeometry")
+    || !modernAttachedBody[1].includes("isTransientInteractiveOverlay")
+    || !modernAttachedBody[1].includes("thread-floating-content")) {
+    throw new Error("Modern composer top slot classifier is missing width, shared-host, geometry, menu, or rail guards");
   }
 
-  // T5: rail geometry scan must exclude both overlay classes before measuring candidates.
+  // T4: current official DOM geometry is accepted, while flow content / narrow / distant candidates are rejected.
+  const geometryBody = installerSource.match(/function matchesComposerTopSlotGeometry\(elementRect, composerRect, hostRect, hasPositionedAncestor\) \{([\s\S]*?)\n    \}/);
+  if (!geometryBody) {
+    throw new Error("Unable to locate composer top slot geometry predicate");
+  }
+  const geometryFn = new Function(
+    geometryBody[0] + "\n    return matchesComposerTopSlotGeometry;",
+  )();
+  const currentTopSlotRect = { left: 131, right: 1397, top: 920, bottom: 958, width: 1266, height: 38 };
+  const currentComposerRect = { left: 288, right: 1556, top: 980, bottom: 1024, width: 1268, height: 44 };
+  const currentComposerHostRect = { left: 276, right: 1568, top: 934, bottom: 1064, width: 1292, height: 130 };
+  if (!geometryFn(currentTopSlotRect, currentComposerRect, currentComposerHostRect, true)) {
+    throw new Error("Current composer top slot geometry must be accepted");
+  }
+  if (geometryFn(currentTopSlotRect, currentComposerRect, currentComposerHostRect, false)) {
+    throw new Error("Ordinary flow content without a positioned top-slot ancestor must be rejected");
+  }
+  if (geometryFn({ ...currentTopSlotRect, width: 180, right: 311 }, currentComposerRect, currentComposerHostRect, true)) {
+    throw new Error("Narrow chip content must not be mistaken for the full composer top slot");
+  }
+  if (geometryFn({ ...currentTopSlotRect, top: 500, bottom: 538 }, currentComposerRect, currentComposerHostRect, true)) {
+    throw new Error("Distant conversation content must not be mistaken for the composer top slot");
+  }
+
+  // Execute the real modern classifier body against DOM stubs so same-host and exclusion
+  // contracts cannot silently regress while the expected helper names remain in source.
+  class AttachedHTMLElement {
+    constructor(spec = {}) {
+      Object.assign(this, spec);
+      this.rect = spec.rect || currentTopSlotRect;
+      this.parentElement = spec.parentElement || null;
+    }
+    matches(selector) {
+      return this.widthConsumer !== false && selector === "width-consumer";
+    }
+    contains(other) {
+      return Array.isArray(this.containedNodes) && this.containedNodes.includes(other);
+    }
+    closest(selector) {
+      if (selector.includes("thread-floating-content") && this.inRightRail) return this;
+      return null;
+    }
+    querySelector(selector) {
+      if (selector.includes("composer-home-top-menu") && this.hasComposerSignalDescendant) return this;
+      return null;
+    }
+    getBoundingClientRect() {
+      return this.rect;
+    }
+  }
+  const sharedComposerHostFn = new Function(
+    "HTMLElement",
+    "isLayoutShell",
+    sharedComposerHostBody[0] + "\n    return getClosestSharedComposerHost;",
+  )(
+    AttachedHTMLElement,
+    (element) => Boolean(element.layoutShell),
+  );
+  const positionedAncestorFn = new Function(
+    "HTMLElement",
+    "getComputedStyle",
+    positionedAncestorBody[0] + "\n    return hasPositionedAncestorBeforeHost;",
+  )(
+    AttachedHTMLElement,
+    (element) => ({ position: element.position || "static" }),
+  );
+  const modernClassifierFn = new Function(
+    "HTMLElement",
+    "WIDTH_VARIABLE_CONSUMER_SELECTOR",
+    "isTransientInteractiveOverlay",
+    "getElementTextSignal",
+    "getClosestSharedComposerHost",
+    "matchesComposerTopSlotGeometry",
+    "hasPositionedAncestorBeforeHost",
+    modernAttachedBody[0] + "\n    return isModernComposerAttachedOverlay;",
+  )(
+    AttachedHTMLElement,
+    "width-consumer",
+    (element) => Boolean(element.transient),
+    (element) => element.textSignal || "",
+    sharedComposerHostFn,
+    geometryFn,
+    positionedAncestorFn,
+  );
+  const layoutShellStub = new AttachedHTMLElement({ layoutShell: true });
+  const hostStub = new AttachedHTMLElement({
+    rect: currentComposerHostRect,
+    parentElement: layoutShellStub,
+  });
+  const composerStub = new AttachedHTMLElement({
+    rect: currentComposerRect,
+    parentElement: hostStub,
+  });
+  const unrelatedHostStub = new AttachedHTMLElement({
+    rect: currentComposerHostRect,
+    parentElement: layoutShellStub,
+  });
+  const makePositionedTopSlot = (spec, parentHost = hostStub) => {
+    const positionedWrapper = new AttachedHTMLElement({
+      position: "absolute",
+      parentElement: parentHost,
+    });
+    return new AttachedHTMLElement({
+      ...spec,
+      parentElement: positionedWrapper,
+    });
+  };
+  const modernClassifierCases = [
+    {
+      name: "same-host positioned composer top slot",
+      element: makePositionedTopSlot({
+        textSignal: "1 个文件已更改 +83 -0",
+      }),
+      expected: true,
+    },
+    {
+      name: "ordinary in-flow thread content",
+      element: new AttachedHTMLElement({
+        textSignal: "ordinary conversation content",
+        parentElement: hostStub,
+      }),
+      expected: false,
+    },
+    {
+      name: "transient menu/listbox",
+      element: makePositionedTopSlot({
+        textSignal: "model menu",
+        transient: true,
+      }),
+      expected: false,
+    },
+    {
+      name: "persistent right rail",
+      element: makePositionedTopSlot({
+        textSignal: "source panel",
+        inRightRail: true,
+      }),
+      expected: false,
+    },
+    {
+      name: "no shared composer host",
+      element: makePositionedTopSlot({
+        textSignal: "1 file changed",
+      }, unrelatedHostStub),
+      expected: false,
+    },
+    {
+      name: "empty top slot",
+      element: makePositionedTopSlot({}),
+      expected: false,
+    },
+  ];
+  for (const classifierCase of modernClassifierCases) {
+    const actual = modernClassifierFn(classifierCase.element, composerStub);
+    if (actual !== classifierCase.expected) {
+      throw new Error("Modern composer-attached classifier mismatch for '" + classifierCase.name
+        + "': expected " + classifierCase.expected + " got " + actual);
+    }
+  }
+
+  const attachedClassifierBody = installerSource.match(/function isComposerAttachedOverlay\(element, composer = getMainComposerElement\(\)\) \{([\s\S]*?)\n    \}/);
+  if (!attachedClassifierBody) {
+    throw new Error("Unable to locate isComposerAttachedOverlay body");
+  }
+  const legacyClassifierFn = new Function(
+    "HTMLElement",
+    "isLayoutShell",
+    "getElementStructuralSignal",
+    "COMPOSER_ATTACHED_ANCHOR_SIGNAL",
+    "COMPOSER_ATTACHED_OVERLAY_SIGNAL",
+    "isModernComposerAttachedOverlay",
+    "getMainComposerElement",
+    attachedClassifierBody[0] + "\n    return isComposerAttachedOverlay;",
+  )(
+    AttachedHTMLElement,
+    (element) => Boolean(element.layoutShell),
+    (element) => element.structuralSignal || "",
+    /bottom-full/i,
+    /composer-home-top-menu/i,
+    modernClassifierFn,
+    () => composerStub,
+  );
+  const legacyPositive = new AttachedHTMLElement({
+    structuralSignal: "absolute bottom-full composer-home-top-menu",
+  });
+  const legacyNegative = new AttachedHTMLElement({
+    structuralSignal: "absolute bottom-full",
+    widthConsumer: false,
+  });
+  if (!legacyClassifierFn(legacyPositive, composerStub) || legacyClassifierFn(legacyNegative, composerStub)) {
+    throw new Error("Legacy bottom-full classifier executable compatibility case failed");
+  }
+
+  // T5: absolute translate calculation removes the modern duplicate shift and preserves the legacy left shift idempotently.
+  const offsetBody = installerSource.match(/function computeAlignedOverlayOffsetX\(targetRect, composerRect, currentTranslateX = 0\) \{([\s\S]*?)\n    \}/);
+  if (!offsetBody) {
+    throw new Error("Unable to locate aligned overlay offset calculation");
+  }
+  const offsetFn = new Function(
+    offsetBody[0] + "\n    return computeAlignedOverlayOffsetX;",
+  )();
+  if (offsetFn(currentTopSlotRect, currentComposerRect, -158) !== 0) {
+    throw new Error("Modern top slot already naturally centered must resolve -158px duplicate shift to 0px");
+  }
+  const legacyTargetRect = { left: 530, right: 2298 };
+  const legacyComposerRect = { left: 372, right: 2140 };
+  if (offsetFn(legacyTargetRect, legacyComposerRect, 0) !== -158) {
+    throw new Error("Legacy top wrapper must retain the required -158px alignment");
+  }
+  const alignedLegacyTargetRect = { left: 372, right: 2140 };
+  if (offsetFn(alignedLegacyTargetRect, legacyComposerRect, -158) !== -158) {
+    throw new Error("Aligned overlay offset must remain stable across repeated refreshes");
+  }
+
+  // Execute target collection and lifecycle paths. Native transform targets stay untouched;
+  // repeated refreshes keep an absolute offset; stale/disabled cleanup removes both marker and inline variables.
+  const parseTransformBody = installerSource.match(/function parseTransformTranslateX\(transform\) \{([\s\S]*?)\n    \}/);
+  const targetCollectionBody = installerSource.match(/function getComposerAttachedOverlayTargets\(\) \{([\s\S]*?)\n    \}/);
+  const markAttachedBody = installerSource.match(/function markComposerAttachedOverlays\(targets = getComposerAttachedOverlayTargets\(\)\) \{([\s\S]*?)\n    \}/);
+  const clearWideBody = installerSource.match(/function clearWideLayoutVariables\(targets = getVariableTargets\(\)\) \{([\s\S]*?)\n    \}/);
+  if (!parseTransformBody || !targetCollectionBody || !markAttachedBody || !clearWideBody) {
+    throw new Error("Unable to locate composer-attached collection/lifecycle functions");
+  }
+  const parseTransformFn = new Function(
+    parseTransformBody[0] + "\n    return parseTransformTranslateX;",
+  )();
+
+  class StubStyle {
+    constructor() {
+      this.values = new Map();
+      this.priorities = new Map();
+      this.setCount = 0;
+    }
+    getPropertyValue(name) {
+      return this.values.get(name) || "";
+    }
+    getPropertyPriority(name) {
+      return this.priorities.get(name) || "";
+    }
+    setProperty(name, value, priority = "") {
+      this.values.set(name, String(value));
+      this.priorities.set(name, priority);
+      this.setCount += 1;
+    }
+    removeProperty(name) {
+      const previous = this.getPropertyValue(name);
+      this.values.delete(name);
+      this.priorities.delete(name);
+      return previous;
+    }
+  }
+  class LifecycleHTMLElement extends AttachedHTMLElement {
+    constructor(spec = {}) {
+      super(spec);
+      this.attributes = new Map();
+      this.style = new StubStyle();
+      this.naturalRect = spec.naturalRect || { left: 289, right: 1555, top: 924, bottom: 962, width: 1266, height: 38 };
+      this.inheritedTranslateX = spec.inheritedTranslateX || 0;
+      this.computedTransform = spec.computedTransform || "none";
+    }
+    getAttribute(name) {
+      return this.attributes.get(name) || null;
+    }
+    setAttribute(name, value) {
+      this.attributes.set(name, String(value));
+    }
+    removeAttribute(name) {
+      this.attributes.delete(name);
+    }
+    hasAttribute(name) {
+      return this.attributes.has(name);
+    }
+    getBoundingClientRect() {
+      const inlineOffset = Number.parseFloat(
+        this.style.getPropertyValue("--codex-app-extension-aligned-overlay-offset-x"),
+      );
+      const translateX = this.hasAttribute("data-codex-app-extension-aligned-overlay")
+        && Number.isFinite(inlineOffset)
+        ? inlineOffset
+        : this.inheritedTranslateX;
+      return {
+        ...this.naturalRect,
+        left: this.naturalRect.left + translateX,
+        right: this.naturalRect.right + translateX,
+      };
+    }
+  }
+  const transformedTarget = new LifecycleHTMLElement({
+    textSignal: "1 file changed",
+    sharedHost: hostStub,
+    positioned: true,
+    computedTransform: "matrix(1, 0, 0, 1, 12, 0)",
+  });
+  const untransformedTarget = new LifecycleHTMLElement({
+    textSignal: "1 file changed",
+    sharedHost: hostStub,
+    positioned: true,
+  });
+  const collectionDocument = {
+    body: {
+      querySelectorAll() {
+        return [];
+      },
+    },
+  };
+  const uniqueStubElements = (elements) => Array.from(new Set(elements));
+  const getComputedStyleStub = (element) => ({
+    transform: element.computedTransform || "none",
+    translate: element.hasAttribute?.("data-codex-app-extension-aligned-overlay")
+      ? (element.style.getPropertyValue("--codex-app-extension-aligned-overlay-offset-x") || "0px") + " 0px"
+      : (element.inheritedTranslateX || 0) + "px 0px",
+  });
+  const collectTargetsFn = new Function(
+    "meta",
+    "document",
+    "HTMLElement",
+    "getMainComposerElement",
+    "isVisibleElement",
+    "isComposerAttachedOverlay",
+    "parseTransformTranslateX",
+    "getComputedStyle",
+    "getWidthVariableConsumers",
+    "isModernComposerAttachedOverlay",
+    "uniqueElements",
+    targetCollectionBody[0] + "\n    return getComposerAttachedOverlayTargets;",
+  )(
+    { wideLayoutEnhancement: true },
+    collectionDocument,
+    LifecycleHTMLElement,
+    () => composerStub,
+    () => true,
+    legacyClassifierFn,
+    parseTransformFn,
+    getComputedStyleStub,
+    () => [transformedTarget, untransformedTarget],
+    () => true,
+    uniqueStubElements,
+  );
+  const collectedTargets = collectTargetsFn();
+  if (collectedTargets.length !== 1 || collectedTargets[0] !== untransformedTarget) {
+    throw new Error("Native transform failure-open target collection contract failed");
+  }
+
+  const lifecycleWindow = {};
+  const lifecycleDocument = {
+    querySelectorAll() {
+      return lifecycleTarget?.hasAttribute("data-codex-app-extension-aligned-overlay")
+        ? [lifecycleTarget]
+        : [];
+    },
+  };
+  const lifecycleComposer = new LifecycleHTMLElement({
+    naturalRect: currentComposerRect,
+  });
+  const lifecycleTarget = new LifecycleHTMLElement({
+    inheritedTranslateX: -158,
+  });
+  const parseCssTranslateXStub = (translate) => {
+    const value = Number.parseFloat(String(translate || "0"));
+    return Number.isFinite(value) ? value : 0;
+  };
+  const markAttachedFn = new Function(
+    "window",
+    "document",
+    "getMainComposerElement",
+    "getComposerAttachedOverlayTargets",
+    "uniqueElements",
+    "getTrackedComposerAttachedOverlayTargets",
+    "ALIGNED_OVERLAY_ATTRIBUTE",
+    "ALIGNED_OVERLAY_OFFSET_VARIABLE",
+    "getComputedStyle",
+    "parseCssTranslateX",
+    "normalizePixelOffset",
+    "computeAlignedOverlayOffsetX",
+    "getComposerAttachedOverlayKind",
+    markAttachedBody[0] + "\n    return markComposerAttachedOverlays;",
+  )(
+    lifecycleWindow,
+    lifecycleDocument,
+    () => lifecycleComposer,
+    () => [lifecycleTarget],
+    uniqueStubElements,
+    () => lifecycleWindow.__codexAppExtensionComposerAttachedOverlayTargets || [],
+    "data-codex-app-extension-aligned-overlay",
+    "--codex-app-extension-aligned-overlay-offset-x",
+    getComputedStyleStub,
+    parseCssTranslateXStub,
+    (value) => Math.abs(value) < 0.5 ? 0 : Math.round(value * 100) / 100,
+    offsetFn,
+    () => "composer-top-slot",
+  );
+  const firstLifecycleStates = markAttachedFn([lifecycleTarget]);
+  const firstSetCount = lifecycleTarget.style.setCount;
+  const firstCenter = (lifecycleTarget.getBoundingClientRect().left + lifecycleTarget.getBoundingClientRect().right) / 2;
+  markAttachedFn([lifecycleTarget]);
+  const repeatedCenter = (lifecycleTarget.getBoundingClientRect().left + lifecycleTarget.getBoundingClientRect().right) / 2;
+  if (firstLifecycleStates[0] !== lifecycleTarget
+    || lifecycleTarget.getAttribute("data-codex-app-extension-aligned-overlay") !== "true"
+    || lifecycleTarget.style.getPropertyValue("--codex-app-extension-aligned-overlay-offset-x") !== "0px"
+    || firstCenter !== 922
+    || repeatedCenter !== 922
+    || lifecycleTarget.style.setCount !== firstSetCount) {
+    throw new Error("Composer-attached repeated refresh must keep a stable absolute 0px offset without accumulating writes");
+  }
+  markAttachedFn([]);
+  if (lifecycleTarget.hasAttribute("data-codex-app-extension-aligned-overlay")
+    || lifecycleTarget.style.getPropertyValue("--codex-app-extension-aligned-overlay-offset-x")) {
+    throw new Error("Stale composer-attached target must remove marker and inline offset");
+  }
+
+  markAttachedFn([lifecycleTarget]);
+  lifecycleTarget.style.setProperty("--codex-app-extension-content-offset-x", "-158px", "important");
+  lifecycleWindow.__codexAppExtensionWideLayoutVariableTargets = [lifecycleTarget];
+  const clearWideFn = new Function(
+    "window",
+    "getVariableTargets",
+    "uniqueElements",
+    "getTrackedWideLayoutVariableTargets",
+    "WIDE_LAYOUT_VARIABLE_NAMES",
+    "markNativeFloatingPanels",
+    "markComposerAttachedOverlays",
+    clearWideBody[0] + "\n    return clearWideLayoutVariables;",
+  )(
+    lifecycleWindow,
+    () => [lifecycleTarget],
+    uniqueStubElements,
+    () => lifecycleWindow.__codexAppExtensionWideLayoutVariableTargets || [],
+    [
+      "--codex-app-extension-content-offset-x",
+      "--codex-app-extension-aligned-overlay-offset-x",
+    ],
+    () => [],
+    markAttachedFn,
+  );
+  clearWideFn([lifecycleTarget]);
+  if (lifecycleTarget.hasAttribute("data-codex-app-extension-aligned-overlay")
+    || lifecycleTarget.style.getPropertyValue("--codex-app-extension-content-offset-x")
+    || lifecycleTarget.style.getPropertyValue("--codex-app-extension-aligned-overlay-offset-x")) {
+    throw new Error("Wide-layout disable cleanup must remove attached marker and all inline offset variables");
+  }
+
+  // T6: rail geometry scan must exclude both overlay classes before measuring candidates.
   const railBody = installerSource.match(/function findRightFloatingRail\(reference\) \{([\s\S]*?)\n    \}/);
   if (!railBody) {
     throw new Error("Unable to locate findRightFloatingRail body");
   }
   const excludeTransientAt = railBody[1].indexOf("isTransientInteractiveOverlay(element)");
-  const excludeAttachedAt = railBody[1].indexOf("isComposerAttachedOverlay(element)");
+  const excludeAttachedAt = railBody[1].indexOf("isComposerAttachedOverlay(element, composer)");
   const pushCandidateAt = railBody[1].indexOf("candidates.push(");
   if (excludeTransientAt < 0 || excludeAttachedAt < 0 || pushCandidateAt < 0) {
     throw new Error("Rail scan does not exclude transient/attached overlays before pushing candidates");
@@ -2136,7 +2590,7 @@ for (const optionVariant of [options, { ...options, wideLayoutEnhancement: false
     throw new Error("Rail scan lost its real layout-scope resolution");
   }
 
-  // T4: aligned overlay offset variable is written by root/scope and applied to attached wrappers.
+  // T7: aligned overlay offset is written per target, cleaned with stale markers, and applied by CSS.
   if (!installerSource.includes("--codex-app-extension-aligned-overlay-offset-x")) {
     throw new Error("Aligned overlay offset variable is not written by the installer");
   }
@@ -2146,8 +2600,12 @@ for (const optionVariant of [options, { ...options, wideLayoutEnhancement: false
   if (!installerSource.includes("data-codex-app-extension-aligned-overlay")) {
     throw new Error("Composer-attached overlay marker attribute is missing");
   }
+  if (!installerSource.includes("target.style.setProperty(ALIGNED_OVERLAY_OFFSET_VARIABLE")
+    || !installerSource.includes("target.style.removeProperty(ALIGNED_OVERLAY_OFFSET_VARIABLE")) {
+    throw new Error("Aligned overlay lifecycle must set and clean the per-target offset variable");
+  }
 
-  // T6: diagnose exposes the two new read-only fields while keeping existing layout/native fields.
+  // T8: diagnose exposes classification and geometry evidence while keeping existing layout/native fields.
   const diagnoseSource = injector.buildDiagnoseSource(optionVariant);
   for (const field of [
     "transientInteractiveOverlayCandidates",
@@ -2155,6 +2613,12 @@ for (const optionVariant of [options, { ...options, wideLayoutEnhancement: false
     "layoutWidthState",
     "layoutWidthScopes",
     "nativeFloatingResetTargets",
+    "overlayKind",
+    "currentTranslateX",
+    "naturalTargetCenterX",
+    "composerCenterX",
+    "centerDeltaX",
+    "resolvedOffsetX",
   ]) {
     if (!diagnoseSource.includes(field)) {
       throw new Error("Diagnose source is missing field: " + field);

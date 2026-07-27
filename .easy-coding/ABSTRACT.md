@@ -37,7 +37,7 @@
 
 - Node 侧负责 CLI、配置校验、CDP target 发现、WebSocket 请求响应和页面源码生成。
 - 页面侧负责样式注入、宽度 scope 计算、右侧 floating rail 避让、浮层三类互斥处理（瞬态交互菜单排除避让、composer 附着组件对齐、持久右侧 rail 隔离）、左侧栏隔离和全屏状态。
-- 浮层按职责分三类：`role=menu/listbox` 瞬态交互菜单在 rail 几何测量前整体排除，绝不参与避让；composer 上方 `bottom-full` 附着组件（任务列表/Git 差异）保留内部 native width reset，外层用独立变量 `--codex-app-extension-aligned-overlay-offset-x`（属性 `data-codex-app-extension-aligned-overlay`）跟随 composer 中心线左移，该变量不在原生浮层重置子树清零；`thread-floating-content` 等持久右侧面板沿用原有识别、避让与局部零偏移，不跟随左移。
+- 浮层按职责分三类：`role=menu/listbox` 瞬态交互菜单在 rail 几何测量前整体排除，绝不参与避让；composer 上方附着组件（任务列表/Git 差异/Plan）兼容旧版 `bottom-full + composer-home-top-menu` 与新版同宿主顶部宽度 slot，保留内部 native width reset，并按“当前中心减去 computed translate 得到自然中心，再对齐 composer 中心”计算目标级 `--codex-app-extension-aligned-overlay-offset-x`（属性 `data-codex-app-extension-aligned-overlay`），避免新版 slot 重复应用根偏移且保留旧版真实左移；`thread-floating-content` 等持久右侧面板沿用原有识别、避让与局部零偏移，不跟随移动。
 - surface 双门禁先阻止选错 target，再用 `data-codex-app-extension-surface="true"` 约束 CSS 与输入事件；路由离开 Codex 时清理扩展写入的宽屏变量。
 - 输入适配识别 ProseMirror composer，以及新版 `data-codex-composer-request-navigation` / 旧类名 request input；提交按钮歧义时让原生行为继续。
 - 配置、安装结果和 `--diagnose` 使用 JSON 可序列化数据跨越 Node/CDP 页面边界。

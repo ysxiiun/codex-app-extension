@@ -1,0 +1,93 @@
+{
+  "type": "bugfix",
+  "title": "修复 Git Diff 与 Plan 组件未跟随增强对话框居中",
+  "status": "COMPLETE",
+  "created_at": "2026-07-27T10:50:57.627248+00:00",
+  "created_by": "codex",
+  "last_agent": "codex",
+  "stage_history": [
+    {
+      "stage": "INIT",
+      "agent": "codex",
+      "entered_at": "2026-07-27T10:50:57.627248+00:00"
+    },
+    {
+      "stage": "ANALYSIS",
+      "agent": "codex",
+      "entered_at": "2026-07-27T10:50:57.690453+00:00"
+    },
+    {
+      "stage": "IMPLEMENT",
+      "agent": "codex",
+      "entered_at": "2026-07-27T11:06:39.919687+00:00"
+    },
+    {
+      "stage": "REVIEW",
+      "agent": "codex",
+      "entered_at": "2026-07-27T11:16:26.956214+00:00"
+    },
+    {
+      "stage": "VERIFICATION",
+      "agent": "codex",
+      "entered_at": "2026-07-27T11:26:04.547441+00:00"
+    },
+    {
+      "stage": "MEMORY",
+      "agent": "codex",
+      "entered_at": "2026-07-27T11:27:46.479361+00:00"
+    },
+    {
+      "stage": "COMPLETE",
+      "agent": "codex",
+      "entered_at": "2026-07-27T11:29:25.428338+00:00"
+    }
+  ],
+  "context": {},
+  "spawned_from": null,
+  "spawned_tasks": [],
+  "closed_reason": null,
+  "repos": [],
+  "workflow_mode_proposal": {
+    "configured_mode": "adaptive",
+    "selected_mode": "standard",
+    "minimum_mode": "standard",
+    "source": "adaptive",
+    "reasons": [
+      "状态 API 因 multi-file-impact 给出 Standard 下限",
+      "运行时 DOM 分类、动态几何偏移与生命周期清理需要兼容新旧结构并保护既有 rail/menu 行为"
+    ],
+    "proposed_at": "2026-07-27T10:59:10.324376+00:00",
+    "proposed_by": "codex"
+  },
+  "workflow_mode": "standard",
+  "workflow_mode_confirmed_at": "2026-07-27T11:06:39.919684+00:00",
+  "workflow_mode_confirmed_by": "codex",
+  "memory_progress": {
+    "short_memory_written": true,
+    "short_memory_file": ".easy-coding/memory/short/SM-019fa354-fcbc-73c8-bb85-fb7317c4f4e7_20260727_Git-Diff与Plan动态中心对齐修复.md",
+    "short_memory_sha256": "b28426608c9fe51972e4c032259c7c02f99128c98692df3d4393b39b9bb6da5e",
+    "updated_at": "2026-07-27T11:29:18.401244+00:00",
+    "instruction": {
+      "short_count": 9,
+      "short_term_max": 10,
+      "short_term_keep": 5,
+      "action": "no-op",
+      "trim_count": 0,
+      "candidate_files": [],
+      "kept_files": [
+        ".easy-coding/memory/short/1_2026-05-28_侧边栏开合布局抖动修复.md",
+        ".easy-coding/memory/short/002_20260708_原生git浮层兼容修复.md",
+        ".easy-coding/memory/short/003_20260708_左侧栏项目行布局修复.md",
+        ".easy-coding/memory/short/004_20260710_ChatGPT-Codex兼容适配.md",
+        ".easy-coding/memory/short/005_20260713_浅色主题引用块正文inherit与嵌套扁平化.md",
+        ".easy-coding/memory/short/SM-019f82b1-9c96-71f7-b86a-d6bdc765d2ca_20260721_ChatGPT运行实例安全重启链路.md",
+        ".easy-coding/memory/short/SM-019f8ec0-b3d2-7bb3-8327-54be49bbebf7_20260723_模型菜单与顶部组件对齐修复.md",
+        ".easy-coding/memory/short/SM-019f9237-1a27-7dff-a9b8-557d911db38d_20260724_模型与文件菜单定位wrapper误判修复.md",
+        ".easy-coding/memory/short/SM-019fa354-fcbc-73c8-bb85-fb7317c4f4e7_20260727_Git-Diff与Plan动态中心对齐修复.md"
+      ],
+      "checkpoint_disposition": "kept"
+    },
+    "long_memory_action": "no-op",
+    "completed": true
+  }
+}

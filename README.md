@@ -390,7 +390,7 @@ node <repo>/inject-wide-layout.mjs --port 9229 --diagnose
 - `nativeFloatingCandidates`：当前页面中疑似 Codex 原生浮层的候选元素，例如 composer 上方浮层、右侧环境/来源面板、git/diff 摘要；用于排查升级后原生浮层被宽屏增强压窄或错位的问题。
 - `nativeFloatingResetTargets`：当前已被宽屏增强隔离的 Codex 原生浮层；这些目标会在自身子树内重置宽屏变量和横向偏移，避免原生组件被增强样式裁剪。
 - `transientInteractiveOverlayCandidates`：当前页面中的瞬态交互浮层候选。除 `role="menu"` / `role="listbox"` 语义节点外，还会同时展示每个语义节点最近的外层定位 wrapper——定位 wrapper 通过其 `menu` / `listbox` 后代被识别为瞬态浮层（模型二级菜单、文件“打开方式”菜单都是 `定位 wrapper > role="menu"` 结构，真正参与右侧 rail 几何扫描、可能缩窄输入框的是外层 wrapper 而非 role 节点）。这些浮层不参与右侧 rail 避让，用于确认菜单弹开时不会触发输入框宽度闪烁。
-- `composerAttachedOverlayCandidates`：composer 上方的附着组件候选（任务列表 / Git 差异等 `bottom-full` wrapper），含 `alignedOverlay` 标记状态、`alignedOverlayOffsetX` 计算偏移与坐标，用于确认它们是否已跟随 composer 中心线左移。
+- `composerAttachedOverlayCandidates`：composer 上方的附着组件候选。诊断同时覆盖旧版 `bottom-full` wrapper 与新版 composer 同宿主顶部 slot，包含 `overlayKind`、`alignedOverlay`、`currentTranslateX`、`naturalTargetCenterX`、`composerCenterX`、`centerDeltaX`、`resolvedOffsetX` 及坐标；可据此区分未分类、通用偏移重复应用和最终中心线是否对齐。
 - `leftSidebar`：当前左侧栏容器的布局、overflow 和宽屏变量继承状态，用于确认主内容宽屏变量是否泄漏到侧栏。
 - `sidebarProjectRows`：左侧栏项目行的行容器、标题元素和尾部操作区尺寸，用于排查项目名过早截断或每行出现浅灰滚动条的问题。
 - `threadMaxWidth.width`：实际正文容器宽度。
@@ -432,7 +432,7 @@ node <repo>/inject-wide-layout.mjs --port 9229 --diagnose
 Codex 新版本可能会把环境信息、来源、git/diff 摘要等原生组件放入 `thread-floating-content` 或 composer 上方的浮层。宽屏增强会把这些浮层按职责分成三类互斥处理：
 
 - 瞬态交互菜单（`role="menu"` / `role="listbox"` 语义，如一级设置菜单、二级模型菜单及其定位 wrapper）在右侧 rail 几何测量前整体排除，绝不参与避让判定，从源头切断"宽度回写→菜单重定位→再测量"的反馈环导致的输入框宽度闪烁；不改动菜单自身 DOM、样式或动画。
-- composer 附着组件（运行任务时 composer 上方的任务列表 / Git 差异等 `bottom-full` wrapper）保留内部宽度隔离（子树内重置为 `100vw` 宽度并将 `--codex-app-extension-content-offset-x` 归零），同时外层改用独立的 `--codex-app-extension-aligned-overlay-offset-x` 变量跟随 composer 中心线左移对齐；该变量不会在原生浮层重置子树里被清零，因此宽度隔离与横向对齐互不覆盖。信号不完整或已带原生 `transform` 位移的 wrapper 会保持原样（失败开放）。
+- composer 附着组件（运行任务时 composer 上方的任务列表 / Git 差异 / Plan）兼容两种结构：旧版 `bottom-full + composer-home-top-menu` wrapper，以及新版与主 composer 共用非 layout-shell 宿主、紧邻输入框上方的宽度 slot。扩展以目标当前矩形减去 computed `translate` 恢复自然中心，再计算到 composer 中心的绝对横向位移写入 `--codex-app-extension-aligned-overlay-offset-x`：新版 slot 若已自然居中会得到 `0px`，避免通用 `contentOffsetX` 重复左移；旧版 wrapper 仍保留所需左移。内部原生浮层继续隔离为 `100vw` 并将 `--codex-app-extension-content-offset-x` 归零；已有原生 `transform` 的目标保持原样（失败开放）。
 - 右侧持久面板（`thread-floating-content`、来源/状态/子 agent 等）沿用原有识别、避让与局部偏移逻辑，不会跟随 composer 左移；宽屏增强只用它们测量主区域需要避让的右侧空间，不作为独立宽屏 scope 写入 `--thread-content-max-width` / `--thread-composer-max-width`。
 
 左侧栏不属于主会话内容区。宽屏增强会在 `app-shell-left-panel` 内隔离主内容宽度变量和横向偏移，并修正项目行的纵向 overflow 与尾部操作区占位，避免项目名称被提前压缩或每行出现浅灰滚动条。
