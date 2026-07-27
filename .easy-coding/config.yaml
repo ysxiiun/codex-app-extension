@@ -1,5 +1,5 @@
-version: 2
-harness_version: 0.8.3
+version: 3
+harness_version: 0.9.0-beta.0
 agents:
   - claude-code
   - codex
@@ -14,6 +14,7 @@ memory:
 tasks:
   auto_archive_days: 30
 behavior:
-  confirm_mode: guard
+  approval_mode: guard
+  workflow_mode: adaptive
 supermodule:
   role: standalone
