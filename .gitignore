@@ -4,3 +4,6 @@
 # ═══ easy-coding-harness (auto-generated) ═══
 # Python bytecode from hook scripts; do not commit
 __pycache__/
+
+# Xcode / LLVM profiling output
+*.profraw

@@ -1,5 +1,5 @@
 version: 3
-harness_version: 0.9.0-beta.0
+harness_version: 0.9.1
 agents:
   - claude-code
   - codex

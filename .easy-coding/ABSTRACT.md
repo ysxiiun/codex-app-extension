@@ -1,93 +1,193 @@
 # codex-app-extension 架构摘要
 
-> 最后更新：2026-07-20；由 ec-init 基于当前入口、配置、README 和验证脚本生成。
+> 最后更新：2026-08-06；当前发布树为 SwiftUI + ExtensionCore + PageRuntime V2（implementation revision 6）。
 
 ## 项目定位
 
-`codex-app-extension` 是运行在 macOS 上的 ChatGPT Codex 本地增强工具，并兼容旧版独立 Codex App。它不修改官方应用包体，而是启动一个只监听回环地址的 Electron CDP 端口，在确认页面属于 Codex 工作区后注入 CSS 与事件处理逻辑。
+`codex-app-extension` 是 macOS 13+ 原生菜单栏 App，为 `/Applications/ChatGPT.app` 中的 Codex 工作区提供本地增强。产品 bundle id 为 `com.ysxiiun.codexappextension`，`LSUIElement=true`；目标 ChatGPT bundle id 为 `com.openai.codex`。
 
-项目无 `package.json`、第三方运行时依赖或构建产物；核心由一个 Node.js ESM 注入器、若干 Bash 入口、JSON 配置和零依赖验证脚本组成。
+项目不修改 ChatGPT 包体、账号或会话数据。CDP 只绑定 `127.0.0.1` 动态高位端口，正在运行但未启用 CDP 的 ChatGPT 必须经过用户原生确认才能重启。发布树只有 V2，不保留 Shell/Node、固定端口、旧环境变量、CLI 或 selector fallback。
+
+## 顶层结构
+
+```text
+CodexAppExtension.xcodeproj/
+CodexAppExtension/
+  App/
+    CodexAppExtensionApp.swift
+    AppModel.swift
+    StatusMenuView.swift
+    Settings/
+  Core/
+    Models/
+    Configuration/
+    Lifecycle/
+    Startup/
+    CDP/
+    Features/
+    Health/
+    Runtime/
+  Resources/
+    PageRuntime/bootstrap.js
+    Adapters/*.js
+  Supporting/Info.plist
+CodexAppExtensionTests/
+CodexAppExtensionUITests/
+PageRuntimeTests/
+```
+
+Xcode scheme 为 `CodexAppExtension`。主要 targets：
+
+- `CodexAppExtension`：SwiftUI 菜单栏 App 与显式管理的原生设置窗口。
+- `ExtensionCore`：配置、生命周期、CDP、PageRuntime bridge、健康与诊断框架。
+- `ExtensionCoreTests`：Swift Core tests 与 PageRuntime fixture/performance tests。
+- `CodexAppExtensionUITests`：菜单栏、设置与恢复路径 UI tests。
 
 ## 核心数据流
 
-1. `launch.sh` 调用 `lib/runtime.sh` 解析应用、兼容 Node 和精确主进程名；优先复用通过 `/json/version` 验证的现有 CDP 端口，否则按主进程的运行、未运行或探测错误状态，分别确认强制重启、正常调试启动或失败安全退出。
-2. `inject-wide-layout.mjs` 读取 `~/.codex-app-extension/config.json`，按“默认值 < 配置文件 < 环境变量 < CLI”合并最终选项。
-3. 注入器轮询 `/json/list`，给 page/webview target 评分，再通过布局根、工作区和交互锚点校验 Codex surface。
-4. CDP `Runtime.evaluate` 安装受 surface 属性约束的 CSS、布局 observer、IME guard、长文本发送与 Tab 事件逻辑。
-5. `--diagnose` 只读返回 surface、宽度 scope、原生浮层、瞬态交互菜单候选、composer 附着组件候选、侧栏、输入协议和最近事件；`verify.sh` 在无在线端口时验证生成代码与当前 app 静态锚点。
+1. `AppModel.makeForCurrentProcess()` 组装 `ConfigStore`、`LegacyConfigMigrator`、`AppLifecycleMonitor`、`DebugSessionManager`、`CDPClient`、`CDPPageRuntimeBridge`、`RuntimeController`、`HealthCenter` 与 `DiagnosticLogStore`。
+2. `RuntimeController` 迁移/加载配置并监测 ChatGPT 主进程；UI 只调用它的公共接口，不直接操作 CDP 或文件系统。
+3. `DebugSessionManager` 只复用同时且唯一声明 `--remote-debugging-address=127.0.0.1` 与有效端口的 CDP，或从 `49152...65535` 分配端口启动 ChatGPT；缺失/宽泛/非 IPv4-loopback 地址均建立待确认重启状态。
+4. `CDPClient` 连接 Browser WebSocket，按 request id 与 connection generation 隔离响应；`TargetCoordinator` 订阅创建、销毁和 reload。
+5. Target 必须同时满足 `app://-/index.html` 与唯一布局根、唯一 thread scroller；ProseMirror editor 是输入增强的可选锚点，暂缺时对应 adapter 进入可恢复等待而不撤销 Target。
+6. `CDPPageRuntimeBridge` 注入 `bootstrap.js` 和四个 adapter，以固定 envelope 执行 handshake/install/update/diagnose/uninstall。bootstrap/adapter source 使用显式 side-effect 求值，可接受 CDP 合法的 `type=undefined` 且无 `value`；probe/handshake/execute/performance 使用 value-required 求值，仍强制存在 `result.value`；两类求值都拒绝 `exceptionDetails`。runtime revision 变化时先通过旧公开 API 卸载历史 adapter，再原位替换 API；fresh runtime 在局部更新前补水四项并标记 hydrated。
+7. `HealthCenter`、`RuntimeControllerSnapshot` 与有界 `AsyncStream` 驱动菜单栏和设置；bridge 以 session revision 作为 target health generation，由 `HealthCenter` actor 原子执行 begin/update/remove，使用 tombstone 阻止同代迟到更新复活，并拒绝旧代更新或清理影响新代状态；诊断只记录 allowlisted 类型数据。
 
-## 模块：运行时发现（`lib/runtime.sh`）
+## SwiftUI App
 
-- 读取 app `Info.plist` 并以 bundle id `com.openai.codex` 识别 ChatGPT/Codex 应用；显式路径与自动发现候选执行相同终检。
-- 应用优先级：显式 `CODEX_APP`、系统/用户 `ChatGPT.app`、系统/用户 `Codex.app`；优先级不绕过 bundle id 校验。
-- 从选中 app 的 `Info.plist` 读取 `CFBundleExecutable` 作为精确主进程名；以 `pgrep -x` 区分运行、未运行和探测错误三态。
-- `Info.plist` 的 bundle id 与 `CFBundleExecutable` 原始输出先写入权限固定为 `0600` 的精确临时文件，在进入 Bash 变量前由 `od` 检测 NUL，再执行精确单行与控制字符校验，最后删除该临时文件。
-- 用户明确确认后仅以 `pkill -KILL -x` 强制终止该精确主进程，并在有界轮询内确认进程已经退出。
-- Node 优先级：显式 `NODE_BIN`、PATH、选中应用内置 `cua_node/bin/node`、旧 `Resources/node`；最终要求原生 `fetch` 与 `WebSocket`。
-- 使用 `lsof` 同时发现 `ChatGPT` 与 `Codex` 进程的监听端口；所有候选端口仍须通过回环地址 HTTP `/json/version` 终检。
+### App 与状态
 
-## 模块：启动与当前实例（`launch.sh`、`inject-current.sh`）
+- `CodexAppExtension/App/CodexAppExtensionApp.swift`：`MenuBarExtra(.window)`、显式 `SettingsWindowCoordinator`/`NSWindow` 生命周期，以及在 AppModel 尚未绑定时排队一次的启动设置请求。
+- `CodexAppExtension/App/AppModel.swift`：主线程 snapshot、配置草稿、快速开关、事务应用、独立原生重启确认、登录启动和诊断动作。
+- `CodexAppExtension/App/StatusMenuView.swift`：正常/等待/降级/停用状态、ChatGPT/CDP/target/adapter 摘要、快速开关和动态动作；破坏性重启使用独立 `NSAlert`，不依赖瞬态 MenuBarExtra window。
 
-- `launch.sh` 负责首次配置分流、最长约 30 秒端口等待和首次注入，并按三条路径运行：发现可用 `/json/version` 端口时直接注入；主进程运行但无可用 CDP 时确认后强制重启；主进程未运行时正常启动调试实例。
-- 配置的启动端口必须是 `1..65535` 的十进制 TCP 端口；无效值会在 CDP 发现、进程探测、交互确认、强制终止或打开/重启应用之前输出 stderr 并以非零状态退出，因此不能终止当前实例。
-- 只有交互终端中明确输入 `Y` 或 `y` 才会立即强制终止精确主进程；取消、确认读取失败、非交互环境或主进程探测错误都失败安全，不执行终止或重启。
-- `inject-current.sh` 不启动应用；它按 CLI、环境变量、进程发现、默认 `9229` 的顺序选择端口，用于重新注入或只读诊断。
+### 五页设置
 
-## 模块：核心注入（`inject-wide-layout.mjs`）
+- `GeneralSettingsView.swift`：扩展总开关、`SMAppService.mainApp` 登录启动和启动后打开设置。
+- `LayoutSettingsView.swift`：宽屏最大宽度/最小边距、自动/自定义 header offset 与预览。
+- `InputSettingsView.swift`：IME composition Enter 防护。
+- `AppearanceSettingsView.swift`：响应式 Markdown 外观编辑器；宽窗口为滚动编辑区与固定实时预览并排，窄窗口为单列滚动，八个颜色字段均显示色块、语义值或非法状态。扩展不提供也不生成键盘焦点着色。
+- `DiagnosticsSettingsView.swift`：运行时/迁移摘要、重新连接/注入、健康检查、复制/导出和 `codex://settings`。
 
-- Node 侧负责 CLI、配置校验、CDP target 发现、WebSocket 请求响应和页面源码生成。
-- 页面侧负责样式注入、宽度 scope 计算、右侧 floating rail 避让、浮层三类互斥处理（瞬态交互菜单排除避让、composer 附着组件对齐、持久右侧 rail 隔离）、左侧栏隔离和全屏状态。
-- 浮层按职责分三类：`role=menu/listbox` 瞬态交互菜单在 rail 几何测量前整体排除，绝不参与避让；composer 上方附着组件（任务列表/Git 差异/Plan）兼容旧版 `bottom-full + composer-home-top-menu` 与新版同宿主顶部宽度 slot，保留内部 native width reset，并按“当前中心减去 computed translate 得到自然中心，再对齐 composer 中心”计算目标级 `--codex-app-extension-aligned-overlay-offset-x`（属性 `data-codex-app-extension-aligned-overlay`），避免新版 slot 重复应用根偏移且保留旧版真实左移；`thread-floating-content` 等持久右侧面板沿用原有识别、避让与局部零偏移，不跟随移动。
-- surface 双门禁先阻止选错 target，再用 `data-codex-app-extension-surface="true"` 约束 CSS 与输入事件；路由离开 Codex 时清理扩展写入的宽屏变量。
-- 输入适配识别 ProseMirror composer，以及新版 `data-codex-composer-request-navigation` / 旧类名 request input；提交按钮歧义时让原生行为继续。
-- 配置、安装结果和 `--diagnose` 使用 JSON 可序列化数据跨越 Node/CDP 页面边界。
+复杂配置只修改 draft；有合格 target 时 `RuntimeController.apply` 先向活动页面预应用，成功后原子持久化；离线时先持久化，后续 connect 使用已保存配置安装。在线页面预应用或持久化失败时恢复已保存配置并回滚页面；菜单快速开关走同一事务边界。配置差异映射为精确 adapter 选择集，wide/header/IME/Markdown 只更新并回滚自身；global 变化或未指定选择集才执行全量四项，纯 App 外观变化不触发页面运行时。App 终止会等待 `RuntimeController.shutdown()` 调用 pipeline stop。
 
-## 模块：配置（`config.sh`、`follow-author-config.sh`、`data/author-config.json`）
+XCUITest 的 Debug 构建保留状态测试窗口覆盖菜单状态，也提供 `--ui-test-real-menu` 路径验证真实状态项、popover 与独立重启警告窗。所有测试宿主均受 `#if DEBUG` 隔离，不进入 Release。
 
-- 本地配置位于 `~/.codex-app-extension/config.json`；`config.sh` 调用注入器的 `--configure`，不复制配置 schema。
-- `follow-author-config.sh` 备份现有配置后，把本地配置软链接到仓库作者配置；用户可随 git 更新同步作者偏好。
-- `DEFAULT_CONFIG` 是支持字段与默认值的代码来源；作者配置只保存具体偏好，未知本地字段在配置补齐时保留。
+## ExtensionCore
 
-## 模块：验证（`verify.sh`）
+### 配置与迁移
 
-- 作为项目唯一可执行测试基线，运行 Bash/Node 语法检查、生成后 diagnose/installer 源编译和 CSS surface 作用域断言。
-- 以隔离的启动状态机回归覆盖可用 CDP 直注入、运行中确认重启、未运行正常启动、取消与非交互失败安全，并校验 `Y`/`y` 解析、精确 `pgrep -x`/`pkill -KILL -x` 参数和进程探测错误路径。
-- 覆盖 target 不误选、surface 支持与拒绝、新 request input 锚点、当前 app bundle/Node 能力和 `app.asar` 稳定锚点。
-- 默认不重启或连接当前页面；设置 `CODEX_APP_EXTENSION_VERIFY_LIVE=1` 后追加 `inject-current.sh --diagnose`。
+- `Core/Models/AppConfiguration.swift`：唯一 `schemaVersion=2` 强类型配置源，覆盖 global、startup、wide layout、header avoidance、IME、Markdown 和 diagnostics。旧 schema-2 `focusRing` 作为未知键兼容读取但不会再次编码。
+- `Core/Configuration/ConfigStore.swift`：在 `~/Library/Application Support/Codex App Extension/` 原子维护 `config.json`、`config.last-known-good.json` 和 `migration-report.json`；首次保存先落 LKG，后续保存先保留旧 current，LKG 失败均不提交新 current。
+- `Core/Configuration/LegacyConfigMigrator.swift`：首次启动从 `~/.codex-app-extension/config.json` 迁移，备份到 `config.v1.backup.json`；未知、无效、原生替代和废弃字段只进入迁移报告。
 
-## 模块：文档与预览（`README.md`、`strong-text-color-preview.html`）
+V2 不读取环境变量、CLI 或仓库作者配置。`longTextSendEnhancement` 映射为原生替代；键盘焦点着色、固定 CDP 端口、DOM snapshot、legacy selector override 和旧 preview 字段废弃。legacy `layoutFocusRingFix` 只记录 deprecated，不写入运行配置。
 
-- README 是安装、启动、配置、环境变量、CLI、验证和诊断字段的用户契约。
-- `strong-text-color-preview.html` 是独立人工配色预览，不参与注入器运行时或自动验证。
+### 生命周期与启动
 
-## 技术栈与版本证据
+- `Core/Lifecycle/AppLifecycleMonitor.swift`：只匹配 `/Applications/ChatGPT.app`、bundle `com.openai.codex` 和精确主 executable，不匹配 helper。
+- `Core/Lifecycle/DebugSessionManager.swift`：动态回环端口、connect/launch/restart-after-confirmation 计划。
+- `Core/Lifecycle/SystemApplicationServices.swift`：NSWorkspace 启停、进程命令行端口读取和 `codex://settings`。
+- `Core/Startup/LaunchAtLoginController.swift`：`SMAppService.mainApp`，保留 enabled/notRegistered/requiresApproval/unavailable/error 原始语义。
 
-- JavaScript：Node.js ESM；初始化环境验证 PATH Node `v22.16.0` 与 ChatGPT 内置 Node `v24.14.0`。
-- Shell：macOS GNU Bash `3.2.57` 兼容语法。
-- 协议：Chrome DevTools Protocol HTTP discovery + WebSocket RPC。
-- 页面技术：运行时 CSS、DOM API、MutationObserver、ResizeObserver、composition/keyboard events。
-- 数据：JSON 配置、YAML harness profile、Markdown 项目知识。
+重启只接受 UI 明确确认；使用正常 terminate 与有界退出等待，不允许自动 kill 或无确认重启。任何错误发布到健康状态，不终止无关进程。
 
-## 外部依赖与服务
+### CDP 与 target
 
-- 运行目标：`ChatGPT.app` / `Codex.app`，显式路径与自动发现候选都要求 bundle id `com.openai.codex`。
-- 本机命令：`open`、`curl`、`lsof`、`pgrep`、`pkill`、`mktemp`、`od`、`/bin/cat`、`rm`、`/usr/libexec/PlistBuddy`、`sed`、`awk`；`rg` 仅为验证锚点的优先实现，缺失时回退 `grep`。
-- 本地服务：`http://127.0.0.1:{port}/json/version`、`/json/list` 与对应 debugger WebSocket；不监听外部网卡。
-- 无 npm 依赖、数据库、后端 API 或部署服务。
+- `Core/CDP/CDPClient.swift`：HTTP readiness、URLSession WebSocket、请求关联、generation 隔离、事件流和退避。
+- `Core/CDP/TargetCoordinator.swift`：Browser target 生命周期、URL 门禁、surface probe、reload/destroy 清理。
+- `Core/CDP/CDPPageRuntimeBridge.swift`：bundle 脚本加载、V2 handshake、typed apply/diagnose/performance poll。
+- `Core/Runtime/RuntimeController.swift`：对 UI 暴露 start/refresh/reconnect/reinject/diagnose/apply/rollback/diagnostic APIs，并协调进程 monitor。
 
-## 构建、运行与验证命令
+连接只使用明确的 `127.0.0.1:<dynamic-port>`。不存在固定端口 fallback，也不会连接外部网卡或对第一个 page target 盲注入。
 
-- 构建：无。
-- 首次/重启注入：`./launch.sh`。
-- 配置：`./config.sh` 或 `./follow-author-config.sh`。
-- 当前实例重注入：`./inject-current.sh`。
-- 当前实例诊断：`./inject-current.sh --diagnose`。
-- 自动验证：`./verify.sh`。
-- 在线只读验证：`CODEX_APP_EXTENSION_VERIFY_LIVE=1 ./verify.sh`。
+同 ID、同 URL 的 `targetInfoChanged` 视为可能包含 metadata 更新或同 URL reload：pipeline 保留当前 active target，原位重新 probe/apply，从而在刷新期间不向菜单发布短暂的 nil。`targetCreated` 与 `targetInfoChanged` 对合格的新 ID 共用 replacement 流程：新 target 先 probe/install，成功后切换 active target，再只 invalidate 旧 ID。event loop 捕获 runtime lifecycle generation，每次 target 激活再捕获 per-target revision；`HealthCenter` 只允许当前未结束 generation + revision 更新或清除 `adapterIdentifier=runtime`，更高 revision 可 reopen，tombstone 拒绝旧操作且不干扰 bridge session generation。destroy、URL dequalification、replacement 与 stop 共用唯一 invalidation 入口，先 tombstone、再收敛 bridge/known/active。旧 revision 异步结果只以精确 `PageRuntimeBridgeError.staleRevision` 表示 supersession：target wait 忽略该旧结果并在策略边界内继续，事件激活静默丢弃；它不进入 runtime degraded health。其他 transport、probe、apply、adapter 或协议错误仍按原路径发布，禁止用宽泛 catch 掩盖。
+
+target health 的生命周期顺序不得依赖跨 actor `await` 的先后推断。bridge 必须把 session revision 传给 `HealthCenter` 的 generation-aware API；新 generation 开始时清除旧 adapter 状态，低 generation update/remove 必须被忽略，同 generation remove 留下 tombstone 并拒绝迟到 update。既有无 generation API 保持给非 bridge 调用方使用，不得借它绕过 bridge 的顺序合同。
+
+## PageRuntime 与 adapters
+
+`Resources/PageRuntime/bootstrap.js` 只暴露不可写的 `window.__codexAppExtensionV2`，固定支持 register、handshake、install、update、diagnose、uninstall、surface、observer 和 performance snapshot。当前 `runtimeVersion=2`、`implementationRevision=6`；同 revision 重注入完全幂等，revision 5 或更旧 revision 先 best-effort 卸载历史五项（只包含用于清理的 retired `focus-ring` id）再原位升级，避免旧 observer 或焦点副作用滞留。显式 install/update 抛错会写入不可命中配置的失败签名；observer reconcile 只更新 surface/健康状态，不恢复正式签名，后续必须成功执行显式 install/update 才能重新进入幂等快路。wide-layout 对普通正文 DOM burst 使用几何身份快路径，只有 surface/owner/right-rail 身份变化或专用 resize/mutation/motion 触发才执行完整几何重算；width owner 自身的原生 transform 会计入 native offset，但扩展拥有的 individual translate 必须排除，避免 residual offset 自反馈。
+
+固定 envelope 字段：
+
+```text
+runtimeVersion / requestId / adapterId / operation / config / result / error
+```
+
+发布的四个 adapter：
+
+- `Adapters/wide-layout.js`：在唯一 thread scroller 以差异写入维护宽度变量；原生 thread content、Markdown width consumer 与 selected overlay 是统一候选集合，每个分支仅无候选祖先的最外层节点应用 `min(配置上限, 100% - 2 × 最小 side padding)`，composer、right rail、menu/listbox/dialog 与浮层保持原生宽度。
+- `Adapters/header-offset.js`：在唯一 layout root 应用自动或自定义 header offset。
+- `Adapters/ime-enter-guard.js`：在 editor/descendant 的 composition Enter、keyCode 229 或 compositionend 后 `120 ms` 有界宽限期内阻止默认事件，宽限期后的普通 Enter 不拦截。
+- `Adapters/markdown-semantic-theme.js`：只在合格 thread scroller 的 Markdown candidate 下增强语义元素，并排除代码块；经典默认精确使用金色标题/强调、粉色行内代码和单层粉色引用样式。
+
+每个 adapter 只接收自己的配置片段，独立 probe/install/update/diagnose/uninstall。明确返回 `qualified=false/recoverable=true` 的页面暂缺状态进入 waiting，不生成事务错误且在 DOM 恢复后自动收敛为 healthy；缺省或明确不可恢复的不合格仍是 degraded。首次 install 单 adapter 失败只降级该 adapter，候选 update 的目标 adapter 硬失败仍抛错以触发对称局部回滚。稳定 document-root observer 识别同 target SPA 的 layout/scroller/editor 身份变更并自动重新资格审查、重新绑定。adapter 保存宿主原有 attribute、inline property 值/priority 和 style 内容，target 失效、pipeline stop 或 App 退出时先有界卸载再 detach；IME 同时移除全部 handler。扩展不注册、不加载、不生成任何焦点 marker、CSS 变量或 `:focus-visible` 规则。
+
+observer bus 只观察稳定 document root 的 `childList/subtree` 与当前合格节点的原生资格属性，不观察正文或任意属性。adapter 对自己拥有的 marker、style 文本与 CSS property 必须先比较再写，并返回真实 changed，防止自身 DOM mutation 形成反馈环。DOM burst 合并为最多一次 RAF 和一次 80 ms settle；单 adapter 每次预算 8 ms，连续 3 次超限即仅降级该 adapter 并停止后续写入。observer 最多 16 个，performance event 最多 32 条；最终 observer、RAF、timer 都必须可清理。
+
+## 健康、诊断与隐私
+
+- `Core/Health/HealthCenter.swift`：连接、target 与单 adapter 的 healthy/waiting/degraded 状态，最新状态 stream buffer 为 1。
+- `Core/Health/DiagnosticEvent.swift`：仅版本、固定 enum、count、duration、timestamp；无任意字符串/payload 字段。
+- `Core/Health/DiagnosticLogStore.swift`：actor，默认 `1 MiB × 5` 确定性轮转，磁盘失败返回 false。
+- `Core/Health/DiagnosticExporter.swift`：只导出 allowlisted configuration/health/events/manifest；不复制 raw log。
+
+loss-sensitive CDP/target streams buffer 为 64。任何诊断新增字段必须先扩展隐私负向测试，且不得记录正文、草稿、Cookie、完整 DOM、CDP/WebSocket payload、URL 或 target id。
+
+## 测试架构
+
+- `CodexAppExtensionTests/`：配置、迁移、生命周期、CDP、target、runtime 事务、可靠性、隐私、轮转、导出与性能。
+- `PageRuntimeTests/`：当前/不支持/虚构旧 surface fixture、adapter lifecycle、IME、CSS、observer coalescing、预算与清理。
+- `CodexAppExtensionUITests/`：菜单四态、设置五页、配置失败、启动设置和六类恢复路径。
+- current ChatGPT live gate：exact target + count/style/status-only selectors，验证四个 adapter、经典 computed style、waiting 收敛与焦点侵入负向状态；禁止读取正文、草稿、Cookie 或 payload，结束时校验宿主状态和 observer/RAF/timer 有界。
+
+CDP bridge tests 必须分别覆盖 side-effect 合法 undefined、非 undefined 缺 value、value-required 缺 value 和 `exceptionDetails`；runtime reliability tests 必须覆盖 target wait/event 两条 stale revision 路径、同 ID/同 URL 原位刷新期间 active target 稳定、metadata burst，以及真实 URL 变化和非 stale 失败反例。PageRuntime fixture 必须覆盖 wide-layout no-op 写次数、observer 收敛、联合夹取公式、负向 scope 与卸载恢复；菜单 UI test 必须覆盖四个标题左列和四个 switch 右列对齐。
+
+Xcode 26.6 的 unsigned UI runner 可能因缺失 `@rpath/lib_TestingInterop.dylib` 在产品启动前终止。UI tests 使用默认本地签名；必要时只修补并重签临时 DerivedData runner，禁止把该 dylib 放进产品或工程。
+
+## 构建与验证命令
+
+Core + PageRuntime tests：
+
+```bash
+xcodebuild -project CodexAppExtension.xcodeproj -scheme CodexAppExtension \
+  -configuration Debug -destination 'platform=macOS' \
+  -derivedDataPath /tmp/codex-app-extension-tests \
+  test -only-testing:ExtensionCoreTests CODE_SIGNING_ALLOWED=NO
+```
+
+UI test compile（保留默认本地签名）：
+
+```bash
+xcodebuild -project CodexAppExtension.xcodeproj -scheme CodexAppExtension \
+  -configuration Debug -destination 'platform=macOS' \
+  -derivedDataPath /tmp/codex-app-extension-ui-tests build-for-testing
+```
+
+Release：
+
+```bash
+./install.sh
+```
+
+`install.sh` 是唯一推荐的本地 Release 安装入口：预检后以当前用户增量构建并按 framework → App 顺序做 ad-hoc 签名，静态审计 `@rpath/ExtensionCore.framework/Versions/A/ExtensionCore`、App `@executable_path/../Frameworks` runpath、Info、严格五个 JavaScript 资源（bootstrap + 四 adapter，无 focus 资源）和签名；随后在目标父目录内 stage/backup/swap，安装后重复同一审计，并对精确 bundle id 做冷启动和至少 3 秒存活检查。脚本不能整体以 sudo 运行，只有安装父目录写操作可按需提权；失败 trap 恢复旧 App。重复执行复用固定 DerivedData，相同包可跳过 swap，但不能跳过终检。
+
+Release 静态终检还包括：`plutil -lint CodexAppExtension/Supporting/Info.plist`、`otool -L` App executable、`otool -D` embedded framework、Release resource inventory、Release Debug-fixture/legacy/privacy scan、旧文件不存在、README 命令可解析、`git diff --check` 和工作树范围审计。只通过 build 或 `codesign --verify` 不足以证明可发布；实际安装后的 cold-launch survival 是硬门禁。
 
 ## 架构约束
 
-- 运行时增强必须可关闭、可诊断、可撤销，不修改应用包体和用户数据。
-- 破坏性重启必须经过显式交互确认，只能精确匹配 app 声明的主进程；确认取消、非交互环境和进程探测异常均须失败安全。
-- 保留旧应用路径、环境变量、CLI alias 和输入选择器，除非用户明确授权破坏性清理。
-- 没有 CDP 端口时只能完成静态/生成代码验证，不得把它表述为在线注入验收。
+- 只有 V2 一套产品实现；禁止恢复 legacy fallback 掩盖失败。
+- UI 不直接访问 CDP 或配置文件；所有操作经过 ExtensionCore 公共接口。
+- 破坏性重启必须精确匹配 ChatGPT 主进程并经过原生确认。
+- CDP 必须是动态回环端口；target 必须通过 URL + 唯一 surface 双门禁。
+- `Runtime.evaluate` 的 side-effect 与 value-required 合同必须显式分离；只有前者允许无 value 的 undefined，任何 `exceptionDetails` 都是失败。
+- 只有精确 stale revision 可以作为 target supersession 静默丢弃；其他运行时错误必须保持可见。
+- 每个 adapter 独立失败开放、可诊断、可卸载、可恢复宿主状态。
+- 键盘焦点表现始终由 macOS/ChatGPT 原生实现；产品配置、UI、adapter、资源包和运行时不得恢复焦点着色。
+- 配置写入必须原子化，页面预应用和持久化失败必须回滚。
+- 诊断只能扩展 allowlist 类型模型，不能事后字符串脱敏。
+- 不得把静态 fixture 或单元测试表述为 current ChatGPT live 验收。
+- README、ABSTRACT、Xcode 工程、资源清单和验证命令必须同步更新。
+- ExtensionCore 必须作为 App 内嵌 framework 使用 `@rpath` install id；禁止通过安装到 `/Library/Frameworks` 掩盖打包错误。
+- Release 交付必须验证安装后真实冷启动，不能用 codesign-only 结果替代 dyld 加载证据。

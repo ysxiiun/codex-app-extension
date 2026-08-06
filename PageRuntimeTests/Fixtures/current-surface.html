@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Native-shaped Runtime Fixture</title></head>
+<body>
+  <main
+    data-app-shell-main-content-layout
+    style="--inset-toolbar: 46px; --height-toolbar: 46px; --app-shell-main-content-frame-top-offset: 46px;"
+  >
+    <section class="thread-scroll-container">
+      <article data-selected-text-overlay-target>
+        <h2>Example heading</h2>
+        <p>Fictional text with <strong>emphasis</strong> and <code>inlineCode()</code>.</p>
+        <pre><code>let sample = true</code></pre>
+        <blockquote>Outer quote<blockquote>Nested quote</blockquote></blockquote>
+      </article>
+      <article data-selected-text-overlay-target><p>Second fictional response</p></article>
+    </section>
+    <aside data-testid="right-rail">Sample rail</aside>
+    <div class="ProseMirror" contenteditable="true" data-codex-composer="true">
+      <p data-editor-child>Draft request</p>
+    </div>
+    <input data-request-input value="Sample request input">
+    <div role="menu">Sample menu</div>
+  </main>
+</body>
+</html>
