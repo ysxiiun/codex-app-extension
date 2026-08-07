@@ -3,30 +3,50 @@ import XCTest
 @testable import ExtensionCore
 
 final class TargetCoordinatorTests: XCTestCase {
-    func testSurfaceIdentityRequiresStableLayoutAndScrollerButNotTransientComposer() {
-        let noComposer = CodexSurfaceProbeResult(
-            matchedAnchors: CodexSurfaceAnchor.identityAnchors,
+    func testSurfaceIdentityAcceptsThreadAndEmptyComposerShapesButRejectsAmbiguity() {
+        let threadSurface = CodexSurfaceProbeResult(
+            matchedAnchors: [.layoutRoot, .threadScroller],
             counts: [.layoutRoot: 1, .threadScroller: 1, .composer: 0]
         )
-        let floatingOrAmbiguousComposer = CodexSurfaceProbeResult(
-            matchedAnchors: CodexSurfaceAnchor.identityAnchors,
-            counts: [.layoutRoot: 1, .threadScroller: 1, .composer: 2]
-        )
-        let missingScroller = CodexSurfaceProbeResult(
-            matchedAnchors: [.layoutRoot],
+        let emptyComposerSurface = CodexSurfaceProbeResult(
+            matchedAnchors: [.layoutRoot, .composer],
             counts: [.layoutRoot: 1, .threadScroller: 0, .composer: 1]
         )
+        let layoutOnly = CodexSurfaceProbeResult(
+            matchedAnchors: [.layoutRoot],
+            counts: [.layoutRoot: 1, .threadScroller: 0, .composer: 0]
+        )
+        let duplicateLayout = CodexSurfaceProbeResult(
+            matchedAnchors: [.threadScroller],
+            counts: [.layoutRoot: 2, .threadScroller: 1, .composer: 0]
+        )
+        let threadSurfaceWithMultipleComposers = CodexSurfaceProbeResult(
+            matchedAnchors: [.layoutRoot, .threadScroller],
+            counts: [.layoutRoot: 1, .threadScroller: 1, .composer: 2]
+        )
+        let emptySurfaceWithMultipleComposers = CodexSurfaceProbeResult(
+            matchedAnchors: [.layoutRoot],
+            counts: [.layoutRoot: 1, .threadScroller: 0, .composer: 2]
+        )
+        let duplicateScroller = CodexSurfaceProbeResult(
+            matchedAnchors: [.layoutRoot, .composer],
+            counts: [.layoutRoot: 1, .threadScroller: 2, .composer: 1]
+        )
 
-        XCTAssertTrue(noComposer.isCodexSurface)
-        XCTAssertTrue(floatingOrAmbiguousComposer.isCodexSurface)
-        XCTAssertFalse(missingScroller.isCodexSurface)
+        XCTAssertTrue(threadSurface.isCodexSurface)
+        XCTAssertTrue(emptyComposerSurface.isCodexSurface)
+        XCTAssertTrue(threadSurfaceWithMultipleComposers.isCodexSurface)
+        XCTAssertFalse(layoutOnly.isCodexSurface)
+        XCTAssertFalse(duplicateLayout.isCodexSurface)
+        XCTAssertFalse(emptySurfaceWithMultipleComposers.isCodexSurface)
+        XCTAssertFalse(duplicateScroller.isCodexSurface)
     }
 
     func testURLAndSurfaceProbeAreBothRequired() async {
         let probe = StubSurfaceProbe(results: [
-            "partial": .init(matchedAnchors: [.layoutRoot, .composer]),
-            "layout-only": .init(matchedAnchors: [.layoutRoot, .threadScroller]),
-            "codex": .init(matchedAnchors: Set(CodexSurfaceAnchor.allCases))
+            "layout-only": .init(matchedAnchors: [.layoutRoot]),
+            "empty-composer": .init(matchedAnchors: [.layoutRoot, .composer]),
+            "thread": .init(matchedAnchors: [.layoutRoot, .threadScroller])
         ])
         let coordinator = TargetCoordinator(probe: probe)
 
@@ -34,15 +54,15 @@ final class TargetCoordinatorTests: XCTestCase {
             identifier: "wrong-url",
             url: URL(string: "app://-/settings.html")!
         )))
-        await coordinator.handle(.created(.init(identifier: "partial", url: TargetCoordinator.codexSurfaceURL)))
         await coordinator.handle(.created(.init(identifier: "layout-only", url: TargetCoordinator.codexSurfaceURL)))
-        await coordinator.handle(.created(.init(identifier: "codex", url: TargetCoordinator.codexSurfaceURL)))
+        await coordinator.handle(.created(.init(identifier: "empty-composer", url: TargetCoordinator.codexSurfaceURL)))
+        await coordinator.handle(.created(.init(identifier: "thread", url: TargetCoordinator.codexSurfaceURL)))
 
         let snapshot = await coordinator.snapshot()
-        XCTAssertEqual(snapshot.eligibleTargetIdentifiers, ["codex", "layout-only"])
+        XCTAssertEqual(snapshot.eligibleTargetIdentifiers, ["empty-composer", "thread"])
         let probedIdentifiers = await probe.probedIdentifiers()
         let requiredAnchorSets = await probe.requiredAnchorSets()
-        XCTAssertEqual(probedIdentifiers, ["partial", "layout-only", "codex"])
+        XCTAssertEqual(probedIdentifiers, ["layout-only", "empty-composer", "thread"])
         XCTAssertTrue(requiredAnchorSets.allSatisfy {
             $0 == CodexSurfaceAnchor.identityAnchors
         })

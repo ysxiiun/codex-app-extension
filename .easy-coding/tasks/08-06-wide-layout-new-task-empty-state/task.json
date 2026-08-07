@@ -1,0 +1,178 @@
+{
+  "type": "bugfix",
+  "title": "让宽屏布局在新建任务空白页持续生效",
+  "status": "COMPLETE",
+  "created_at": "2026-08-06T06:33:37.380807+00:00",
+  "created_by": "root",
+  "last_agent": "codex",
+  "stage_history": [
+    {
+      "stage": "INIT",
+      "agent": "root",
+      "entered_at": "2026-08-06T06:33:37.380807+00:00"
+    },
+    {
+      "stage": "ANALYSIS",
+      "agent": "root",
+      "entered_at": "2026-08-06T06:33:37.444240+00:00"
+    },
+    {
+      "stage": "IMPLEMENT",
+      "agent": "codex",
+      "entered_at": "2026-08-06T07:33:07.045354+00:00"
+    },
+    {
+      "stage": "REVIEW",
+      "agent": "codex",
+      "entered_at": "2026-08-06T07:49:12.417822+00:00"
+    },
+    {
+      "stage": "IMPLEMENT",
+      "agent": "codex",
+      "entered_at": "2026-08-06T07:53:52.606150+00:00"
+    },
+    {
+      "stage": "REVIEW",
+      "agent": "codex",
+      "entered_at": "2026-08-06T08:01:28.673406+00:00"
+    },
+    {
+      "stage": "VERIFICATION",
+      "agent": "codex",
+      "entered_at": "2026-08-06T08:03:08.430929+00:00"
+    },
+    {
+      "stage": "IMPLEMENT",
+      "agent": "codex",
+      "entered_at": "2026-08-06T08:15:50.805015+00:00"
+    },
+    {
+      "stage": "REVIEW",
+      "agent": "codex",
+      "entered_at": "2026-08-06T08:19:39.063781+00:00"
+    },
+    {
+      "stage": "IMPLEMENT",
+      "agent": "codex",
+      "entered_at": "2026-08-06T08:22:11.336027+00:00"
+    },
+    {
+      "stage": "REVIEW",
+      "agent": "codex",
+      "entered_at": "2026-08-06T08:23:52.142619+00:00"
+    },
+    {
+      "stage": "VERIFICATION",
+      "agent": "codex",
+      "entered_at": "2026-08-06T08:24:51.905803+00:00"
+    },
+    {
+      "stage": "IMPLEMENT",
+      "agent": "codex",
+      "entered_at": "2026-08-06T08:30:23.797238+00:00"
+    },
+    {
+      "stage": "REVIEW",
+      "agent": "codex",
+      "entered_at": "2026-08-06T08:40:02.670510+00:00"
+    },
+    {
+      "stage": "IMPLEMENT",
+      "agent": "codex",
+      "entered_at": "2026-08-06T08:43:28.666792+00:00"
+    },
+    {
+      "stage": "REVIEW",
+      "agent": "codex",
+      "entered_at": "2026-08-06T08:48:20.436520+00:00"
+    },
+    {
+      "stage": "VERIFICATION",
+      "agent": "codex",
+      "entered_at": "2026-08-06T08:51:51.722071+00:00"
+    },
+    {
+      "stage": "IMPLEMENT",
+      "agent": "codex",
+      "entered_at": "2026-08-06T11:41:26.494740+00:00"
+    },
+    {
+      "stage": "REVIEW",
+      "agent": "codex",
+      "entered_at": "2026-08-06T11:53:41.084306+00:00"
+    },
+    {
+      "stage": "IMPLEMENT",
+      "agent": "codex",
+      "entered_at": "2026-08-06T11:58:56.065726+00:00"
+    },
+    {
+      "stage": "REVIEW",
+      "agent": "codex",
+      "entered_at": "2026-08-06T12:05:59.096158+00:00"
+    },
+    {
+      "stage": "VERIFICATION",
+      "agent": "codex",
+      "entered_at": "2026-08-07T01:57:12.522102+00:00"
+    },
+    {
+      "stage": "MEMORY",
+      "agent": "codex",
+      "entered_at": "2026-08-07T02:27:28.525047+00:00"
+    },
+    {
+      "stage": "COMPLETE",
+      "agent": "codex",
+      "entered_at": "2026-08-07T02:29:47.043013+00:00"
+    }
+  ],
+  "context": {},
+  "spawned_from": null,
+  "spawned_tasks": [],
+  "closed_reason": null,
+  "repos": [],
+  "workflow_mode": "strict",
+  "workflow_mode_confirmed_at": "2026-08-06T06:44:07.542Z",
+  "workflow_mode_confirmed_by": "upgrade-migration",
+  "workflow_mode_proposal": {
+    "configured_mode": "adaptive",
+    "selected_mode": "strict",
+    "minimum_mode": "strict",
+    "source": "adaptive",
+    "reasons": [
+      "mechanical floor is strict because the plan spans 10 project files",
+      "target identity and PageRuntime revision are cross-layer compatibility contracts"
+    ],
+    "proposed_at": "2026-08-06T06:53:23.669108+00:00",
+    "proposed_by": "codex"
+  },
+  "memory_progress": {
+    "short_memory_written": true,
+    "short_memory_file": ".easy-coding/memory/short/SM-019fda0c-9017-72d5-a414-01a80b272a95_20260807_新建任务宽屏与动态右栏连续收敛.md",
+    "short_memory_sha256": "15c52e96d498a9554e9244d1c68fd0e2fddeb37fc68ee85043fa692d3ed559b4",
+    "updated_at": "2026-08-07T02:29:46.816547+00:00",
+    "instruction": {
+      "short_count": 9,
+      "short_term_max": 10,
+      "short_term_keep": 5,
+      "action": "no-op",
+      "trim_count": 0,
+      "candidate_files": [],
+      "kept_files": [
+        ".easy-coding/memory/short/SM-019f8ec0-b3d2-7bb3-8327-54be49bbebf7_20260723_模型菜单与顶部组件对齐修复.md",
+        ".easy-coding/memory/short/SM-019f9237-1a27-7dff-a9b8-557d911db38d_20260724_模型与文件菜单定位wrapper误判修复.md",
+        ".easy-coding/memory/short/SM-019fa354-fcbc-73c8-bb85-fb7317c4f4e7_20260727_Git-Diff与Plan动态中心对齐修复.md",
+        ".easy-coding/memory/short/SM-019fc5a8-f783-78a3-880a-ca2a2ac96bbe_20260803_ChatGPT升级后Markdown主题增强兼容修复.md",
+        ".easy-coding/memory/short/SM-019fc5c8-55c1-72a5-b45b-37d2af6f3470_20260803_fullscreenHeaderOffset唯一布局根兼容修复.md",
+        ".easy-coding/memory/short/SM-019fc76b-6b2c-745d-9c4b-d08639bd0a68_20260803_Codex-App-Extension原生菜单栏运行时V2重构.md",
+        ".easy-coding/memory/short/SM-019fcfe3-0cfa-7d6b-987c-0edda8fb811c_20260805_Release幂等安装与动态宽屏布局稳定修复.md",
+        ".easy-coding/memory/short/SM-019fd53f-8d9a-7886-be56-6aa8478898ca_20260806_外观重设计与Tab功能彻底移除.md",
+        ".easy-coding/memory/short/SM-019fda0c-9017-72d5-a414-01a80b272a95_20260807_新建任务宽屏与动态右栏连续收敛.md"
+      ],
+      "checkpoint_disposition": "kept"
+    },
+    "long_memory_action": "no-op",
+    "completed": true
+  }
+}

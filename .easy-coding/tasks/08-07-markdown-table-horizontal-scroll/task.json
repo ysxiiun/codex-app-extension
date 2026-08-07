@@ -1,0 +1,104 @@
+{
+  "type": "bugfix",
+  "title": "Markdown 表格超宽时改为组件内水平滚动",
+  "status": "COMPLETE",
+  "created_at": "2026-08-07T02:30:22.442676+00:00",
+  "created_by": "codex",
+  "last_agent": "codex",
+  "stage_history": [
+    {
+      "stage": "INIT",
+      "agent": "codex",
+      "entered_at": "2026-08-07T02:30:22.442676+00:00"
+    },
+    {
+      "stage": "ANALYSIS",
+      "agent": "codex",
+      "entered_at": "2026-08-07T02:30:22.681623+00:00"
+    },
+    {
+      "stage": "IMPLEMENT",
+      "agent": "codex",
+      "entered_at": "2026-08-07T02:41:24.210097+00:00"
+    },
+    {
+      "stage": "REVIEW",
+      "agent": "codex",
+      "entered_at": "2026-08-07T02:53:38.996936+00:00"
+    },
+    {
+      "stage": "IMPLEMENT",
+      "agent": "codex",
+      "entered_at": "2026-08-07T02:59:35.012586+00:00"
+    },
+    {
+      "stage": "REVIEW",
+      "agent": "codex",
+      "entered_at": "2026-08-07T03:06:25.616762+00:00"
+    },
+    {
+      "stage": "VERIFICATION",
+      "agent": "codex",
+      "entered_at": "2026-08-07T03:10:03.508180+00:00"
+    },
+    {
+      "stage": "MEMORY",
+      "agent": "codex",
+      "entered_at": "2026-08-07T03:22:43.072027+00:00"
+    },
+    {
+      "stage": "COMPLETE",
+      "agent": "codex",
+      "entered_at": "2026-08-07T03:24:48.166515+00:00"
+    }
+  ],
+  "context": {},
+  "spawned_from": null,
+  "spawned_tasks": [],
+  "closed_reason": null,
+  "repos": [],
+  "workflow_mode_proposal": {
+    "configured_mode": "adaptive",
+    "selected_mode": "strict",
+    "minimum_mode": "strict",
+    "source": "adaptive",
+    "reasons": [
+      "broad-change-scope: 8 个项目文件",
+      "PageRuntime revision 与当前 ChatGPT 表格结构是跨 Swift/JavaScript 的兼容合同"
+    ],
+    "proposed_at": "2026-08-07T02:39:57.791641+00:00",
+    "proposed_by": "codex"
+  },
+  "workflow_mode": "strict",
+  "workflow_mode_confirmed_at": "2026-08-07T02:41:24.210092+00:00",
+  "workflow_mode_confirmed_by": "codex",
+  "memory_progress": {
+    "short_memory_written": true,
+    "short_memory_file": ".easy-coding/memory/short/SM-019fda3e-d44a-78cc-8ef4-a3d545953de9_20260807_Markdown表格组件内水平滚动.md",
+    "short_memory_sha256": "72964d55f18aec454c15745e0fc3e9faee69b6aac85cd4758276a2842a81b05c",
+    "updated_at": "2026-08-07T03:24:48.073518+00:00",
+    "instruction": {
+      "short_count": 10,
+      "short_term_max": 10,
+      "short_term_keep": 5,
+      "action": "no-op",
+      "trim_count": 0,
+      "candidate_files": [],
+      "kept_files": [
+        ".easy-coding/memory/short/SM-019f8ec0-b3d2-7bb3-8327-54be49bbebf7_20260723_模型菜单与顶部组件对齐修复.md",
+        ".easy-coding/memory/short/SM-019f9237-1a27-7dff-a9b8-557d911db38d_20260724_模型与文件菜单定位wrapper误判修复.md",
+        ".easy-coding/memory/short/SM-019fa354-fcbc-73c8-bb85-fb7317c4f4e7_20260727_Git-Diff与Plan动态中心对齐修复.md",
+        ".easy-coding/memory/short/SM-019fc5a8-f783-78a3-880a-ca2a2ac96bbe_20260803_ChatGPT升级后Markdown主题增强兼容修复.md",
+        ".easy-coding/memory/short/SM-019fc5c8-55c1-72a5-b45b-37d2af6f3470_20260803_fullscreenHeaderOffset唯一布局根兼容修复.md",
+        ".easy-coding/memory/short/SM-019fc76b-6b2c-745d-9c4b-d08639bd0a68_20260803_Codex-App-Extension原生菜单栏运行时V2重构.md",
+        ".easy-coding/memory/short/SM-019fcfe3-0cfa-7d6b-987c-0edda8fb811c_20260805_Release幂等安装与动态宽屏布局稳定修复.md",
+        ".easy-coding/memory/short/SM-019fd53f-8d9a-7886-be56-6aa8478898ca_20260806_外观重设计与Tab功能彻底移除.md",
+        ".easy-coding/memory/short/SM-019fda0c-9017-72d5-a414-01a80b272a95_20260807_新建任务宽屏与动态右栏连续收敛.md",
+        ".easy-coding/memory/short/SM-019fda3e-d44a-78cc-8ef4-a3d545953de9_20260807_Markdown表格组件内水平滚动.md"
+      ],
+      "checkpoint_disposition": "kept"
+    },
+    "long_memory_action": "no-op",
+    "completed": true
+  }
+}

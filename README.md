@@ -7,7 +7,7 @@ Codex App Extension 是一个面向 ChatGPT Codex 工作区的原生 macOS 菜�
 ## 功能
 
 - 菜单栏常驻状态：运行正常、连接中/等待确认、增强降级、ChatGPT 未运行或扩展停用。
-- 宽屏布局：调整会话内容最大宽度与最小侧边距。
+- 宽屏布局：调整会话内容最大宽度与最小侧边距；Markdown 表格保持在正文边界内，超宽列由表格组件自身横向滚动。
 - 顶部栏避让：自动读取原生工具栏 offset，或使用自定义像素值；只作用于通过资格审查的唯一布局根，避免嵌套根重复偏移。
 - 中文输入保护：在 ProseMirror 输入法组合态、`keyCode=229` 或组合结束后的 `120 ms` 有界宽限期拦截 Enter；宽限期后的普通 Enter 保持 ChatGPT 原生行为。
 - Markdown 语义外观：只在合格会话滚动区中增强标题、强调文本、行内代码和引用块；代码块保持原生样式。
@@ -87,9 +87,9 @@ Codex App Extension 只匹配 `/Applications/ChatGPT.app` 的有效主进程，�
 
 只有进程参数同时且唯一包含 `--remote-debugging-address=127.0.0.1` 与有效动态端口时，扩展才会复用现有 CDP；缺失地址、`0.0.0.0`、`::1`、`localhost`、其他地址或重复参数均进入确认式重启路径。若正在运行的 ChatGPT 没有可复用 CDP，扩展不会自行终止它；只有用户在独立的 App-modal `NSAlert` 中再次确认后，才会请求 ChatGPT 正常退出并以动态回环端口重新启动。确认框不依附菜单栏 popover，因此点击取消或重启不会因菜单自动收起而失效。重启可能丢失尚未发送的输入或运行状态，请先自行确认页面安全。
 
-Target 需要同时满足 `app://-/index.html` 和两个唯一原生身份锚点：布局根及其内部的会话滚动区。主编辑器是可选能力，只有布局内唯一且带 `data-codex-composer="true"` 原生信号的 ProseMirror 才会启用输入相关 adapter；它缺失、歧义或仅存在于布局外浮层时，不撤销 Target 与宽屏布局。同一 target 内 SPA 替换这些节点时，稳定 document-root observer 会自动重新资格审查并让相关 adapter 重新绑定。adapter 健康采用三态：已满足资格为正常；新页面暂时没有锚点、Markdown candidate 或宽度 owner 等可恢复情况为等待；结构冲突、执行错误或性能预算超限才是降级。等待中的 adapter 会在 DOM 就绪后自动恢复，不触发配置事务回滚。同 ID、同 URL 的 target 元数据变化会原位刷新 runtime，期间菜单继续保留当前“合格 Target”；`targetCreated` 或 `targetInfoChanged` 带来的合格新 ID 会先完成 probe/install，再原子切换 active target 并清理旧 ID。event loop 的临时 runtime 健康状态同时携带 lifecycle generation 与 per-target revision；destroy、URL 失格、replacement 和 stop 统一先写 target tombstone，再清 bridge/known/active，因此同连接或 reconnect 后迟到的旧事件都不能复活状态或抢回 active target。任何 selector 不唯一、目标 reload、adapter 异常或超出性能预算时，扩展失败开放或只影响对应 adapter，不终止 ChatGPT，也不强行接管未知页面；target 失效、pipeline stop 和 App 退出均先有界卸载全部 adapter 再 detach。
+Target 必须满足 `app://-/index.html` 且具有唯一布局根。会话页只要布局内 thread scroller 唯一即为合格，composer 仍是可选能力：它暂时缺失或歧义不会撤销 Target，只会让依赖 editor 的 adapter 按自己的资格等待。仅当不存在 scroller 时，空白任务页才要求布局内带 `data-codex-composer="true"` 原生信号的 ProseMirror composer 恰好一个；只有 layout、重复 layout、重复 scroller，或无 scroller 时 composer 缺失/重复及仅有布局外浮层信号，均会被拒绝。Target 身份扩展不改变各 adapter 自己的能力资格：`runtime.surface().qualified` 仍表示 layout + thread scroller 的完整会话面，输入与 Markdown 等 adapter 仍按各自原生锚点独立等待或生效。同一 target 内 SPA 替换这些节点时，稳定 document-root observer 会自动重新资格审查并让相关 adapter 重新绑定。adapter 健康采用三态：已满足资格为正常；新页面暂时没有锚点、Markdown candidate 或宽度 owner 等可恢复情况为等待；结构冲突、执行错误或性能预算超限才是降级。等待中的 adapter 会在 DOM 就绪后自动恢复，不触发配置事务回滚。同 ID、同 URL 的 target 元数据变化会原位刷新 runtime，期间菜单继续保留当前“合格 Target”；`targetCreated` 或 `targetInfoChanged` 带来的合格新 ID 会先完成 probe/install，再原子切换 active target 并清理旧 ID。event loop 的临时 runtime 健康状态同时携带 lifecycle generation 与 per-target revision；destroy、URL 失格、replacement 和 stop 统一先写 target tombstone，再清 bridge/known/active，因此同连接或 reconnect 后迟到的旧事件都不能复活状态或抢回 active target。任何 selector 不唯一、目标 reload、adapter 异常或超出性能预算时，扩展失败开放或只影响对应 adapter，不终止 ChatGPT，也不强行接管未知页面；target 失效、pipeline stop 和 App 退出均先有界卸载全部 adapter 再 detach。
 
-PageRuntime V2 当前固定实现 revision 为 `6`。同 revision 重复注入直接复用现有 runtime，不新增 observer、RAF 或 timer；检测到 revision 5 或更旧/缺失 revision 时，先通过旧 runtime API 尽力卸载历史增强（包括已经退役的焦点着色），再原位替换不可配置的全局 runtime 对象。若配置更新只涉及部分 adapter，新 runtime 会先以当前完整配置补水四个 adapter，再执行所选 adapter 的事务更新；补水中无关 adapter 的降级不会误判为所选更新失败。显式 install/update 抛错后，失败签名不会与旧配置命中幂等快路；observer 健康恢复也不会覆盖该签名，必须由后续成功的显式 install/update 写入正式配置签名。
+PageRuntime V2 当前固定实现 revision 为 `11`。同 revision 重复注入直接复用现有 runtime，不新增 observer、RAF 或 timer；检测到 revision 10 或更旧/缺失 revision 时，先通过旧 runtime API 尽力卸载历史增强（包括已经退役的焦点着色），再原位替换不可配置的全局 runtime 对象。若配置更新只涉及部分 adapter，新 runtime 会先以当前完整配置补水四个 adapter，再执行所选 adapter 的事务更新；补水中无关 adapter 的降级不会误判为所选更新失败。显式 install/update 抛错后，失败签名不会与旧配置命中幂等快路；observer 健康恢复也不会覆盖该签名，必须由后续成功的显式 install/update 写入正式配置签名。新建任务过渡中唯一 scroller 已出现而 width owner 尚未挂载时，wide-layout 会先在 scroller 上预置并保留宽度变量，同时维持可恢复等待；adapter 只观察唯一 editor 到 scroller 的有限祖先 class，宿主复用同一节点并原地增加或移除 width-owner token 时，下一合并帧会让宽度、偏移和菜单健康状态双向同步到 healthy 或 waiting，不依赖后续 child-list 变化或重新注入，也不会掩盖 owner 永久缺失。右侧原生信息组件的占位判断基于稳定组件壳及其已渲染组件几何，不依赖内部是否已有具体信息或条目；短空态卡片也会参与可用宽度与居中计算。
 
 ## 设置
 
@@ -109,7 +109,7 @@ PageRuntime V2 当前固定实现 revision 为 `6`。同 revision 重复注入�
 - 顶部栏避让：自动或自定义。
 - 自定义顶部 offset：`0...200 px`，默认值 `46 px`。
 
-实际 thread 内容宽度按 `min(配置的最大内容宽度, 当前可用宽度 - 2 × 最小侧边距)` 计算，并在左侧内容边界与持久右栏左边界之间居中。只有最外层原生 content/composer width owner 接受一次宽度夹取和整体位移；其自身原生纯平移 transform 与祖先原生位移计入 native offset，扩展拥有的 individual translate 则从测量中排除，避免 residual offset 自反馈。Markdown consumer、selected overlay 及其后代是严格负向范围，流式文本叶节点不接收宽度、边距、padding、translate 或对齐覆盖。输入框、右侧栏、菜单、对话框与浮层保持原生宽度。V2 只写入通过 surface probe 的唯一原生根。过去多层布局根导致 offset 累加、Markdown 根随升级变化的经验，已收敛为“唯一锚点 + adapter 自身 marker + 差异写入 + 完整卸载恢复”的合同；没有旧 selector 回退。
+实际 thread 内容宽度按 `min(配置的最大内容宽度, 当前可用宽度 - 2 × 最小侧边距)` 计算，并在左侧内容边界与持久右栏左边界之间居中。会话页优先把唯一 thread scroller 作为宽屏作用域；新建任务空白页只有在 layout 唯一、composer 唯一且不存在 scroller 时，才回退到 layout root。空白页沿当前唯一 editor 的祖先链只绑定其最外层 composer width owner，无关或残留 width owner 保持原样；layout root 只写 `--thread-composer-max-width`，不写正文宽度、Markdown 宽度、最小侧边距或内容位移变量，也不把正文规则扩散到欢迎页其他节点。会话内容与当前 composer width owner 各自接受一次宽度夹取和整体位移；其自身原生纯平移 transform 与祖先原生位移计入 native offset，扩展拥有的 individual translate 则从测量中排除，避免 residual offset 自反馈。Markdown consumer、selected overlay 及其后代仍是宽度 owner 的严格负向范围，流式文本叶节点不接收宽度、边距、padding、translate 或对齐覆盖；仅 selected Markdown 内带稳定 `data-markdown-table` 标记的表格外壳被限制在当前正文宽度内，表格本身继续采用 ChatGPT 原生列宽，固有宽度超出时只由表格内部 scroller 横向滚动，不让整段正文或页面越界。右侧栏、菜单、对话框与浮层保持原生宽度。V2 只写入通过对应 adapter surface probe 的唯一原生根。过去多层布局根导致 offset 累加、Markdown 根随升级变化的经验，已收敛为“唯一锚点 + adapter 自身 marker + 差异写入 + 完整卸载恢复”的合同；没有旧 selector 回退。
 
 ### 输入
 

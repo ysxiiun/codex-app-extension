@@ -1,13 +1,244 @@
 import Foundation
+import WebKit
 import XCTest
 @testable import ExtensionCore
 
+private final class WebKitFixtureNavigationDelegate: NSObject, WKNavigationDelegate {
+    let expectation: XCTestExpectation
+    private(set) var error: Error?
+
+    init(expectation: XCTestExpectation) {
+        self.expectation = expectation
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        expectation.fulfill()
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        self.error = error
+        expectation.fulfill()
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        didFailProvisionalNavigation navigation: WKNavigation!,
+        withError error: Error
+    ) {
+        self.error = error
+        expectation.fulfill()
+    }
+}
+
 final class AdapterFixtureTests: XCTestCase {
+    func testWideLayoutPrimesScrollerWhileWidthOwnersAreTemporarilyMissing() throws {
+        let harness = try JSRuntimeHarness(fixture: "current-surface")
+        try harness.evaluate("""
+        (() => {
+          const scroller = document.querySelector('.thread-scroll-container');
+          const selector = "[class*='thread-content-max-width']";
+          const owner = scroller.querySelectorAll(selector)[0];
+          window.__pendingWideOwner = owner;
+          owner.remove();
+          scroller.registerAll(selector, []);
+          scroller.registerAll("[class*='thread-composer-max-width']", []);
+        })();
+        """)
+        try harness.loadAdapter("wide-layout")
+
+        let installed = try harness.invoke("install", request: harness.request(
+            id: 1,
+            adapterId: "wide-layout",
+            operation: "install",
+            config: harness.defaultConfig(adapterId: "wide-layout")
+        ))
+        let installedResult = try XCTUnwrap(installed["result"] as? [String: Any])
+        XCTAssertEqual(installedResult["qualified"] as? Bool, false)
+        XCTAssertEqual(installedResult["recoverable"] as? Bool, true)
+        XCTAssertEqual(
+            try harness.string("document.querySelector('.thread-scroll-container').getAttribute('data-cae-wide-layout')"),
+            "true"
+        )
+        XCTAssertEqual(
+            try harness.string("document.querySelector('.thread-scroll-container').style.getPropertyValue('--thread-content-max-width')"),
+            "min(1800px, max(1px, calc(100% - 48px)))"
+        )
+        XCTAssertTrue(try harness.bool("window.__codexAppExtensionV2.performanceSnapshot().observers.find((item) => item.adapterId === 'wide-layout').qualified === false"))
+        XCTAssertTrue(try harness.bool("window.__codexAppExtensionV2.performanceSnapshot().observers.find((item) => item.adapterId === 'wide-layout').recoverable === true"))
+
+        let primedDiagnosis = try harness.invoke("diagnose", request: harness.request(
+            id: 2, adapterId: "wide-layout", operation: "diagnose", config: [:]
+        ))
+        XCTAssertEqual((primedDiagnosis["result"] as? [String: Any])?["qualified"] as? Bool, false)
+        XCTAssertEqual((primedDiagnosis["result"] as? [String: Any])?["recoverable"] as? Bool, true)
+
+        try harness.evaluate("""
+        window.__triggerMutation(1);
+        window.__flushRAF();
+        window.__flushTimers();
+        window.__triggerMutation(1);
+        window.__flushRAF();
+        window.__flushTimers();
+        """)
+        XCTAssertTrue(try harness.bool("window.__codexAppExtensionV2.performanceSnapshot().observers.find((item) => item.adapterId === 'wide-layout').qualified === false"))
+        XCTAssertTrue(try harness.bool("window.__codexAppExtensionV2.performanceSnapshot().observers.find((item) => item.adapterId === 'wide-layout').recoverable === true"))
+        XCTAssertEqual(
+            try harness.string("document.querySelector('.thread-scroll-container').style.getPropertyValue('--thread-content-max-width')"),
+            "min(1800px, max(1px, calc(100% - 48px)))"
+        )
+
+        try harness.evaluate("""
+        (() => {
+          const scroller = document.querySelector('.thread-scroll-container');
+          scroller.appendChild(window.__pendingWideOwner);
+          scroller.registerAll("[class*='thread-content-max-width']", [window.__pendingWideOwner]);
+          window.__triggerMutation(1);
+          window.__flushRAF();
+          window.__flushTimers();
+        })();
+        """)
+        XCTAssertTrue(try harness.bool("window.__codexAppExtensionV2.performanceSnapshot().observers.find((item) => item.adapterId === 'wide-layout').qualified === true"))
+        XCTAssertTrue(try harness.bool("window.__codexAppExtensionV2.performanceSnapshot().observers.find((item) => item.adapterId === 'wide-layout').recoverable === false"))
+        XCTAssertEqual(
+            try harness.string("document.querySelector('.thread-scroll-container').style.getPropertyValue('--thread-content-max-width')"),
+            "min(1800px, max(1px, calc(100% - 48px)))"
+        )
+
+        _ = try harness.invoke("uninstall", request: harness.request(
+            id: 3, adapterId: "wide-layout", operation: "uninstall", config: [:]
+        ))
+        XCTAssertTrue(try harness.value("document.querySelector('.thread-scroll-container').getAttribute('data-cae-wide-layout')").isNull)
+        XCTAssertEqual(try harness.string("document.querySelector('.thread-scroll-container').style.getPropertyValue('--thread-content-max-width')"), "")
+    }
+
+    func testWideLayoutRecognizesReusedOwnerWhenOnlyItsClassChanges() throws {
+        let harness = try JSRuntimeHarness(fixture: "current-surface")
+        try harness.evaluate("""
+        (() => {
+          const scroller = document.querySelector('.thread-scroll-container');
+          const owner = scroller.querySelectorAll("[class*='thread-content-max-width']")[0];
+          const editor = document.querySelector(".ProseMirror[contenteditable='true']");
+          owner.setAttribute('class', 'pending-composer-shell');
+          editor.remove();
+          owner.appendChild(editor);
+          scroller.registerAll("[class*='thread-content-max-width']", []);
+          scroller.registerAll("[class*='thread-composer-max-width']", []);
+          window.__reusedPendingOwner = owner;
+          window.__dispatchObservedAttribute = (node, attributeName) => {
+            window.__mutationObservers
+              .filter((observer) => !observer.disconnected)
+              .forEach((observer) => observer.targets.forEach((target, index) => {
+                const optionOffset = Math.max(0, (observer.options?.length || 0) - observer.targets.length);
+                const options = observer.options?.[optionOffset + index] || {};
+                const inScope = target === node || (options.subtree === true && target.contains(node));
+                const attributeAllowed = !Array.isArray(options.attributeFilter) ||
+                  options.attributeFilter.includes(attributeName);
+                if (options.attributes === true && inScope && attributeAllowed) {
+                  observer.callback([{ type: 'attributes', target: node, attributeName }]);
+                }
+              }));
+          };
+        })();
+        """)
+        try harness.loadAdapter("wide-layout")
+
+        let installed = try harness.invoke("install", request: harness.request(
+            id: 1,
+            adapterId: "wide-layout",
+            operation: "install",
+            config: harness.defaultConfig(adapterId: "wide-layout")
+        ))
+        let installedResult = try XCTUnwrap(installed["result"] as? [String: Any])
+        XCTAssertEqual(installedResult["qualified"] as? Bool, false)
+        XCTAssertEqual(installedResult["recoverable"] as? Bool, true)
+        XCTAssertEqual(installedResult["reason"] as? String, "wide-content-candidate-pending")
+        XCTAssertEqual(
+            try harness.string("document.querySelector('.thread-scroll-container').style.getPropertyValue('--thread-content-max-width')"),
+            "min(1800px, max(1px, calc(100% - 48px)))"
+        )
+        XCTAssertTrue(try harness.bool("window.__mutationObservers.some((observer) => !observer.disconnected && observer.targets.includes(window.__reusedPendingOwner))"))
+        XCTAssertTrue(try harness.bool("""
+        window.__mutationObservers.some((observer) => {
+          if (observer.disconnected) return false;
+          const index = observer.targets.indexOf(window.__reusedPendingOwner);
+          if (index < 0) return false;
+          const optionOffset = Math.max(0, (observer.options?.length || 0) - observer.targets.length);
+          const options = observer.options?.[optionOffset + index] || {};
+          return options.attributes === true &&
+            options.subtree !== true &&
+            JSON.stringify(options.attributeFilter) === JSON.stringify(['class']);
+        })
+        """))
+
+        try harness.evaluate("""
+        (() => {
+          const scroller = document.querySelector('.thread-scroll-container');
+          window.__reusedPendingOwner.setAttribute('class', 'mx-auto max-w-(--thread-composer-max-width)');
+          scroller.registerAll("[class*='thread-composer-max-width']", [window.__reusedPendingOwner]);
+          window.__dispatchObservedAttribute(window.__reusedPendingOwner, 'class');
+        })();
+        """)
+        XCTAssertEqual(try harness.int("window.__rafQueue.length"), 1)
+        try harness.evaluate("window.__flushRAF(); window.__flushTimers();")
+
+        XCTAssertTrue(try harness.bool("window.__codexAppExtensionV2.performanceSnapshot().observers.find((item) => item.adapterId === 'wide-layout').qualified === true"))
+        XCTAssertTrue(try harness.bool("window.__codexAppExtensionV2.performanceSnapshot().observers.find((item) => item.adapterId === 'wide-layout').recoverable === false"))
+        XCTAssertEqual(
+            try harness.string("document.querySelector('.thread-scroll-container').style.getPropertyValue('--thread-composer-max-width')"),
+            "min(1800px, max(1px, calc(100% - 48px)))"
+        )
+        XCTAssertEqual(
+            try harness.string("window.__reusedPendingOwner.style.getPropertyValue('--cae-wide-layout-owner-offset-x')"),
+            "0px"
+        )
+
+        try harness.evaluate("""
+        (() => {
+          const scroller = document.querySelector('.thread-scroll-container');
+          window.__reusedPendingOwner.setAttribute('class', 'pending-composer-shell');
+          scroller.registerAll("[class*='thread-composer-max-width']", []);
+          window.__dispatchObservedAttribute(window.__reusedPendingOwner, 'class');
+        })();
+        """)
+        XCTAssertEqual(try harness.int("window.__rafQueue.length"), 1)
+        try harness.evaluate("window.__flushRAF(); window.__flushTimers();")
+        XCTAssertTrue(try harness.bool("window.__codexAppExtensionV2.performanceSnapshot().observers.find((item) => item.adapterId === 'wide-layout').qualified === false"))
+        XCTAssertTrue(try harness.bool("window.__codexAppExtensionV2.performanceSnapshot().observers.find((item) => item.adapterId === 'wide-layout').recoverable === true"))
+        XCTAssertEqual(
+            try harness.string("document.querySelector('.thread-scroll-container').style.getPropertyValue('--thread-content-max-width')"),
+            "min(1800px, max(1px, calc(100% - 48px)))"
+        )
+        XCTAssertEqual(try harness.string("window.__reusedPendingOwner.style.getPropertyValue('--cae-wide-layout-owner-offset-x')"), "")
+
+        try harness.evaluate("""
+        (() => {
+          const scroller = document.querySelector('.thread-scroll-container');
+          window.__reusedPendingOwner.setAttribute('class', 'mx-auto max-w-(--thread-composer-max-width)');
+          scroller.registerAll("[class*='thread-composer-max-width']", [window.__reusedPendingOwner]);
+          window.__dispatchObservedAttribute(window.__reusedPendingOwner, 'class');
+        })();
+        """)
+        XCTAssertEqual(try harness.int("window.__rafQueue.length"), 1)
+        try harness.evaluate("window.__flushRAF(); window.__flushTimers();")
+        XCTAssertTrue(try harness.bool("window.__codexAppExtensionV2.performanceSnapshot().observers.find((item) => item.adapterId === 'wide-layout').qualified === true"))
+        XCTAssertTrue(try harness.bool("window.__codexAppExtensionV2.performanceSnapshot().observers.find((item) => item.adapterId === 'wide-layout').recoverable === false"))
+        XCTAssertEqual(try harness.string("window.__reusedPendingOwner.style.getPropertyValue('--cae-wide-layout-owner-offset-x')"), "0px")
+
+        _ = try harness.invoke("uninstall", request: harness.request(
+            id: 2, adapterId: "wide-layout", operation: "uninstall", config: [:]
+        ))
+        XCTAssertEqual(try harness.string("window.__reusedPendingOwner.style.getPropertyValue('--cae-wide-layout-owner-offset-x')"), "")
+        XCTAssertTrue(try harness.bool("window.__mutationObservers.every((observer) => observer.disconnected)"))
+        XCTAssertEqual(try harness.int("window.__rafQueue.length"), 0)
+        XCTAssertEqual(try harness.int("window.__timerQueue.length"), 0)
+    }
+
     func testWideLayoutUsesNativeVariablesAndRestoresHostValues() throws {
         let harness = try JSRuntimeHarness(fixture: "current-surface")
         try addSyntheticWideOwner(to: harness)
         XCTAssertTrue(harness.fixtureHTML.contains("thread-scroll-container"))
         XCTAssertTrue(harness.fixtureHTML.contains("data-testid=\"right-rail\""))
+        XCTAssertTrue(harness.fixtureHTML.contains("data-markdown-table"))
         try harness.evaluate("""
         (() => {
           const scroller = document.querySelector('.thread-scroll-container');
@@ -48,8 +279,22 @@ final class AdapterFixtureTests: XCTestCase {
         XCTAssertTrue(css.contains("[class*='thread-composer-max-width']"))
         XCTAssertTrue(css.contains("[class*='markdown-wide-block-max-width']"))
         XCTAssertTrue(css.contains("[data-selected-text-overlay-target]"))
+        XCTAssertTrue(css.contains("[data-selected-text-overlay-target] [data-markdown-table]:not([role='menu']"))
+        XCTAssertTrue(css.contains("inline-size: 100% !important"))
+        XCTAssertTrue(css.contains("max-inline-size: 100% !important"))
+        XCTAssertTrue(css.contains("margin-inline: 0 !important"))
+        XCTAssertTrue(css.contains("[data-markdown-table]:not([role='menu']"))
+        XCTAssertTrue(css.contains(":has(table:not([role='menu']"))
+        XCTAssertTrue(css.contains("[role='listbox'] *"))
+        XCTAssertTrue(css.contains("[role='dialog'] *"))
+        XCTAssertTrue(css.contains("overflow-x: auto !important"))
+        XCTAssertTrue(css.contains("overscroll-behavior-inline: contain"))
+        XCTAssertFalse(css.contains("_tableScroller_"))
+        XCTAssertFalse(css.contains("[data-selected-text-overlay-target] {"))
+        XCTAssertFalse(css.contains("[data-selected-text-overlay-target] {\n  overflow-x:"))
+        XCTAssertFalse(css.contains(" table {\n  width:"))
         XCTAssertFalse(css.contains("\n.thread-scroll-container[data-cae-wide-layout='true'] [class*='markdown-wide-block-max-width']"))
-        XCTAssertFalse(css.contains("\n.thread-scroll-container[data-cae-wide-layout='true'] [data-selected-text-overlay-target]"))
+        XCTAssertFalse(css.contains("\n.thread-scroll-container[data-cae-wide-layout='true'] [data-selected-text-overlay-target] {"))
         XCTAssertTrue(css.contains("max-width: var(--thread-content-max-width) !important"))
         XCTAssertTrue(css.contains("translate: var(--cae-wide-layout-owner-offset-x, var(--cae-wide-layout-content-offset-x)) 0 !important"))
         XCTAssertTrue(css.contains(".ProseMirror[contenteditable='true'] *"))
@@ -57,7 +302,7 @@ final class AdapterFixtureTests: XCTestCase {
         XCTAssertTrue(css.contains("[role='listbox'] *"))
         XCTAssertTrue(css.contains("[class*='thread-floating-content'] *"))
         XCTAssertFalse(css.contains("padding-inline:"))
-        XCTAssertFalse(css.contains("margin-inline:"))
+        XCTAssertEqual(css.components(separatedBy: "margin-inline:").count - 1, 1)
         XCTAssertEqual(try harness.string("document.querySelector(\".ProseMirror[contenteditable='true']\").style.getPropertyValue('--thread-composer-max-width')"), "700px")
         XCTAssertFalse(try harness.bool("document.querySelector('[data-testid=\"right-rail\"]').hasAttribute('data-cae-wide-layout')"))
         XCTAssertFalse(try harness.bool("document.querySelector(\"[role='menu']\").hasAttribute('data-cae-wide-layout')"))
@@ -74,6 +319,178 @@ final class AdapterFixtureTests: XCTestCase {
         XCTAssertEqual(try harness.string("document.querySelector('.thread-scroll-container').style.getPropertyValue('--cae-wide-layout-content-offset-x')"), "")
         XCTAssertEqual(try harness.string("document.getElementById('cae-wide-layout-style').textContent"), "host-wide-style")
         XCTAssertEqual(try harness.int("window.__codexAppExtensionV2.observerCount()"), 0)
+    }
+
+    @MainActor
+    func testWideLayoutMarkdownTableContainmentUsesRealWebKitGeometryAndRestoresNativeLayout() throws {
+        let harness = try JSRuntimeHarness(fixture: "current-surface")
+        try addSyntheticWideOwner(to: harness)
+        try harness.loadAdapter("wide-layout")
+        _ = try harness.invoke("install", request: harness.request(
+            id: 1,
+            adapterId: "wide-layout",
+            operation: "install",
+            config: ["maximumContentWidth": 560, "minimumSidePadding": 20]
+        ))
+        let extensionCSS = try harness.string("document.getElementById('cae-wide-layout-style').textContent")
+            .replacingOccurrences(of: "</style", with: "<\\/style", options: .caseInsensitive)
+
+        let html = """
+        <!doctype html>
+        <html>
+          <head>
+            <meta charset="utf-8">
+            <style>
+              html, body { margin: 0; padding: 0; width: 100%; }
+              body { width: 620px; }
+              .thread-scroll-container {
+                box-sizing: border-box;
+                width: 600px;
+                overflow-x: auto;
+                --thread-content-max-width: 560px;
+                --thread-composer-max-width: 560px;
+                --markdown-wide-block-max-width: 560px;
+                --cae-wide-layout-content-offset-x: 0px;
+              }
+              .thread-content-max-width-shell { box-sizing: border-box; width: 560px; margin-inline: auto; }
+              [data-selected-text-overlay-target] { box-sizing: border-box; width: 100%; }
+              [data-markdown-table] {
+                box-sizing: border-box;
+                width: calc(100% + 48px);
+                max-width: none;
+                margin-inline: -24px;
+              }
+              .native-wide-block {
+                box-sizing: border-box;
+                width: 900px;
+                max-width: none;
+                overflow-x: visible;
+              }
+              .native-narrow-block {
+                box-sizing: border-box;
+                width: 100%;
+                max-width: none;
+                overflow-x: visible;
+              }
+              #wide-table { width: 900px; min-width: 900px; }
+              #narrow-table { width: 240px; min-width: 240px; }
+              [role='dialog'] { position: fixed; top: 8px; right: 8px; width: 260px; }
+            </style>
+            <style id="extension-style">\(extensionCSS)</style>
+          </head>
+          <body>
+            <main class="thread-scroll-container" data-cae-wide-layout="true">
+              <div id="content" class="thread-content-max-width-shell">
+                <article id="markdown" data-selected-text-overlay-target>
+                  <div id="wide-shell" data-markdown-table>
+                    <div id="wide-scroll" class="native-wide-block">
+                      <table id="wide-table"><tr><td>wide</td><td>table</td></tr></table>
+                    </div>
+                  </div>
+                  <div id="narrow-shell" data-markdown-table>
+                    <div id="narrow-scroll" class="native-narrow-block">
+                      <table id="narrow-table"><tr><td>narrow</td></tr></table>
+                    </div>
+                  </div>
+                  <section role="dialog">
+                    <div id="dialog-shell" data-markdown-table>
+                      <div id="dialog-table-body" class="native-wide-block">
+                        <table><tr><td>dialog</td></tr></table>
+                      </div>
+                    </div>
+                  </section>
+                </article>
+              </div>
+            </main>
+          </body>
+        </html>
+        """
+
+        let webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 640, height: 480))
+        let loaded = expectation(description: "WebKit fixture loaded")
+        let navigationDelegate = WebKitFixtureNavigationDelegate(expectation: loaded)
+        webView.navigationDelegate = navigationDelegate
+        webView.loadHTMLString(html, baseURL: nil)
+        wait(for: [loaded], timeout: 10)
+        if let error = navigationDelegate.error {
+            throw error
+        }
+
+        let applied = try evaluateWebKitJSON(
+            """
+            (() => {
+              const rect = (id) => document.getElementById(id).getBoundingClientRect();
+              const width = (id) => rect(id).width;
+              const style = (id) => getComputedStyle(document.getElementById(id));
+              const wideScroll = document.getElementById('wide-scroll');
+              const narrowScroll = document.getElementById('narrow-scroll');
+              const markdown = document.getElementById('markdown');
+              const thread = document.querySelector('.thread-scroll-container');
+              return JSON.stringify({
+                contentWidth: width('content'),
+                wideShellWidth: width('wide-shell'),
+                wideShellMarginLeft: parseFloat(style('wide-shell').marginLeft),
+                wideScrollerClientWidth: wideScroll.clientWidth,
+                wideScrollerScrollWidth: wideScroll.scrollWidth,
+                wideScrollerOverflowX: style('wide-scroll').overflowX,
+                wideTableWidth: width('wide-table'),
+                narrowScrollerClientWidth: narrowScroll.clientWidth,
+                narrowScrollerScrollWidth: narrowScroll.scrollWidth,
+                narrowTableWidth: width('narrow-table'),
+                markdownClientWidth: markdown.clientWidth,
+                markdownScrollWidth: markdown.scrollWidth,
+                threadClientWidth: thread.clientWidth,
+                threadScrollWidth: thread.scrollWidth,
+                pageClientWidth: document.documentElement.clientWidth,
+                pageScrollWidth: document.documentElement.scrollWidth,
+                dialogShellWidth: width('dialog-shell'),
+                dialogWidth: document.querySelector("[role='dialog']").getBoundingClientRect().width,
+                dialogShellMarginLeft: parseFloat(style('dialog-shell').marginLeft),
+                dialogBodyOverflowX: style('dialog-table-body').overflowX
+              });
+            })()
+            """,
+            in: webView
+        )
+
+        XCTAssertEqual(try number("wideShellWidth", in: applied), try number("contentWidth", in: applied), accuracy: 1)
+        XCTAssertEqual(try number("wideShellMarginLeft", in: applied), 0, accuracy: 0.1)
+        XCTAssertGreaterThan(try number("wideScrollerScrollWidth", in: applied), try number("wideScrollerClientWidth", in: applied))
+        XCTAssertEqual(applied["wideScrollerOverflowX"] as? String, "auto")
+        XCTAssertEqual(try number("wideTableWidth", in: applied), 900, accuracy: 1)
+        XCTAssertEqual(try number("narrowScrollerScrollWidth", in: applied), try number("narrowScrollerClientWidth", in: applied), accuracy: 1)
+        XCTAssertEqual(try number("narrowTableWidth", in: applied), 240, accuracy: 1)
+        XCTAssertLessThanOrEqual(try number("markdownScrollWidth", in: applied), try number("markdownClientWidth", in: applied) + 1)
+        XCTAssertLessThanOrEqual(try number("threadScrollWidth", in: applied), try number("threadClientWidth", in: applied) + 1)
+        XCTAssertLessThanOrEqual(try number("pageScrollWidth", in: applied), try number("pageClientWidth", in: applied) + 1)
+        XCTAssertGreaterThan(try number("dialogShellWidth", in: applied), try number("dialogWidth", in: applied))
+        XCTAssertEqual(try number("dialogShellMarginLeft", in: applied), -24, accuracy: 0.1)
+        XCTAssertEqual(applied["dialogBodyOverflowX"] as? String, "visible")
+
+        let restored = try evaluateWebKitJSON(
+            """
+            (() => {
+              document.getElementById('extension-style').remove();
+              const rect = (id) => document.getElementById(id).getBoundingClientRect();
+              const style = (id) => getComputedStyle(document.getElementById(id));
+              return JSON.stringify({
+                contentWidth: rect('content').width,
+                wideShellWidth: rect('wide-shell').width,
+                wideShellMarginLeft: parseFloat(style('wide-shell').marginLeft),
+                wideBodyWidth: rect('wide-scroll').width,
+                wideBodyOverflowX: style('wide-scroll').overflowX,
+                wideTableWidth: rect('wide-table').width
+              });
+            })()
+            """,
+            in: webView
+        )
+
+        XCTAssertGreaterThan(try number("wideShellWidth", in: restored), try number("contentWidth", in: restored))
+        XCTAssertEqual(try number("wideShellMarginLeft", in: restored), -24, accuracy: 0.1)
+        XCTAssertEqual(try number("wideBodyWidth", in: restored), 900, accuracy: 1)
+        XCTAssertEqual(restored["wideBodyOverflowX"] as? String, "visible")
+        XCTAssertEqual(try number("wideTableWidth", in: restored), 900, accuracy: 1)
     }
 
     func testWideLayoutReconcileIsDifferenceOnlyAndObserverQueuesConverge() throws {
@@ -163,6 +580,9 @@ final class AdapterFixtureTests: XCTestCase {
           const composerOwner = new window.__FakeNode('composer-width-owner');
           const rail = document.querySelector('[data-testid="right-rail"]');
           const railBody = new window.__FakeNode('right-rail-rendered-body');
+          const shortRailWrapper = new window.__FakeNode('right-rail-short-empty-state-wrapper');
+          const shortRailBody = new window.__FakeNode('right-rail-short-empty-state');
+          const childlessMarkerRail = new window.__FakeNode('childless-explicit-marker-rail');
           const latentRailBody = new window.__FakeNode('right-rail-latent-body');
           const showingRailBody = new window.__FakeNode('right-rail-showing-body');
           const churnRailBody = new window.__FakeNode('right-rail-churn-body');
@@ -192,18 +612,24 @@ final class AdapterFixtureTests: XCTestCase {
           rail.getBoundingClientRect = measuredRect(() => rect(1604, 1920, 104, 1068));
           railBody.style.backgroundColor = 'rgb(24, 24, 27)';
           railBody.getBoundingClientRect = measuredRect(() => rect(1660, 1900, 112, 460));
+          shortRailBody.getBoundingClientRect = measuredRect(() => rect(1608, 1908, 112, 172));
+          childlessMarkerRail.setAttribute('data-codex-app-extension-native-floating-panel', 'true');
+          childlessMarkerRail.style.backgroundColor = 'rgb(24, 24, 27)';
+          childlessMarkerRail.getBoundingClientRect = measuredRect(() => rect(1604, 1920, 104, 1068));
           const nestedRailMenu = new window.__FakeNode('nested-rail-menu');
           nestedRailMenu.setAttribute('role', 'menu');
           nestedRailMenu.style.backgroundColor = 'rgb(39, 39, 42)';
           nestedRailMenu.getBoundingClientRect = () => rect(1680, 1880, 180, 380);
           railBody.appendChild(nestedRailMenu);
           rail.appendChild(railBody);
+          shortRailWrapper.appendChild(shortRailBody);
+          rail.appendChild(shortRailWrapper);
           rail.appendChild(latentRailBody);
           rail.appendChild(showingRailBody);
           rail.appendChild(churnRailBody);
           showingRailBody.getBoundingClientRect = () => rect(1660, 1900, 112, 460);
           churnRailBody.getBoundingClientRect = () => rect(1660, 1900, 112, 460);
-          rail.registerAll('*', [railBody, nestedRailMenu, latentRailBody, showingRailBody, churnRailBody]);
+          rail.registerAll('*', [railBody, shortRailWrapper, shortRailBody, nestedRailMenu, latentRailBody, showingRailBody, churnRailBody]);
           transientRail.setAttribute('class', 'absolute thread-floating-content-menu');
           transientRail.setAttribute('role', 'menu');
           transientRail.style.position = 'absolute';
@@ -220,9 +646,10 @@ final class AdapterFixtureTests: XCTestCase {
           scroller.registerAll("[class*='thread-composer-max-width']", [composerOwner]);
           document.body.appendChild(transientRail);
           document.body.appendChild(transientWrapper);
+          document.body.appendChild(childlessMarkerRail);
           document.__registerAll(
             "[class*='thread-floating-content-top-inset'][class*='thread-floating-content-bottom-inset'], [data-codex-app-extension-native-floating-panel='true']",
-            [transientWrapper, transientRail, rail]
+            [transientWrapper, transientRail, childlessMarkerRail, rail]
           );
           window.innerWidth = 1920;
           window.innerHeight = 1080;
@@ -269,6 +696,9 @@ final class AdapterFixtureTests: XCTestCase {
           window.__wideLayoutComposerOwner = composerOwner;
           window.__wideLayoutRail = rail;
           window.__wideLayoutRailBody = railBody;
+          window.__wideLayoutShortRailWrapper = shortRailWrapper;
+          window.__wideLayoutShortRailBody = shortRailBody;
+          window.__wideLayoutChildlessMarkerRail = childlessMarkerRail;
           window.__wideLayoutLatentRailBody = latentRailBody;
           window.__wideLayoutShowingRailBody = showingRailBody;
           window.__wideLayoutChurnRailBody = churnRailBody;
@@ -566,11 +996,94 @@ final class AdapterFixtureTests: XCTestCase {
         XCTAssertEqual(try harness.string("window.__wideLayoutCanonicalOwner.style.getPropertyValue('--cae-wide-layout-owner-offset-x')"), "0px")
 
         try harness.evaluate("""
+        window.__wideLayoutShortRailBody.style.backgroundColor = 'rgb(24, 24, 27)';
+        window.__triggerRailMutation(window.__wideLayoutShortRailBody);
+        window.__flushRAF();
+        window.__flushTimers();
+        """)
+        XCTAssertEqual(try harness.string("\(scroller).style.getPropertyValue('--thread-content-max-width')"), "1258px")
+        XCTAssertEqual(try harness.string("\(scroller).style.getPropertyValue('--cae-wide-layout-content-offset-x')"), "0px")
+
+        try harness.evaluate("""
+        window.__wideLayoutRail.style.opacity = '0';
+        window.__triggerRailMutation(window.__wideLayoutRail);
+        window.__flushRAF();
+        window.__flushTimers();
+        """)
+        XCTAssertEqual(try harness.string("\(scroller).style.getPropertyValue('--thread-content-max-width')"), "1300px")
+
+        try harness.evaluate("""
+        window.__wideLayoutRail.style.opacity = '1';
+        window.__wideLayoutShortRailWrapper.style.opacity = '0';
+        window.__triggerRailMutation(window.__wideLayoutShortRailWrapper);
+        window.__flushRAF();
+        window.__flushTimers();
+        """)
+        XCTAssertEqual(try harness.string("\(scroller).style.getPropertyValue('--thread-content-max-width')"), "1300px")
+
+        try harness.evaluate("""
+        window.__wideLayoutShortRailWrapper.style.opacity = '1';
+        window.__wideLayoutShortRailBody.style.opacity = '0';
+        window.__triggerRailMutation(window.__wideLayoutShortRailBody);
+        window.__flushRAF();
+        window.__flushTimers();
+        """)
+        XCTAssertEqual(try harness.string("\(scroller).style.getPropertyValue('--thread-content-max-width')"), "1300px")
+
+        try harness.evaluate("""
+        window.__wideLayoutShortRailBody.style.opacity = '1';
+        window.__triggerRailMutation(window.__wideLayoutShortRailBody);
+        window.__flushRAF();
+        window.__flushTimers();
+        """)
+        XCTAssertEqual(try harness.string("\(scroller).style.getPropertyValue('--thread-content-max-width')"), "1258px")
+
+        try harness.evaluate("""
+        window.__wideLayoutShortRailBody.style.display = 'none';
+        window.__triggerRailMutation(window.__wideLayoutShortRailBody);
+        window.__flushRAF();
+        window.__flushTimers();
+        """)
+        XCTAssertEqual(try harness.string("\(scroller).style.getPropertyValue('--thread-content-max-width')"), "1300px")
+        XCTAssertEqual(try harness.string("\(scroller).style.getPropertyValue('--cae-wide-layout-content-offset-x')"), "0px")
+
+        try harness.evaluate("""
+        window.__wideLayoutShortRailBody.style.display = '';
+        window.__wideLayoutShortRailBody.getBoundingClientRect = () => ({
+          left: 1608, right: 1608, top: 112, bottom: 112, width: 0, height: 0
+        });
+        window.__triggerRailMutation(window.__wideLayoutShortRailBody);
+        window.__flushRAF();
+        window.__flushTimers();
+        """)
+        XCTAssertEqual(try harness.string("\(scroller).style.getPropertyValue('--thread-content-max-width')"), "1300px")
+        XCTAssertEqual(try harness.string("\(scroller).style.getPropertyValue('--cae-wide-layout-content-offset-x')"), "0px")
+
+        try harness.evaluate("""
+        window.__wideLayoutRail.registerAll('*', []);
+        window.__triggerRailMutation(window.__wideLayoutRail);
+        window.__flushRAF();
+        window.__flushTimers();
+        """)
+        XCTAssertEqual(try harness.string("\(scroller).style.getPropertyValue('--thread-content-max-width')"), "1300px")
+        XCTAssertEqual(try harness.string("\(scroller).style.getPropertyValue('--cae-wide-layout-content-offset-x')"), "0px")
+
+        try harness.evaluate("""
+        window.__wideLayoutRail.registerAll('*', [
+          window.__wideLayoutRailBody,
+          window.__wideLayoutShortRailWrapper,
+          window.__wideLayoutShortRailBody,
+          window.__wideLayoutNestedRailMenu,
+          window.__wideLayoutLatentRailBody,
+          window.__wideLayoutShowingRailBody,
+          window.__wideLayoutChurnRailBody
+        ]);
+        window.__wideLayoutShortRailBody.style.backgroundColor = '';
         window.__wideLayoutRailBody.style.display = '';
         window.__wideLayoutRailBody.getBoundingClientRect = () => ({
           left: 1980, right: 2220, top: 112, bottom: 460, width: 240, height: 348
         });
-        window.__triggerResize(window.__wideLayoutRailBody);
+        window.__triggerRailMutation(window.__wideLayoutRail);
         window.__flushRAF();
         window.__flushTimers();
         """)
@@ -1210,6 +1723,163 @@ final class AdapterFixtureTests: XCTestCase {
         }
     }
 
+    func testWideLayoutAppliesToUniqueEmptyTaskComposerAndUninstallRestoresHostState() throws {
+        let harness = try JSRuntimeHarness(fixture: "current-surface")
+        try harness.evaluate("""
+        document.__loadFixture('<main data-app-shell-main-content-layout data-empty-task></main>');
+        (() => {
+          const layout = document.querySelector('[data-app-shell-main-content-layout]');
+          const owner = layout.querySelectorAll("[class*='thread-composer-max-width']")[0];
+          const staleOwner = new window.__FakeNode('stale-empty-task-owner');
+          staleOwner.setAttribute('class', 'mx-auto max-w-(--thread-composer-max-width)');
+          staleOwner.style.setProperty('--cae-wide-layout-owner-offset-x', '31px', 'important');
+          layout.appendChild(staleOwner);
+          layout.registerAll("[class*='thread-composer-max-width']", [owner, staleOwner]);
+          layout.setAttribute('data-cae-wide-layout', 'host-empty');
+          layout.style.setProperty('--thread-content-max-width', '777px', 'important');
+          layout.style.setProperty('--markdown-wide-block-max-width', '778px', 'important');
+          layout.style.setProperty('--cae-wide-layout-side-padding', '19px', 'important');
+          layout.style.setProperty('--cae-wide-layout-content-offset-x', '21px', 'important');
+          owner.style.setProperty('--cae-wide-layout-owner-offset-x', '13px', 'important');
+          const style = document.createElement('style');
+          style.id = 'cae-wide-layout-style';
+          style.textContent = 'host-empty-style';
+          document.head.appendChild(style);
+          window.__emptyTaskOwner = owner;
+          window.__staleEmptyTaskOwner = staleOwner;
+        })();
+        """)
+        try harness.loadAdapter("wide-layout")
+
+        let installed = try harness.invoke("install", request: harness.request(
+            id: 1,
+            adapterId: "wide-layout",
+            operation: "install",
+            config: harness.defaultConfig(adapterId: "wide-layout")
+        ))
+        XCTAssertEqual((installed["result"] as? [String: Any])?["qualified"] as? Bool, true)
+        XCTAssertFalse(try harness.bool("window.__codexAppExtensionV2.surface().qualified"))
+        XCTAssertTrue(try harness.value("document.querySelector('.thread-scroll-container')").isNull)
+        XCTAssertEqual(try harness.string("document.querySelector('[data-app-shell-main-content-layout]').getAttribute('data-cae-wide-layout')"), "true")
+        XCTAssertEqual(
+            try harness.string("document.querySelector('[data-app-shell-main-content-layout]').style.getPropertyValue('--thread-composer-max-width')"),
+            "min(1800px, max(1px, calc(100% - 48px)))"
+        )
+        XCTAssertEqual(try harness.string("document.querySelector('[data-app-shell-main-content-layout]').style.getPropertyValue('--thread-content-max-width')"), "777px")
+        XCTAssertEqual(try harness.string("document.querySelector('[data-app-shell-main-content-layout]').style.getPropertyValue('--markdown-wide-block-max-width')"), "778px")
+        XCTAssertEqual(try harness.string("document.querySelector('[data-app-shell-main-content-layout]').style.getPropertyValue('--cae-wide-layout-side-padding')"), "19px")
+        XCTAssertEqual(try harness.string("document.querySelector('[data-app-shell-main-content-layout]').style.getPropertyValue('--cae-wide-layout-content-offset-x')"), "21px")
+        XCTAssertEqual(try harness.string("window.__emptyTaskOwner.style.getPropertyValue('--cae-wide-layout-owner-offset-x')"), "0px")
+        XCTAssertEqual(try harness.string("window.__staleEmptyTaskOwner.style.getPropertyValue('--cae-wide-layout-owner-offset-x')"), "31px")
+        XCTAssertEqual(try harness.string("window.__staleEmptyTaskOwner.style.getPropertyPriority('--cae-wide-layout-owner-offset-x')"), "important")
+        XCTAssertTrue(try harness.string("document.getElementById('cae-wide-layout-style').textContent").contains("[data-app-shell-main-content-layout][data-cae-wide-layout='true']"))
+
+        let diagnosed = try harness.invoke("diagnose", request: harness.request(
+            id: 2, adapterId: "wide-layout", operation: "diagnose", config: [:]
+        ))
+        XCTAssertEqual((diagnosed["result"] as? [String: Any])?["qualified"] as? Bool, true)
+
+        _ = try harness.invoke("uninstall", request: harness.request(
+            id: 3, adapterId: "wide-layout", operation: "uninstall", config: [:]
+        ))
+        XCTAssertEqual(try harness.string("document.querySelector('[data-app-shell-main-content-layout]').getAttribute('data-cae-wide-layout')"), "host-empty")
+        XCTAssertEqual(try harness.string("document.querySelector('[data-app-shell-main-content-layout]').style.getPropertyValue('--thread-content-max-width')"), "777px")
+        XCTAssertEqual(try harness.string("document.querySelector('[data-app-shell-main-content-layout]').style.getPropertyPriority('--thread-content-max-width')"), "important")
+        XCTAssertEqual(try harness.string("document.querySelector('[data-app-shell-main-content-layout]').style.getPropertyValue('--markdown-wide-block-max-width')"), "778px")
+        XCTAssertEqual(try harness.string("document.querySelector('[data-app-shell-main-content-layout]').style.getPropertyValue('--cae-wide-layout-side-padding')"), "19px")
+        XCTAssertEqual(try harness.string("document.querySelector('[data-app-shell-main-content-layout]').style.getPropertyValue('--cae-wide-layout-content-offset-x')"), "21px")
+        XCTAssertEqual(try harness.string("window.__emptyTaskOwner.style.getPropertyValue('--cae-wide-layout-owner-offset-x')"), "13px")
+        XCTAssertEqual(try harness.string("window.__emptyTaskOwner.style.getPropertyPriority('--cae-wide-layout-owner-offset-x')"), "important")
+        XCTAssertEqual(try harness.string("window.__staleEmptyTaskOwner.style.getPropertyValue('--cae-wide-layout-owner-offset-x')"), "31px")
+        XCTAssertEqual(try harness.string("document.getElementById('cae-wide-layout-style').textContent"), "host-empty-style")
+    }
+
+    func testWideLayoutSwitchesBetweenEmptyTaskAndSessionWithoutScopeResidue() throws {
+        let harness = try JSRuntimeHarness(fixture: "current-surface")
+        try harness.evaluate("document.__loadFixture('<main data-app-shell-main-content-layout data-empty-task></main>')")
+        try harness.loadAdapter("wide-layout")
+        _ = try harness.invoke("install", request: harness.request(
+            id: 1,
+            adapterId: "wide-layout",
+            operation: "install",
+            config: harness.defaultConfig(adapterId: "wide-layout")
+        ))
+
+        try harness.evaluate("""
+        window.__oldEmptyLayout = document.querySelector('[data-app-shell-main-content-layout]');
+        window.__oldEmptyOwner = window.__oldEmptyLayout.querySelectorAll("[class*='thread-composer-max-width']")[0];
+        document.__setSurfaceMode('session');
+        window.__triggerMutation(1);
+        window.__flushRAF();
+        window.__flushTimers();
+        """)
+        XCTAssertTrue(try harness.bool("window.__codexAppExtensionV2.surface().qualified"))
+        XCTAssertTrue(try harness.value("window.__oldEmptyLayout.getAttribute('data-cae-wide-layout')").isNull)
+        XCTAssertEqual(try harness.string("window.__oldEmptyLayout.style.getPropertyValue('--thread-content-max-width')"), "")
+        XCTAssertEqual(try harness.string("window.__oldEmptyOwner.style.getPropertyValue('--cae-wide-layout-owner-offset-x')"), "")
+        XCTAssertEqual(try harness.string("document.querySelector('.thread-scroll-container').getAttribute('data-cae-wide-layout')"), "true")
+
+        try harness.evaluate("""
+        window.__oldSessionScroller = document.querySelector('.thread-scroll-container');
+        window.__oldSessionOwner = window.__oldSessionScroller.querySelectorAll("[class*='thread-content-max-width']")[0];
+        document.__setSurfaceMode('empty-task');
+        window.__triggerMutation(1);
+        window.__flushRAF();
+        window.__flushTimers();
+        """)
+        XCTAssertFalse(try harness.bool("window.__codexAppExtensionV2.surface().qualified"))
+        XCTAssertTrue(try harness.value("document.querySelector('.thread-scroll-container')").isNull)
+        XCTAssertTrue(try harness.value("window.__oldSessionScroller.getAttribute('data-cae-wide-layout')").isNull)
+        XCTAssertEqual(try harness.string("window.__oldSessionScroller.style.getPropertyValue('--thread-content-max-width')"), "")
+        XCTAssertEqual(try harness.string("window.__oldSessionOwner.style.getPropertyValue('--cae-wide-layout-owner-offset-x')"), "")
+        XCTAssertEqual(try harness.string("document.querySelector('[data-app-shell-main-content-layout]').getAttribute('data-cae-wide-layout')"), "true")
+        XCTAssertEqual(
+            try harness.string("document.querySelector('[data-app-shell-main-content-layout]').style.getPropertyValue('--thread-composer-max-width')"),
+            "min(1800px, max(1px, calc(100% - 48px)))"
+        )
+        XCTAssertEqual(try harness.string("document.querySelector('[data-app-shell-main-content-layout]').style.getPropertyValue('--thread-content-max-width')"), "")
+        XCTAssertEqual(try harness.string("document.querySelector('[data-app-shell-main-content-layout]').style.getPropertyValue('--markdown-wide-block-max-width')"), "")
+        XCTAssertEqual(try harness.string("document.querySelector('[data-app-shell-main-content-layout]').style.getPropertyValue('--cae-wide-layout-side-padding')"), "")
+        XCTAssertEqual(try harness.string("document.querySelector('[data-app-shell-main-content-layout]').style.getPropertyValue('--cae-wide-layout-content-offset-x')"), "")
+
+        let diagnosed = try harness.invoke("diagnose", request: harness.request(
+            id: 2, adapterId: "wide-layout", operation: "diagnose", config: [:]
+        ))
+        XCTAssertEqual((diagnosed["result"] as? [String: Any])?["qualified"] as? Bool, true)
+
+        _ = try harness.invoke("uninstall", request: harness.request(
+            id: 3, adapterId: "wide-layout", operation: "uninstall", config: [:]
+        ))
+        XCTAssertTrue(try harness.value("document.querySelector('[data-app-shell-main-content-layout]').getAttribute('data-cae-wide-layout')").isNull)
+        XCTAssertEqual(try harness.string("document.querySelector('[data-app-shell-main-content-layout]').style.getPropertyValue('--thread-content-max-width')"), "")
+        XCTAssertTrue(try harness.value("document.getElementById('cae-wide-layout-style')").isNull)
+        XCTAssertEqual(try harness.int("window.__codexAppExtensionV2.observerCount()"), 0)
+    }
+
+    func testWideLayoutTreatsDuplicateEmptyTaskEditorsAsHardStructuralConflict() throws {
+        let harness = try JSRuntimeHarness(fixture: "current-surface")
+        try harness.evaluate("document.__loadFixture('<main data-app-shell-main-content-layout data-empty-task data-duplicate-editor></main>')")
+        try harness.loadAdapter("wide-layout")
+
+        let installed = try harness.invoke("install", request: harness.request(
+            id: 1,
+            adapterId: "wide-layout",
+            operation: "install",
+            config: harness.defaultConfig(adapterId: "wide-layout")
+        ))
+        let result = try XCTUnwrap(installed["result"] as? [String: Any])
+        XCTAssertEqual(result["qualified"] as? Bool, false)
+        XCTAssertEqual(result["recoverable"] as? Bool, false)
+        XCTAssertEqual(result["reason"] as? String, "native-editor-ambiguous")
+        XCTAssertTrue(try harness.value("document.querySelector('[data-app-shell-main-content-layout]').getAttribute('data-cae-wide-layout')").isNull)
+        XCTAssertTrue(try harness.value("document.getElementById('cae-wide-layout-style')").isNull)
+
+        _ = try harness.invoke("uninstall", request: harness.request(
+            id: 2, adapterId: "wide-layout", operation: "uninstall", config: [:]
+        ))
+        XCTAssertEqual(try harness.int("window.__codexAppExtensionV2.observerCount()"), 0)
+    }
+
     func testObserverBusUsesStableDocumentRootAndThreeQualifiedNativeNodesAndCoalescesBursts() throws {
         let harness = try JSRuntimeHarness(fixture: "current-surface")
         try addSyntheticWideOwner(to: harness)
@@ -1453,5 +2123,28 @@ final class AdapterFixtureTests: XCTestCase {
                 config: [:]
             ))
         }
+    }
+
+    @MainActor
+    private func evaluateWebKitJSON(_ script: String, in webView: WKWebView) throws -> [String: Any] {
+        let evaluated = expectation(description: "WebKit JavaScript evaluated")
+        var value: Any?
+        var evaluationError: Error?
+        webView.evaluateJavaScript(script) { result, error in
+            value = result
+            evaluationError = error
+            evaluated.fulfill()
+        }
+        wait(for: [evaluated], timeout: 10)
+        if let evaluationError {
+            throw evaluationError
+        }
+        let jsonString = try XCTUnwrap(value as? String)
+        let json = try XCTUnwrap(jsonString.data(using: .utf8))
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: json) as? [String: Any])
+    }
+
+    private func number(_ key: String, in dictionary: [String: Any]) throws -> Double {
+        try XCTUnwrap(dictionary[key] as? NSNumber).doubleValue
     }
 }

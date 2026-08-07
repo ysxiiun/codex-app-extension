@@ -1,6 +1,6 @@
 # codex-app-extension 架构摘要
 
-> 最后更新：2026-08-06；当前发布树为 SwiftUI + ExtensionCore + PageRuntime V2（implementation revision 6）。
+> 最后更新：2026-08-07；当前发布树为 SwiftUI + ExtensionCore + PageRuntime V2（implementation revision 11）。
 
 ## 项目定位
 
@@ -49,7 +49,7 @@ Xcode scheme 为 `CodexAppExtension`。主要 targets：
 2. `RuntimeController` 迁移/加载配置并监测 ChatGPT 主进程；UI 只调用它的公共接口，不直接操作 CDP 或文件系统。
 3. `DebugSessionManager` 只复用同时且唯一声明 `--remote-debugging-address=127.0.0.1` 与有效端口的 CDP，或从 `49152...65535` 分配端口启动 ChatGPT；缺失/宽泛/非 IPv4-loopback 地址均建立待确认重启状态。
 4. `CDPClient` 连接 Browser WebSocket，按 request id 与 connection generation 隔离响应；`TargetCoordinator` 订阅创建、销毁和 reload。
-5. Target 必须同时满足 `app://-/index.html` 与唯一布局根、唯一 thread scroller；ProseMirror editor 是输入增强的可选锚点，暂缺时对应 adapter 进入可恢复等待而不撤销 Target。
+5. Target 必须满足 `app://-/index.html` 与唯一布局根。布局内 thread scroller 唯一时会话页即合格，composer 是可选能力，其缺失或歧义不撤销 Target；仅在无 scroller 的空白任务页才要求原生 ProseMirror composer 恰好一个。只有 layout、重复 layout、重复 scroller，或无 scroller 时 composer 缺失/重复仍拒绝。Target 资格不自动放宽 adapter 资格，`runtime.surface().qualified` 仍只表示 layout + scroller 的完整会话面。
 6. `CDPPageRuntimeBridge` 注入 `bootstrap.js` 和四个 adapter，以固定 envelope 执行 handshake/install/update/diagnose/uninstall。bootstrap/adapter source 使用显式 side-effect 求值，可接受 CDP 合法的 `type=undefined` 且无 `value`；probe/handshake/execute/performance 使用 value-required 求值，仍强制存在 `result.value`；两类求值都拒绝 `exceptionDetails`。runtime revision 变化时先通过旧公开 API 卸载历史 adapter，再原位替换 API；fresh runtime 在局部更新前补水四项并标记 hydrated。
 7. `HealthCenter`、`RuntimeControllerSnapshot` 与有界 `AsyncStream` 驱动菜单栏和设置；bridge 以 session revision 作为 target health generation，由 `HealthCenter` actor 原子执行 begin/update/remove，使用 tombstone 阻止同代迟到更新复活，并拒绝旧代更新或清理影响新代状态；诊断只记录 allowlisted 类型数据。
 
@@ -107,7 +107,7 @@ target health 的生命周期顺序不得依赖跨 actor `await` 的先后推断
 
 ## PageRuntime 与 adapters
 
-`Resources/PageRuntime/bootstrap.js` 只暴露不可写的 `window.__codexAppExtensionV2`，固定支持 register、handshake、install、update、diagnose、uninstall、surface、observer 和 performance snapshot。当前 `runtimeVersion=2`、`implementationRevision=6`；同 revision 重注入完全幂等，revision 5 或更旧 revision 先 best-effort 卸载历史五项（只包含用于清理的 retired `focus-ring` id）再原位升级，避免旧 observer 或焦点副作用滞留。显式 install/update 抛错会写入不可命中配置的失败签名；observer reconcile 只更新 surface/健康状态，不恢复正式签名，后续必须成功执行显式 install/update 才能重新进入幂等快路。wide-layout 对普通正文 DOM burst 使用几何身份快路径，只有 surface/owner/right-rail 身份变化或专用 resize/mutation/motion 触发才执行完整几何重算；width owner 自身的原生 transform 会计入 native offset，但扩展拥有的 individual translate 必须排除，避免 residual offset 自反馈。
+`Resources/PageRuntime/bootstrap.js` 只暴露不可写的 `window.__codexAppExtensionV2`，固定支持 register、handshake、install、update、diagnose、uninstall、surface、observer 和 performance snapshot。当前 `runtimeVersion=2`、`implementationRevision=11`；同 revision 重注入完全幂等，revision 10 或更旧 revision 先 best-effort 卸载历史五项（只包含用于清理的 retired `focus-ring` id）再原位升级，避免旧 observer 或焦点副作用滞留。显式 install/update 抛错会写入不可命中配置的失败签名；observer reconcile 只更新 surface/健康状态，不恢复正式签名，后续必须成功执行显式 install/update 才能重新进入幂等快路。wide-layout 对普通正文 DOM burst 使用几何身份快路径，只有 surface/owner/right-rail 身份变化或专用 resize/mutation/motion 触发才执行完整几何重算；width owner 自身的原生 transform 会计入 native offset，但扩展拥有的 individual translate 必须排除，避免 residual offset 自反馈。新建任务过渡中 scroller 与 width owner 的挂载顺序不再导致视觉回退：唯一 scroller 会先获得并保留宽度变量；adapter 仅观察唯一 editor 到 scroller 的有限祖先 class，宿主复用同一节点并原地增加或移除 width-owner token 时，下一合并帧通过 runtime transaction 将 owner、偏移和 observer health 双向同步到 healthy 或 recoverable waiting，期间不撤销 marker、不依赖 child-list 变化，也不掩盖永久缺失。右侧原生信息栏的占位资格由稳定 rail shell 及已渲染组件几何决定，不读取文本、条目或业务内容；短空态卡片也会参与 right boundary、最小侧边距和居中偏移计算，而 childless、隐藏、零尺寸及瞬态菜单仍保持排除。
 
 固定 envelope 字段：
 
@@ -117,12 +117,12 @@ runtimeVersion / requestId / adapterId / operation / config / result / error
 
 发布的四个 adapter：
 
-- `Adapters/wide-layout.js`：在唯一 thread scroller 以差异写入维护宽度变量；原生 thread content、Markdown width consumer 与 selected overlay 是统一候选集合，每个分支仅无候选祖先的最外层节点应用 `min(配置上限, 100% - 2 × 最小 side padding)`，composer、right rail、menu/listbox/dialog 与浮层保持原生宽度。
+- `Adapters/wide-layout.js`：会话页优先在唯一 thread scroller 以差异写入维护宽度变量；空白任务页仅在 layout 唯一、composer 唯一且无 scroller 时回退 layout root，沿当前唯一 editor 祖先链只绑定其最外层 composer width owner，无关或残留 owner 不改。空白页只向 layout root 写 `--thread-composer-max-width`，不覆盖 content/Markdown/side-padding/content-offset 变量。会话页的原生 thread content、Markdown width consumer 与 selected overlay 是统一候选集合，每个分支仅无候选祖先的最外层节点应用 `min(配置上限, 100% - 2 × 最小 side padding)`；selected Markdown 内稳定 `[data-markdown-table]` 外壳被限制为当前内容宽度，原生列宽保持不变，超出内容只在直接表格子树中水平滚动，不依赖 CSS module 哈希；right rail、menu/listbox/dialog 与浮层保持原生宽度。
 - `Adapters/header-offset.js`：在唯一 layout root 应用自动或自定义 header offset。
 - `Adapters/ime-enter-guard.js`：在 editor/descendant 的 composition Enter、keyCode 229 或 compositionend 后 `120 ms` 有界宽限期内阻止默认事件，宽限期后的普通 Enter 不拦截。
 - `Adapters/markdown-semantic-theme.js`：只在合格 thread scroller 的 Markdown candidate 下增强语义元素，并排除代码块；经典默认精确使用金色标题/强调、粉色行内代码和单层粉色引用样式。
 
-每个 adapter 只接收自己的配置片段，独立 probe/install/update/diagnose/uninstall。明确返回 `qualified=false/recoverable=true` 的页面暂缺状态进入 waiting，不生成事务错误且在 DOM 恢复后自动收敛为 healthy；缺省或明确不可恢复的不合格仍是 degraded。首次 install 单 adapter 失败只降级该 adapter，候选 update 的目标 adapter 硬失败仍抛错以触发对称局部回滚。稳定 document-root observer 识别同 target SPA 的 layout/scroller/editor 身份变更并自动重新资格审查、重新绑定。adapter 保存宿主原有 attribute、inline property 值/priority 和 style 内容，target 失效、pipeline stop 或 App 退出时先有界卸载再 detach；IME 同时移除全部 handler。扩展不注册、不加载、不生成任何焦点 marker、CSS 变量或 `:focus-visible` 规则。
+每个 adapter 只接收自己的配置片段，独立 probe/install/update/diagnose/uninstall。Target 允许 layout + composer 的空白页形态，不代表其他 adapter 自动获得资格：除 wide-layout 的明确空白页回退外，完整会话相关能力仍依据 `runtime.surface().qualified` 与各自原生锚点判断。明确返回 `qualified=false/recoverable=true` 的页面暂缺状态进入 waiting，不生成事务错误且在 DOM 恢复后自动收敛为 healthy；缺省或明确不可恢复的不合格仍是 degraded。首次 install 单 adapter 失败只降级该 adapter，候选 update 的目标 adapter 硬失败仍抛错以触发对称局部回滚。稳定 document-root observer 识别同 target SPA 的 layout/scroller/editor 身份变更并自动重新资格审查、重新绑定。adapter 保存宿主原有 attribute、inline property 值/priority 和 style 内容，target 失效、pipeline stop 或 App 退出时先有界卸载再 detach；IME 同时移除全部 handler。扩展不注册、不加载、不生成任何焦点 marker、CSS 变量或 `:focus-visible` 规则。
 
 observer bus 只观察稳定 document root 的 `childList/subtree` 与当前合格节点的原生资格属性，不观察正文或任意属性。adapter 对自己拥有的 marker、style 文本与 CSS property 必须先比较再写，并返回真实 changed，防止自身 DOM mutation 形成反馈环。DOM burst 合并为最多一次 RAF 和一次 80 ms settle；单 adapter 每次预算 8 ms，连续 3 次超限即仅降级该 adapter 并停止后续写入。observer 最多 16 个，performance event 最多 32 条；最终 observer、RAF、timer 都必须可清理。
 
@@ -138,7 +138,7 @@ loss-sensitive CDP/target streams buffer 为 64。任何诊断新增字段必须
 ## 测试架构
 
 - `CodexAppExtensionTests/`：配置、迁移、生命周期、CDP、target、runtime 事务、可靠性、隐私、轮转、导出与性能。
-- `PageRuntimeTests/`：当前/不支持/虚构旧 surface fixture、adapter lifecycle、IME、CSS、observer coalescing、预算与清理。
+- `PageRuntimeTests/`：当前会话/空白任务/不支持/虚构旧 surface fixture、adapter lifecycle、IME、CSS、observer coalescing、预算与清理。
 - `CodexAppExtensionUITests/`：菜单四态、设置五页、配置失败、启动设置和六类恢复路径。
 - current ChatGPT live gate：exact target + count/style/status-only selectors，验证四个 adapter、经典 computed style、waiting 收敛与焦点侵入负向状态；禁止读取正文、草稿、Cookie 或 payload，结束时校验宿主状态和 observer/RAF/timer 有界。
 

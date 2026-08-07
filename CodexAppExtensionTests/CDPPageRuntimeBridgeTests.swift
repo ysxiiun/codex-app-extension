@@ -4,7 +4,7 @@ import XCTest
 
 final class CDPPageRuntimeBridgeTests: XCTestCase {
     func testUndefinedSideEffectResultsContinueThroughHandshakeAndAdapterExecution() async throws {
-        XCTAssertEqual(CDPPageRuntimeBridge.implementationRevision, 6)
+        XCTAssertEqual(CDPPageRuntimeBridge.implementationRevision, 11)
         let cdp = BridgeCDPDouble(sideEffectsReturnUndefined: true)
         let bridge = CDPPageRuntimeBridge(
             client: cdp,
@@ -103,6 +103,7 @@ final class CDPPageRuntimeBridgeTests: XCTestCase {
 
         let probe = try await bridge.probe(target: target, requiredAnchors: TargetCoordinator.requiredAnchors)
         XCTAssertTrue(probe.isCodexSurface)
+        XCTAssertEqual(probe.counts, [.layoutRoot: 1, .threadScroller: 1, .composer: 1])
         _ = try await bridge.apply(configuration: .defaultConfiguration, to: target, operation: .install)
 
         let commands = await cdp.commands()
@@ -115,8 +116,13 @@ final class CDPPageRuntimeBridgeTests: XCTestCase {
         let probeExpression = try XCTUnwrap(evaluations.first?.params?["expression"]?.stringValue)
         XCTAssertTrue(probeExpression.contains("querySelectorAll"))
         XCTAssertFalse(probeExpression.contains("innerText"))
+        XCTAssertFalse(probeExpression.contains("textContent"))
+        XCTAssertFalse(probeExpression.contains("innerHTML"))
+        XCTAssertFalse(probeExpression.contains("outerHTML"))
+        XCTAssertFalse(probeExpression.lowercased().contains("draft"))
         XCTAssertFalse(probeExpression.lowercased().contains("cookie"))
         XCTAssertFalse(probeExpression.contains("value"))
+        XCTAssertFalse(probeExpression.contains("qualified"))
 
         let expressions = evaluations.compactMap { $0.params?["expression"]?.stringValue }
         let bootstrap = try XCTUnwrap(expressions.firstIndex { $0.contains("bootstrapCodexAppExtensionV2") })
@@ -136,6 +142,39 @@ final class CDPPageRuntimeBridgeTests: XCTestCase {
             })
             XCTAssertLessThan(scriptIndex, envelopeIndex, adapter)
         }
+    }
+
+    func testProbePreservesComposerOnlySurfaceCountsAndRejectsDuplicateAnchors() async throws {
+        let emptyCDP = BridgeCDPDouble(probeCounts: [.layoutRoot: 1, .threadScroller: 0, .composer: 1])
+        let emptyBridge = CDPPageRuntimeBridge(
+            client: emptyCDP,
+            healthCenter: HealthCenter(),
+            bundle: Bundle(for: Self.self)
+        )
+        let target = CDPTarget(identifier: "target-empty-composer", url: TargetCoordinator.codexSurfaceURL)
+
+        let emptyProbe = try await emptyBridge.probe(
+            target: target,
+            requiredAnchors: TargetCoordinator.requiredAnchors
+        )
+
+        XCTAssertEqual(emptyProbe.counts, [.layoutRoot: 1, .threadScroller: 0, .composer: 1])
+        XCTAssertEqual(emptyProbe.matchedAnchors, [.layoutRoot, .composer])
+        XCTAssertTrue(emptyProbe.isCodexSurface)
+
+        let duplicateCDP = BridgeCDPDouble(probeCounts: [.layoutRoot: 1, .threadScroller: 0, .composer: 2])
+        let duplicateBridge = CDPPageRuntimeBridge(
+            client: duplicateCDP,
+            healthCenter: HealthCenter(),
+            bundle: Bundle(for: Self.self)
+        )
+        let duplicateProbe = try await duplicateBridge.probe(
+            target: .init(identifier: "target-duplicate-composer", url: TargetCoordinator.codexSurfaceURL),
+            requiredAnchors: TargetCoordinator.requiredAnchors
+        )
+
+        XCTAssertEqual(duplicateProbe.counts, [.layoutRoot: 1, .threadScroller: 0, .composer: 2])
+        XCTAssertFalse(duplicateProbe.isCodexSurface)
     }
 
     func testMissingAdapterSourceDegradesOnlyThatAdapterSkipsExecuteAndUpdateStillThrows() async throws {
@@ -664,6 +703,7 @@ private actor BridgeCDPDouble: CDPCommanding {
     private let missingProbeValue: Bool
     private let exceptionExpressionMarker: String?
     private let rehydrationRequired: Bool
+    private let probeCounts: [CodexSurfaceAnchor: Int]
 
     init(
         failingAdapter: String? = nil,
@@ -676,7 +716,8 @@ private actor BridgeCDPDouble: CDPCommanding {
         sideEffectsReturnTypeWithoutValue: String? = nil,
         missingProbeValue: Bool = false,
         exceptionExpressionMarker: String? = nil,
-        rehydrationRequired: Bool = false
+        rehydrationRequired: Bool = false,
+        probeCounts: [CodexSurfaceAnchor: Int] = [.layoutRoot: 1, .threadScroller: 1, .composer: 1]
     ) {
         self.failingAdapter = failingAdapter
         self.failingOperation = failingOperation
@@ -689,6 +730,7 @@ private actor BridgeCDPDouble: CDPCommanding {
         self.missingProbeValue = missingProbeValue
         self.exceptionExpressionMarker = exceptionExpressionMarker
         self.rehydrationRequired = rehydrationRequired
+        self.probeCounts = probeCounts
     }
 
     func request(method: String, params: JSONValue?, sessionIdentifier: String?, timeout: Duration?) throws -> JSONValue? {
@@ -710,7 +752,9 @@ private actor BridgeCDPDouble: CDPCommanding {
                 return .object(["result": .object(["type": .string("object")])])
             }
             return remoteValue(.object([
-                "layoutRoot": .number(1), "threadScroller": .number(1), "composer": .number(1), "qualified": .bool(true)
+                "layoutRoot": .number(Double(probeCounts[.layoutRoot] ?? 0)),
+                "threadScroller": .number(Double(probeCounts[.threadScroller] ?? 0)),
+                "composer": .number(Double(probeCounts[.composer] ?? 0))
             ]))
         }
         if expression.contains("handshake(0)") {

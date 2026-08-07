@@ -21,7 +21,7 @@ public enum CodexSurfaceAnchor: String, CaseIterable, Hashable, Sendable {
     case composer
     case threadScroller
 
-    public static let identityAnchors: Set<Self> = [.layoutRoot, .threadScroller]
+    public static let identityAnchors: Set<Self> = [.layoutRoot, .composer, .threadScroller]
 }
 
 public struct CodexSurfaceProbeResult: Equatable, Sendable {
@@ -34,8 +34,17 @@ public struct CodexSurfaceProbeResult: Equatable, Sendable {
     }
 
     public var isCodexSurface: Bool {
-        if counts.isEmpty { return matchedAnchors.isSuperset(of: CodexSurfaceAnchor.identityAnchors) }
-        return CodexSurfaceAnchor.identityAnchors.allSatisfy { counts[$0] == 1 }
+        if counts.isEmpty {
+            return matchedAnchors.contains(.layoutRoot)
+                && (matchedAnchors.contains(.threadScroller) || matchedAnchors.contains(.composer))
+        }
+
+        let threadScrollerCount = counts[.threadScroller] ?? 0
+        let composerCount = counts[.composer] ?? 0
+        guard counts[.layoutRoot] == 1 else { return false }
+        if threadScrollerCount == 1 { return true }
+        if threadScrollerCount == 0 { return composerCount == 1 }
+        return false
     }
 }
 

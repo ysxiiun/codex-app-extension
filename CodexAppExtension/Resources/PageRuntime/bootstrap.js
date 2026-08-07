@@ -2,7 +2,7 @@
   "use strict";
 
   const runtimeVersion = 2;
-  const implementationRevision = 6;
+  const implementationRevision = 11;
   const existingRuntime = window.__codexAppExtensionV2;
   if (existingRuntime?.runtimeVersion === runtimeVersion &&
       existingRuntime?.implementationRevision === implementationRevision) {

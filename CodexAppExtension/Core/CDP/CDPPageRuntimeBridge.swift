@@ -87,7 +87,7 @@ public struct AdapterPerformanceMeasurement: Equatable, Sendable {
 }
 
 public actor CDPPageRuntimeBridge: PageRuntimeBridging, CodexSurfaceProbing {
-    static let implementationRevision = 6
+    static let implementationRevision = 11
 
     private struct SessionState: Sendable, Equatable {
         let identifier: String
@@ -154,7 +154,7 @@ public actor CDPPageRuntimeBridge: PageRuntimeBridging, CodexSurfaceProbing {
           const layoutRoot = layoutRoots.length;
           const threadScroller = countWithinLayout('.thread-scroll-container');
           const composer = countWithinLayout(".ProseMirror[data-codex-composer='true'][contenteditable='true'], .ProseMirror[data-codex-composer='true'][contenteditable='plaintext-only']");
-          return { layoutRoot, threadScroller, composer, qualified: layoutRoot === 1 && threadScroller === 1 };
+          return { layoutRoot, threadScroller, composer };
         })()
         """#
         let value = try await evaluateRequiringValue(expression, session: session)

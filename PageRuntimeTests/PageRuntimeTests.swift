@@ -591,6 +591,7 @@ final class JSRuntimeHarness {
           const paragraph = new FakeNode('paragraph');
           const quote = new FakeNode('quote');
           const wideOwner = new FakeNode('wideOwner');
+          const composerOwner = new FakeNode('composerOwner');
           const editor = new FakeNode('editor');
           const editorChild = new FakeNode('editorChild');
           const rail = new FakeNode('rail');
@@ -605,6 +606,7 @@ final class JSRuntimeHarness {
           editor.setAttribute('contenteditable', 'true');
           editor.setAttribute('data-codex-composer', 'true');
           wideOwner.setAttribute('class', 'mx-auto max-w-(--thread-content-max-width)');
+          composerOwner.setAttribute('class', 'mx-auto max-w-(--thread-composer-max-width)');
           scroller.appendChild(markdownOne);
           scroller.appendChild(markdownTwo);
           scroller.appendChild(wideOwner);
@@ -614,9 +616,17 @@ final class JSRuntimeHarness {
           markdownOne.appendChild(paragraph);
           markdownOne.appendChild(quote);
           editor.appendChild(editorChild);
-          layout.appendChild(scroller);
+          const emptyTask = html.includes('data-empty-task');
+          if (emptyTask) {
+            composerOwner.appendChild(editor);
+            layout.appendChild(composerOwner);
+            layout.registerAll("[class*='thread-content-max-width']", []);
+            layout.registerAll("[class*='thread-composer-max-width']", [composerOwner]);
+          } else {
+            layout.appendChild(scroller);
+            layout.appendChild(editor);
+          }
           layout.appendChild(rail);
-          layout.appendChild(editor);
           layout.appendChild(requestInput);
           layout.appendChild(menu);
           this.body.appendChild(layout);
@@ -633,17 +643,60 @@ final class JSRuntimeHarness {
 
           scroller.registerAll('[data-selected-text-overlay-target]', [markdownOne, markdownTwo]);
           this.__registerAll('[data-app-shell-main-content-layout]', [layout]);
-          this.__registerAll('.thread-scroll-container', [scroller]);
+          this.__registerAll('.thread-scroll-container', emptyTask ? [] : [scroller]);
           this.__registerAll(".ProseMirror[data-codex-composer='true'][contenteditable='true'], .ProseMirror[data-codex-composer='true'][contenteditable='plaintext-only']", editorMatches);
           this.__registerAll(".ProseMirror[contenteditable='true'], .ProseMirror[contenteditable='plaintext-only']", editorMatches);
           this.__registerAll(".ProseMirror[contenteditable='true']", editorMatches);
           this.__registerAll(".ProseMirror[contenteditable='plaintext-only']", []);
           this.__registerAll('[data-codex-composer]', [editor]);
-          this.__registerAll('[data-selected-text-overlay-target]', [markdownOne, markdownTwo]);
+          this.__registerAll('[data-selected-text-overlay-target]', emptyTask ? [] : [markdownOne, markdownTwo]);
           this.__registerAll('[data-editor-child]', [editorChild]);
           this.__registerAll('[data-testid="right-rail"]', [rail]);
           this.__registerAll("[role='menu']", [menu]);
           this.__registerAll('[data-request-input]', [requestInput]);
+        },
+        __setSurfaceMode: function(mode) {
+          const layout = this.querySelector('[data-app-shell-main-content-layout]');
+          const editor = this.querySelector(".ProseMirror[data-codex-composer='true'][contenteditable='true'], .ProseMirror[data-codex-composer='true'][contenteditable='plaintext-only']");
+          const currentScroller = this.querySelector('.thread-scroll-container');
+          if (!layout || !editor) return;
+
+          if (mode === 'empty-task') {
+            currentScroller?.remove();
+            const composerOwner = new FakeNode('composerOwner-transition');
+            composerOwner.setAttribute('class', 'mx-auto max-w-(--thread-composer-max-width)');
+            editor.remove();
+            composerOwner.appendChild(editor);
+            layout.appendChild(composerOwner);
+            layout.registerAll("[class*='thread-content-max-width']", []);
+            layout.registerAll("[class*='thread-composer-max-width']", [composerOwner]);
+            this.__registerAll('.thread-scroll-container', []);
+            this.__registerAll('[data-selected-text-overlay-target]', []);
+            return;
+          }
+
+          if (mode === 'session' && !currentScroller) {
+            const composerOwner = editor.parentElement;
+            editor.remove();
+            composerOwner?.remove();
+            const scroller = new FakeNode('scroller-transition');
+            const markdownOne = new FakeNode('scroller-transition-markdownOne');
+            const markdownTwo = new FakeNode('scroller-transition-markdownTwo');
+            const wideOwner = new FakeNode('scroller-transition-wideOwner');
+            wideOwner.setAttribute('class', 'mx-auto max-w-(--thread-content-max-width)');
+            scroller.appendChild(markdownOne);
+            scroller.appendChild(markdownTwo);
+            scroller.appendChild(wideOwner);
+            scroller.registerAll('[data-selected-text-overlay-target]', [markdownOne, markdownTwo]);
+            scroller.registerAll("[class*='thread-content-max-width']", [wideOwner]);
+            scroller.registerAll("[class*='thread-composer-max-width']", []);
+            layout.registerAll("[class*='thread-content-max-width']", []);
+            layout.registerAll("[class*='thread-composer-max-width']", []);
+            layout.appendChild(scroller);
+            layout.appendChild(editor);
+            this.__registerAll('.thread-scroll-container', [scroller]);
+            this.__registerAll('[data-selected-text-overlay-target]', [markdownOne, markdownTwo]);
+          }
         },
         __replaceSurface: function(part) {
           const currentLayout = this.querySelector('[data-app-shell-main-content-layout]');

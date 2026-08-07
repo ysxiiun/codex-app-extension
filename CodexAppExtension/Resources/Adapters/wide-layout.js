@@ -49,12 +49,15 @@
   let geometryMutationObserver = null;
   let observedGeometryNodes = [];
   let observedWidthOwners = [];
+  let observedPendingWidthOwnerNodes = [];
   let observedRailShells = [];
   let observedNativeShiftNodes = [];
   let observedMotionNodes = [];
   let ownerPropertySnapshots = new Map();
   let activeGeometryMotions = new Map();
   let geometryFrame = null;
+  let recoveryUpdateSequence = 0;
+  let ownerClassSyncPending = false;
   let windowResizeBound = false;
   let cachedOrdinaryIdentity = null;
   let lastPublicState = null;
@@ -77,8 +80,8 @@
     return true;
   }
 
-  function captureProperties(node) {
-    return Object.fromEntries(properties.map((name) => [name, {
+  function captureProperties(node, names = properties) {
+    return Object.fromEntries(names.map((name) => [name, {
       value: node.style.getPropertyValue(name),
       priority: node.style.getPropertyPriority(name)
     }]));
@@ -95,8 +98,7 @@
 
   function restoreProperties(node, snapshots) {
     let changed = false;
-    for (const name of properties) {
-      const snapshot = snapshots?.[name];
+    for (const [name, snapshot] of Object.entries(snapshots ?? {})) {
       if (snapshot?.value) {
         changed = writeProperty(node, name, snapshot.value, snapshot.priority) || changed;
       } else if (node.style.getPropertyValue(name) || node.style.getPropertyPriority(name)) {
@@ -108,23 +110,49 @@
   }
 
   function desiredStyleText() {
-    const scope = ".thread-scroll-container[data-cae-wide-layout='true']";
+    const scrollerScope = ".thread-scroll-container[data-cae-wide-layout='true']";
+    const emptyTaskScope = "[data-app-shell-main-content-layout][data-cae-wide-layout='true']";
+    const outsideTransientOverlay = ":not([role='menu'], [role='menu'] *, [role='listbox'], [role='listbox'] *, [role='dialog'], [role='dialog'] *)";
+    const markdownTable = `${scrollerScope} [data-selected-text-overlay-target] [data-markdown-table]${outsideTransientOverlay}`;
+    const markdownTableBody = `table${outsideTransientOverlay}`;
+    const activeEditor = ":is(.ProseMirror[data-codex-composer='true'][contenteditable='true'], .ProseMirror[data-codex-composer='true'][contenteditable='plaintext-only'])";
     const widthOwners = [canonicalWidthConsumer, composerWidthConsumer];
     const outsideOwnerAncestor = widthOwners
       .map((selector) => `:not(${selector} *)`)
       .join("");
     const outsideExcludedContent = `:not(${excludedContentScope})`;
-    const contentSelector = widthOwners.map((selector) =>
-      `${scope} ${selector}${outsideOwnerAncestor}${outsideExcludedContent}`
-    ).join(",\n");
-    return [
-      `${contentSelector} {`,
+    const rule = (scope, selector, widthProperty) => [
+      `${scope} ${selector}${outsideOwnerAncestor}${outsideExcludedContent} {`,
       "  box-sizing: border-box;",
-      "  inline-size: min(100%, var(--thread-content-max-width));",
-      "  max-inline-size: var(--thread-content-max-width) !important;",
-      "  max-width: var(--thread-content-max-width) !important;",
+      `  inline-size: min(100%, var(${widthProperty}));`,
+      `  max-inline-size: var(${widthProperty}) !important;`,
+      `  max-width: var(${widthProperty}) !important;`,
       `  translate: var(${ownerOffsetProperty}, var(--cae-wide-layout-content-offset-x)) 0 !important;`,
       "}"
+    ].join("\n");
+    const tableContainment = [
+      `${markdownTable} {`,
+      "  box-sizing: border-box;",
+      "  inline-size: 100% !important;",
+      "  width: 100% !important;",
+      "  max-inline-size: 100% !important;",
+      "  max-width: 100% !important;",
+      "  margin-inline: 0 !important;",
+      "}",
+      `${markdownTable} > ${outsideTransientOverlay}:has(${markdownTableBody}) {`,
+      "  box-sizing: border-box;",
+      "  min-inline-size: 0;",
+      "  max-inline-size: 100%;",
+      "  overflow-x: auto !important;",
+      "  overflow-y: hidden;",
+      "  overscroll-behavior-inline: contain;",
+      "}"
+    ].join("\n");
+    return [
+      rule(scrollerScope, canonicalWidthConsumer, "--thread-content-max-width"),
+      rule(scrollerScope, composerWidthConsumer, "--thread-composer-max-width"),
+      rule(emptyTaskScope, `${composerWidthConsumer}:has(${activeEditor})`, "--thread-composer-max-width"),
+      tableContainment
     ].join("\n");
   }
 
@@ -174,25 +202,33 @@
 
   function panelBodyCandidates(element) {
     const descendants = Array.from(element.querySelectorAll?.("*") ?? []);
-    const candidates = element.getAttribute?.("data-codex-app-extension-native-floating-panel") === "true"
-      ? [element, ...descendants]
-      : descendants;
-    return candidates.filter((candidate) => !isWithinTransientRailSubtree(candidate, element));
+    return descendants.filter((candidate) => !isWithinTransientRailSubtree(candidate, element));
   }
 
-  function renderedPanelBodyIntersectsRail(paintedBodies, railRect, referenceRect) {
-    return paintedBodies.some((descendant) => {
-      const rect = elementRect(descendant);
-      if (!rect || rect.width < 80 || rect.height < 80) return false;
-      const style = typeof getComputedStyle === "function" ? getComputedStyle(descendant) : null;
+  function hasVisibleRenderChain(component, railShell) {
+    for (let current = component; current && current !== railShell; current = current.parentElement) {
+      const style = typeof getComputedStyle === "function" ? getComputedStyle(current) : null;
       if (style?.display === "none" || style?.visibility === "hidden" || Number(style?.opacity ?? 1) <= 0) {
         return false;
       }
+      if (!current.parentElement) return false;
+    }
+    return component !== railShell && railShell?.contains?.(component) === true;
+  }
+
+  function renderedPanelBodyIntersectsRail(renderedComponents, railShell, railRect, referenceRect) {
+    return renderedComponents.some((component) => {
+      const rect = elementRect(component);
+      // A native rail can legitimately render a compact empty-state card. Its
+      // occupied width is the useful signal; requiring a tall body couples the
+      // layout to whichever information rows happen to be present.
+      if (!rect || rect.width < 80 || rect.height < 24) return false;
+      if (!hasVisibleRenderChain(component, railShell)) return false;
       const horizontalOverlap = Math.min(rect.right, railRect.right, referenceRect.right) -
         Math.max(rect.left, railRect.left, referenceRect.left);
       const verticalOverlap = Math.min(rect.bottom, railRect.bottom, referenceRect.bottom) -
         Math.max(rect.top, railRect.top, referenceRect.top);
-      if (horizontalOverlap < Math.min(80, rect.width / 2) || verticalOverlap < Math.min(80, rect.height / 2)) {
+      if (horizontalOverlap < Math.min(80, rect.width / 2) || verticalOverlap < Math.min(24, rect.height / 2)) {
         return false;
       }
       return true;
@@ -221,7 +257,7 @@
       const bodies = panelBodyCandidates(element);
       return {
         element,
-        paintedBodies: bodies.filter(hasPaintedPanelAppearance)
+        renderedComponents: bodies.filter(hasPaintedPanelAppearance)
       };
     });
   }
@@ -259,6 +295,69 @@
       }
       return true;
     });
+  }
+
+  function wideSurfaceState(surface) {
+    if (surface?.qualified) {
+      const owners = enhancedWidthOwners(surface.threadScroller);
+      return {
+        scope: surface.threadScroller,
+        owners,
+        emptyTask: false,
+        // Codex keeps the thread scroller mounted while a new-task surface is
+        // replacing its width owners.  The scroller is already a safe, unique
+        // variable scope, so prime it immediately and let the observer attach
+        // owner offsets when those descendants arrive.
+        qualified: owners.length > 0,
+        recoverable: owners.length === 0,
+        reason: owners.length > 0 ? null : "wide-content-candidate-pending"
+      };
+    }
+
+    if (surface?.layoutRootCount === 0) {
+      return { scope: null, owners: [], emptyTask: false, qualified: false, recoverable: true, reason: "native-surface-missing" };
+    }
+    if (surface?.layoutRootCount !== 1 || surface?.threadScrollerCount !== 0) {
+      return { scope: null, owners: [], emptyTask: false, qualified: false, recoverable: false, reason: "native-surface-not-unique" };
+    }
+    if (surface.editorCount === 0) {
+      return { scope: null, owners: [], emptyTask: true, qualified: false, recoverable: true, reason: "native-editor-missing" };
+    }
+    if (surface.editorCount !== 1 || !surface.editor) {
+      return { scope: null, owners: [], emptyTask: true, qualified: false, recoverable: false, reason: "native-editor-ambiguous" };
+    }
+
+    const pathOwners = [];
+    const visited = new Set();
+    let reachedLayout = false;
+    for (let current = surface.editor.parentElement; current; current = current.parentElement) {
+      if (visited.has(current) || visited.size >= 64) {
+        return { scope: null, owners: [], emptyTask: true, qualified: false, recoverable: false, reason: "composer-owner-path-ambiguous" };
+      }
+      visited.add(current);
+      if (current === surface.layoutRoot) {
+        reachedLayout = true;
+        break;
+      }
+      if ((current.getAttribute?.("class") ?? "").includes("thread-composer-max-width")) {
+        pathOwners.push(current);
+      }
+    }
+    if (!reachedLayout) {
+      return { scope: null, owners: [], emptyTask: true, qualified: false, recoverable: false, reason: "composer-owner-path-ambiguous" };
+    }
+    const owner = pathOwners[pathOwners.length - 1] ?? null;
+    if (!owner || isExcludedWidthOwner(owner, surface.layoutRoot)) {
+      return { scope: surface.layoutRoot, owners: [], emptyTask: true, qualified: false, recoverable: true, reason: "wide-composer-owner-missing" };
+    }
+    return {
+      scope: surface.layoutRoot,
+      owners: [owner],
+      emptyTask: true,
+      qualified: true,
+      recoverable: false,
+      reason: null
+    };
   }
 
   function canonicalContentOwner(scroller, owners = enhancedWidthOwners(scroller)) {
@@ -315,17 +414,18 @@
     const minimumHeight = Math.min(160, Math.max(96, (window.innerHeight || 0) * 0.10));
     const candidates = railRecords
       .map((record) => ({ ...record, rect: elementRect(record.element) }))
-      .filter(({ element, paintedBodies, rect }) => {
+      .filter(({ element, renderedComponents, rect }) => {
         if (!rect || rect.width < 80 || rect.height < minimumHeight) return false;
         const style = typeof getComputedStyle === "function" ? getComputedStyle(element) : null;
-        return renderedPanelBodyIntersectsRail(paintedBodies, rect, referenceRect) &&
+        return renderedPanelBodyIntersectsRail(renderedComponents, element, rect, referenceRect) &&
           rect.left > referenceRect.left + 120 &&
           rect.left < referenceRect.right - 40 &&
           (rect.right >= referenceRect.right - 80 || rect.right >= viewportRight - 80) &&
           rect.bottom > referenceRect.top + 80 &&
           rect.top < referenceRect.bottom - 80 &&
           style?.display !== "none" &&
-          style?.visibility !== "hidden";
+          style?.visibility !== "hidden" &&
+          Number(style?.opacity ?? 1) > 0;
       })
       .sort((left, right) => left.rect.left - right.rect.left);
     return candidates[0] ?? null;
@@ -373,15 +473,16 @@
     });
   }
 
-  function ordinaryIdentity(currentSurface, owners, railCandidates) {
+  function ordinaryIdentity(currentSurface, scope, owners, railCandidates) {
     const ownerHosts = uniqueNodes(owners.flatMap((owner) =>
-      nativeShiftNodes(currentSurface.threadScroller, owner)));
+      nativeShiftNodes(scope, owner)));
     const railHosts = uniqueNodes(railCandidates.flatMap((rail) =>
       [rail, ...ancestorPath(rail, currentSurface.layoutRoot)]));
     return {
       surfaceRevision: currentSurface.revision,
       layoutRoot: currentSurface.layoutRoot,
       threadScroller: currentSurface.threadScroller,
+      scope,
       owners,
       railCandidates,
       ownerHosts,
@@ -394,6 +495,7 @@
       left.surfaceRevision === right.surfaceRevision &&
       left.layoutRoot === right.layoutRoot &&
       left.threadScroller === right.threadScroller &&
+      left.scope === right.scope &&
       sameNodes(left.owners, right.owners) &&
       sameNodes(left.railCandidates, right.railCandidates) &&
       sameNodes(left.ownerHosts, right.ownerHosts) &&
@@ -404,12 +506,13 @@
     if (!target || !lastPublicState || target.getAttribute(marker) !== "true") return false;
     const style = document.getElementById(styleId);
     if (!styleSnapshot || style !== styleSnapshot.node || style.textContent !== desiredStyleText()) return false;
-    const propertiesMatch =
-      target.style.getPropertyValue("--thread-content-max-width") === lastPublicState.effectiveWidth &&
-      target.style.getPropertyValue("--thread-composer-max-width") === lastPublicState.effectiveWidth &&
-      target.style.getPropertyValue("--markdown-wide-block-max-width") === lastPublicState.effectiveWidth &&
-      target.style.getPropertyValue("--cae-wide-layout-side-padding") === lastPublicState.sidePadding &&
-      target.style.getPropertyValue("--cae-wide-layout-content-offset-x") === lastPublicState.contentOffset;
+    const propertiesMatch = lastPublicState.emptyTask
+      ? target.style.getPropertyValue("--thread-composer-max-width") === lastPublicState.effectiveWidth
+      : target.style.getPropertyValue("--thread-content-max-width") === lastPublicState.effectiveWidth &&
+        target.style.getPropertyValue("--thread-composer-max-width") === lastPublicState.effectiveWidth &&
+        target.style.getPropertyValue("--markdown-wide-block-max-width") === lastPublicState.effectiveWidth &&
+        target.style.getPropertyValue("--cae-wide-layout-side-padding") === lastPublicState.sidePadding &&
+        target.style.getPropertyValue("--cae-wide-layout-content-offset-x") === lastPublicState.contentOffset;
     const ownerPropertiesMatch = lastOwnerOffsets.every(({ owner, residualOffset }) =>
       owner.style.getPropertyValue(ownerOffsetProperty) === (residualOffset === 0 ? "0px" : `${residualOffset}px`));
     return propertiesMatch && ownerPropertiesMatch;
@@ -421,12 +524,26 @@
     lastOwnerOffsets = [];
   }
 
-  function geometryObservationState(currentSurface, owners, railRecords) {
-    if (!currentSurface?.qualified) return { nodes: [], widthOwners: [], railShells: [], nativeShiftNodes: [], motionNodes: [] };
+  function pendingWidthOwnerNodes(currentSurface, scope, owners) {
+    if (owners.length > 0 || scope !== currentSurface?.threadScroller || !currentSurface?.editor) return [];
+    const nodes = [];
+    const visited = new Set();
+    for (let current = currentSurface.editor.parentElement; current; current = current.parentElement) {
+      if (current === scope) return nodes;
+      if (visited.has(current) || visited.size >= 64) return [];
+      visited.add(current);
+      nodes.push(current);
+    }
+    return [];
+  }
+
+  function geometryObservationState(currentSurface, scope, owners, railRecords) {
+    if (!scope) return { nodes: [], widthOwners: [], pendingWidthOwnerNodes: [], railShells: [], nativeShiftNodes: [], motionNodes: [] };
     const railShells = railRecords.map((record) => record.element);
+    const pendingOwners = pendingWidthOwnerNodes(currentSurface, scope, owners);
     const currentNativeShiftNodes = [];
     for (const owner of owners) {
-      for (const node of nativeShiftNodes(currentSurface.threadScroller, owner)) {
+      for (const node of nativeShiftNodes(scope, owner)) {
         if (!currentNativeShiftNodes.includes(node)) currentNativeShiftNodes.push(node);
       }
     }
@@ -436,12 +553,13 @@
       if (node && !nodes.includes(node)) nodes.push(node);
     };
     addNode(currentSurface.layoutRoot);
-    addNode(currentSurface.threadScroller);
+    addNode(scope);
+    if (scope !== currentSurface.threadScroller) addNode(currentSurface.editor);
     owners.forEach(addNode);
-    for (const { element: railShell, paintedBodies } of railRecords) {
+    for (const { element: railShell, renderedComponents } of railRecords) {
       addNode(railShell);
       motionNodes.push(railShell);
-      for (const panelBody of paintedBodies) {
+      for (const panelBody of renderedComponents) {
         addNode(panelBody);
         if (!motionNodes.includes(panelBody)) motionNodes.push(panelBody);
       }
@@ -449,16 +567,66 @@
     for (const node of currentNativeShiftNodes) {
       if (!motionNodes.includes(node)) motionNodes.push(node);
     }
-    return { nodes, widthOwners: owners.slice(), railShells, nativeShiftNodes: currentNativeShiftNodes, motionNodes };
+    return {
+      nodes,
+      widthOwners: owners.slice(),
+      pendingWidthOwnerNodes: pendingOwners,
+      railShells,
+      nativeShiftNodes: currentNativeShiftNodes,
+      motionNodes
+    };
   }
 
   function scheduleGeometryReconcile() {
     if (!activeConfig || geometryFrame !== null) return;
     geometryFrame = requestAnimationFrame(() => {
       geometryFrame = null;
-      reconcile("geometry-resize", runtime.surface());
+      const currentSurface = runtime.surface();
+      const wideSurface = wideSurfaceState(currentSurface);
+      const classSync = ownerClassSyncPending;
+      ownerClassSyncPending = false;
+      const ownerIdentityChanged = classSync && !sameNodes(wideSurface.owners, observedWidthOwners);
+      const observerHealth = typeof runtime.performanceSnapshot === "function"
+        ? runtime.performanceSnapshot().observers.find((item) => item.adapterId === adapterId)
+        : null;
+      const qualificationChanged = Boolean(observerHealth) &&
+        (observerHealth.qualified !== wideSurface.qualified ||
+         observerHealth.recoverable !== wideSurface.recoverable);
+      let synchronized = false;
+      if ((qualificationChanged || ownerIdentityChanged) && typeof runtime.update === "function") {
+        const preservedConfig = activeConfig;
+        const sequence = recoveryUpdateSequence++;
+        try {
+          const response = runtime.update({
+            runtimeVersion: runtime.runtimeVersion,
+            requestId: 2_100_000_000 + sequence,
+            adapterId,
+            operation: "update",
+            // 同一 surface revision 下 healthy -> waiting 会被 runtime 的幂等
+            // 快路径跳过；内部 nonce 只用于这次资格同步，不参与布局计算。
+            config: { ...preservedConfig, __caeQualificationSync: sequence }
+          });
+          synchronized = !response?.error;
+        } catch (_) {
+          synchronized = false;
+        } finally {
+          activeConfig = preservedConfig;
+        }
+      }
+      if (!synchronized) {
+        reconcile("geometry-resize", currentSurface);
+      }
       if (activeGeometryMotions.size > 0) scheduleGeometryReconcile();
     });
+  }
+
+  function handleGeometryMutations(records) {
+    if (records.some((record) => record?.type === "attributes" &&
+        record.attributeName === "class" &&
+        (observedWidthOwners.includes(record.target) || observedPendingWidthOwnerNodes.includes(record.target)))) {
+      ownerClassSyncPending = true;
+    }
+    scheduleGeometryReconcile();
   }
 
   function geometryMotionKey(event) {
@@ -501,19 +669,21 @@
       node.addEventListener?.(type, handleGeometryMotion)));
   }
 
-  function bindGeometryObservers(currentSurface, owners, railRecords) {
+  function bindGeometryObservers(currentSurface, scope, owners, railRecords) {
     if (!windowResizeBound && typeof window.addEventListener === "function") {
       window.addEventListener("resize", scheduleGeometryReconcile);
       windowResizeBound = true;
     }
-    const observationState = geometryObservationState(currentSurface, owners, railRecords);
+    const observationState = geometryObservationState(currentSurface, scope, owners, railRecords);
     if (sameNodes(observationState.nodes, observedGeometryNodes) &&
         sameNodes(observationState.widthOwners, observedWidthOwners) &&
+        sameNodes(observationState.pendingWidthOwnerNodes, observedPendingWidthOwnerNodes) &&
         sameNodes(observationState.railShells, observedRailShells) &&
         sameNodes(observationState.nativeShiftNodes, observedNativeShiftNodes) &&
         sameNodes(observationState.motionNodes, observedMotionNodes)) return;
     observedGeometryNodes = observationState.nodes;
     observedWidthOwners = observationState.widthOwners;
+    observedPendingWidthOwnerNodes = observationState.pendingWidthOwnerNodes;
     observedRailShells = observationState.railShells;
     observedNativeShiftNodes = observationState.nativeShiftNodes;
     rebindMotionListeners(observationState.motionNodes);
@@ -524,11 +694,18 @@
     }
     geometryMutationObserver?.disconnect();
     if (typeof window.MutationObserver === "function" &&
-        (observedWidthOwners.length > 0 || observedRailShells.length > 0 || observedNativeShiftNodes.length > 0)) {
-      geometryMutationObserver ??= new window.MutationObserver(scheduleGeometryReconcile);
+        (observedWidthOwners.length > 0 || observedPendingWidthOwnerNodes.length > 0 ||
+         observedRailShells.length > 0 || observedNativeShiftNodes.length > 0)) {
+      geometryMutationObserver ??= new window.MutationObserver(handleGeometryMutations);
       observedWidthOwners.forEach((owner) => geometryMutationObserver.observe(owner, {
         attributes: true,
         attributeFilter: ["class", "style", "hidden", "aria-hidden", "data-state"]
+      }));
+      // 新任务页会复用已挂载的祖先节点，再原地补上 width-owner class。
+      // 等待态只观察唯一 editor 到 scroller 的有限祖先链，避免全子树属性噪声。
+      observedPendingWidthOwnerNodes.forEach((node) => geometryMutationObserver.observe(node, {
+        attributes: true,
+        attributeFilter: ["class"]
       }));
       observedRailShells.forEach((railShell) => geometryMutationObserver.observe(railShell, {
         attributes: true,
@@ -550,6 +727,8 @@
     geometryMutationObserver = null;
     observedGeometryNodes = [];
     observedWidthOwners = [];
+    observedPendingWidthOwnerNodes = [];
+    ownerClassSyncPending = false;
     observedRailShells = [];
     observedNativeShiftNodes = [];
     rebindMotionListeners([]);
@@ -576,7 +755,7 @@
         availableWidth: null,
         rightBoundary: null,
         rightRail: false,
-        ownerOffsets: []
+        ownerOffsets: owners.map((owner) => ({ owner, nativeOffset: 0, residualOffset: 0 }))
       };
     }
 
@@ -688,67 +867,73 @@
 
   function probe() {
     const surface = runtime.surface();
-    const contentCandidateCount = surface.qualified ? enhancedWidthOwners(surface.threadScroller).length : 0;
-    const qualified = Boolean(surface.qualified && contentCandidateCount > 0);
-    const recoverable = surface.layoutRootCount === 0 ||
-      (surface.layoutRootCount === 1 && surface.threadScrollerCount === 0);
+    const wideSurface = wideSurfaceState(surface);
     return {
-      qualified,
-      recoverable: !qualified && (recoverable || (surface.qualified && contentCandidateCount === 0)),
-      reason: qualified ? null : surface.qualified ? "wide-content-candidate-missing" : "native-surface-not-unique"
+      qualified: wideSurface.qualified,
+      recoverable: wideSurface.recoverable,
+      reason: wideSurface.reason
     };
   }
 
   function reconcile(reason, observedSurface) {
     const currentSurface = observedSurface ?? runtime.surface();
-    const owners = currentSurface.qualified ? enhancedWidthOwners(currentSurface.threadScroller) : [];
+    const wideSurface = wideSurfaceState(currentSurface);
+    const scope = wideSurface.scope;
+    const owners = wideSurface.owners;
     const railCandidates = persistentRailCandidates();
-    const identity = ordinaryIdentity(currentSurface, owners, railCandidates);
+    const identity = ordinaryIdentity(currentSurface, scope, owners, railCandidates);
     const ordinaryRefresh = reason === "animation-frame" || reason === "settled";
-    if (ordinaryRefresh && activeConfig && currentSurface.qualified && owners.length > 0 &&
-        target === currentSurface.threadScroller && sameOrdinaryIdentity(identity, cachedOrdinaryIdentity) &&
+    if (ordinaryRefresh && activeConfig && wideSurface.qualified &&
+        target === scope && sameOrdinaryIdentity(identity, cachedOrdinaryIdentity) &&
         appliedStateMatches()) {
       return { changed: false, qualified: true, recoverable: false, ...lastPublicState };
     }
     const railRecords = persistentRailRecords(railCandidates);
-    bindGeometryObservers(currentSurface, owners, railRecords);
+    bindGeometryObservers(currentSurface, scope, owners, railRecords);
     const contentCandidateCount = owners.length;
-    if (!activeConfig || !currentSurface.qualified || contentCandidateCount === 0) {
+    if (!activeConfig || !scope) {
       clearOrdinaryCache();
       let changed = restoreTarget();
       changed = restoreStyle() || changed;
-      const recoverable = currentSurface.layoutRootCount === 0 ||
-        (currentSurface.layoutRootCount === 1 && currentSurface.threadScrollerCount === 0) ||
-        (currentSurface.qualified && contentCandidateCount === 0);
       return {
         changed,
         qualified: false,
-        recoverable,
-        reason: currentSurface.qualified ? "wide-content-candidate-missing" : "native-surface-not-unique"
+        recoverable: wideSurface.recoverable,
+        reason: wideSurface.reason
       };
     }
-    const scroller = currentSurface.threadScroller;
     let changed = false;
-    if (target && target !== scroller) changed = restoreTarget();
+    if (target && target !== scope) changed = restoreTarget();
     if (!target) {
-      target = scroller;
+      target = scope;
       attributeSnapshot = captureAttribute(target, marker);
-      propertySnapshots = captureProperties(target);
+      propertySnapshots = captureProperties(target, wideSurface.emptyTask
+        ? ["--thread-composer-max-width"]
+        : properties);
     }
     changed = ensureStyle() || changed;
     changed = writeAttribute(target, marker, "true") || changed;
     const state = layoutState(target, owners, railRecords);
     changed = applyOwnerOffsets(state.ownerOffsets) || changed;
-    changed = writeProperty(target, "--thread-content-max-width", state.effectiveWidth) || changed;
     changed = writeProperty(target, "--thread-composer-max-width", state.effectiveWidth) || changed;
-    changed = writeProperty(target, "--markdown-wide-block-max-width", state.effectiveWidth) || changed;
-    changed = writeProperty(target, "--cae-wide-layout-side-padding", state.sidePadding) || changed;
-    changed = writeProperty(target, "--cae-wide-layout-content-offset-x", state.contentOffset) || changed;
+    if (!wideSurface.emptyTask) {
+      changed = writeProperty(target, "--thread-content-max-width", state.effectiveWidth) || changed;
+      changed = writeProperty(target, "--markdown-wide-block-max-width", state.effectiveWidth) || changed;
+      changed = writeProperty(target, "--cae-wide-layout-side-padding", state.sidePadding) || changed;
+      changed = writeProperty(target, "--cae-wide-layout-content-offset-x", state.contentOffset) || changed;
+    }
     const { ownerOffsets: _ownerOffsets, ...publicState } = state;
+    publicState.emptyTask = wideSurface.emptyTask;
     cachedOrdinaryIdentity = identity;
     lastPublicState = publicState;
     lastOwnerOffsets = state.ownerOffsets.slice();
-    return { changed, qualified: true, recoverable: false, ...publicState };
+    return {
+      changed,
+      qualified: wideSurface.qualified,
+      recoverable: wideSurface.recoverable,
+      reason: wideSurface.reason,
+      ...publicState
+    };
   }
 
   function apply(config) {
@@ -762,25 +947,27 @@
     const qualification = probe();
     if (!qualification.qualified) return qualification;
     const surface = runtime.surface();
+    const wideSurface = wideSurfaceState(surface);
     if (!activeConfig || !target) return { qualified: false, reason: "adapter-not-installed" };
     if (!unsubscribe) return { qualified: false, reason: "adapter-observer-missing" };
-    if (target !== surface.threadScroller) return { qualified: false, reason: "adapter-target-stale" };
+    if (target !== wideSurface.scope) return { qualified: false, reason: "adapter-target-stale" };
     if (target.getAttribute(marker) !== "true") return { qualified: false, reason: "adapter-marker-missing" };
     const style = document.getElementById(styleId);
     if (!styleSnapshot || style !== styleSnapshot.node || !style.textContent.includes(marker)) {
       return { qualified: false, reason: "adapter-style-missing" };
     }
-    const owners = enhancedWidthOwners(target);
+    const owners = wideSurface.owners;
     const railRecords = persistentRailRecords(persistentRailCandidates());
     const state = layoutState(target, owners, railRecords);
     const ownerPropertiesMatch = state.ownerOffsets.every(({ owner, residualOffset }) =>
       owner.style.getPropertyValue(ownerOffsetProperty) === (residualOffset === 0 ? "0px" : `${residualOffset}px`));
-    const propertiesMatch =
-      target.style.getPropertyValue("--thread-content-max-width") === state.effectiveWidth &&
-      target.style.getPropertyValue("--thread-composer-max-width") === state.effectiveWidth &&
-      target.style.getPropertyValue("--markdown-wide-block-max-width") === state.effectiveWidth &&
-      target.style.getPropertyValue("--cae-wide-layout-side-padding") === state.sidePadding &&
-      target.style.getPropertyValue("--cae-wide-layout-content-offset-x") === state.contentOffset &&
+    const propertiesMatch = (wideSurface.emptyTask
+      ? target.style.getPropertyValue("--thread-composer-max-width") === state.effectiveWidth
+      : target.style.getPropertyValue("--thread-content-max-width") === state.effectiveWidth &&
+        target.style.getPropertyValue("--thread-composer-max-width") === state.effectiveWidth &&
+        target.style.getPropertyValue("--markdown-wide-block-max-width") === state.effectiveWidth &&
+        target.style.getPropertyValue("--cae-wide-layout-side-padding") === state.sidePadding &&
+        target.style.getPropertyValue("--cae-wide-layout-content-offset-x") === state.contentOffset) &&
       ownerPropertiesMatch;
     return propertiesMatch
       ? { qualified: true }
