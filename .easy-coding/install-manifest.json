@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "harness_version": "0.9.1",
-  "generated_at": "2026-08-05T06:21:42.959Z",
+  "harness_version": "0.10.0-beta.0",
+  "generated_at": "2026-08-06T06:44:07.530Z",
   "agents": [
     "claude-code",
     "codex",
@@ -12,7 +12,7 @@
       "path": ".agents/skills/ec-analysis/SKILL.md",
       "kind": "skill",
       "platform": "codex",
-      "sha256": "af56960672b694d6bbaad76373c5f93f2ceb14f10c2773be1cd334013d7c2335"
+      "sha256": "a8aa27c639f41648ff6e36dd57e63191464c1de1dba0855b1599f8cbff28b97a"
     },
     {
       "path": ".agents/skills/ec-brainstorming/SKILL.md",
@@ -24,13 +24,13 @@
       "path": ".agents/skills/ec-git/SKILL.md",
       "kind": "skill",
       "platform": "codex",
-      "sha256": "43dd2df048fc5ad65da43243e0d6843e26d0c436e87f3a65c070d148b4f134fd"
+      "sha256": "4cb35fadf9b9628c7ab96e327925b1bd083ee4e154c3239602cad349b389bbae"
     },
     {
       "path": ".agents/skills/ec-implementing/SKILL.md",
       "kind": "skill",
       "platform": "codex",
-      "sha256": "a40f6e2133d3d7e3e082d1d2987308cfad369dcd222f8500e55ac1c6ea53629b"
+      "sha256": "70ffb30788bd0fb872088292a320c8c156e290afd3d1cb486344c2b7fb74316f"
     },
     {
       "path": ".agents/skills/ec-init/references/memory-migration.md",
@@ -60,7 +60,7 @@
       "path": ".agents/skills/ec-meta/references/local-architecture/README.md",
       "kind": "skill",
       "platform": "codex",
-      "sha256": "6733c9cc3d635761aa6828b324141faa97f76e4d3e7968d387de622c4a3d8ba7"
+      "sha256": "bcce4816ce5a4102d50cadb1011cab9430d7d44700627e92dc495cc3813a99d7"
     },
     {
       "path": ".agents/skills/ec-meta/references/platform-files/README.md",
@@ -84,7 +84,7 @@
       "path": ".agents/skills/ec-reviewing/SKILL.md",
       "kind": "skill",
       "platform": "codex",
-      "sha256": "2e5f73e60fef56e4c984961787cf7fc1226e0114a9398d4d136b52608a13e758"
+      "sha256": "223ff9ce36a822204f9caada4ec175ac1d6e44500467b9b55da3a725db20c3ed"
     },
     {
       "path": ".agents/skills/ec-task-close/SKILL.md",
@@ -96,19 +96,19 @@
       "path": ".agents/skills/ec-task-management/SKILL.md",
       "kind": "skill",
       "platform": "codex",
-      "sha256": "c636904f1b21743754edeb2107d4675331694b3ca4b6a8f684279813f5ec0fd6"
+      "sha256": "40fb6b8a26c24070387ca5405276c7cb4c155319dbbdff956e58f04798cb37d6"
     },
     {
       "path": ".agents/skills/ec-verification/SKILL.md",
       "kind": "skill",
       "platform": "codex",
-      "sha256": "6da7f1ae3700d5a20b3f4fdefe007b45cba7bdc3c68427c1ccc78833666fd0f3"
+      "sha256": "fbf75164b3d8c2cdfe556d2622a3e4b368de58a5e5ddd6d3943094c23394f462"
     },
     {
       "path": ".agents/skills/ec-workflow/SKILL.md",
       "kind": "skill",
       "platform": "codex",
-      "sha256": "c3094479f47c4bc6f3c09b302ea99f5337fab602977c7bafdc8c3dc020944ad6"
+      "sha256": "73df7e4ef873002298091b852442799801a693f80636a4c6cf0887874e9b6fed"
     },
     {
       "path": ".claude/agents/ec-fixer.md",
@@ -138,13 +138,25 @@
       "path": ".claude/hooks/easy_coding_state.py",
       "kind": "hook",
       "platform": "claude-code",
-      "sha256": "eba9cca19bf48807852f58857e89eb7fd3e59f184c68c42cb7c29be5604ca902"
+      "sha256": "6f67a384bfa3707ec9f56aadf5449be6a73bb2bfdec802d3bcb786f4acba16c4"
     },
     {
       "path": ".claude/hooks/easy_coding_status.py",
       "kind": "hook",
       "platform": "claude-code",
       "sha256": "a92ad40888e46cab621ab703bc225e994a214a7d299f45ad57e25980cd5c7db4"
+    },
+    {
+      "path": ".claude/hooks/easy_dev_spec_protocol.py",
+      "kind": "hook",
+      "platform": "claude-code",
+      "sha256": "9c01b94771a5d8d760ede748cd98b1dabfa792c168a57d2eea71afc4bc00dfd1"
+    },
+    {
+      "path": ".claude/hooks/easy_dev_spec.py",
+      "kind": "hook",
+      "platform": "claude-code",
+      "sha256": "1eedd83410ba35b824702712c6b8beb689b7dba2d0e6837e8d8bcb374502f64b"
     },
     {
       "path": ".claude/hooks/inject-subagent-context.py",
@@ -168,7 +180,7 @@
       "path": ".claude/skills/ec-analysis/SKILL.md",
       "kind": "skill",
       "platform": "claude-code",
-      "sha256": "ecd683b792235bbb8e972cc176e2324303fc873c1375146c0ef3998dbe42cd33"
+      "sha256": "0b571b27cf7835cda019dc6bb51d2494c184837fa2af2d048186388671e98c3b"
     },
     {
       "path": ".claude/skills/ec-brainstorming/SKILL.md",
@@ -180,13 +192,13 @@
       "path": ".claude/skills/ec-git/SKILL.md",
       "kind": "skill",
       "platform": "claude-code",
-      "sha256": "43dd2df048fc5ad65da43243e0d6843e26d0c436e87f3a65c070d148b4f134fd"
+      "sha256": "4cb35fadf9b9628c7ab96e327925b1bd083ee4e154c3239602cad349b389bbae"
     },
     {
       "path": ".claude/skills/ec-implementing/SKILL.md",
       "kind": "skill",
       "platform": "claude-code",
-      "sha256": "8d473c7f9886427827d5525a136478f5b8b167b4343bd54e33b4691559ad57be"
+      "sha256": "bb36a380d5b2b279857be039778e78e6375e5b2ed158e26f23c430582fb7cace"
     },
     {
       "path": ".claude/skills/ec-init/references/memory-migration.md",
@@ -216,7 +228,7 @@
       "path": ".claude/skills/ec-meta/references/local-architecture/README.md",
       "kind": "skill",
       "platform": "claude-code",
-      "sha256": "6733c9cc3d635761aa6828b324141faa97f76e4d3e7968d387de622c4a3d8ba7"
+      "sha256": "bcce4816ce5a4102d50cadb1011cab9430d7d44700627e92dc495cc3813a99d7"
     },
     {
       "path": ".claude/skills/ec-meta/references/platform-files/README.md",
@@ -240,7 +252,7 @@
       "path": ".claude/skills/ec-reviewing/SKILL.md",
       "kind": "skill",
       "platform": "claude-code",
-      "sha256": "199f031efc130f00c0333ea72ee7d43e3e588d5160f4692ffdef3da06c61a4c4"
+      "sha256": "7a7eb85045ed2264a85eabba0c6543dd367cff7c653fe5f2e056179ff1c9b3e0"
     },
     {
       "path": ".claude/skills/ec-task-close/SKILL.md",
@@ -252,19 +264,19 @@
       "path": ".claude/skills/ec-task-management/SKILL.md",
       "kind": "skill",
       "platform": "claude-code",
-      "sha256": "7a85ba25412aa0a9cbd37c0e0759bca50d20b0a4b499b3ca1742a1d9f444ed27"
+      "sha256": "896103385323a824c7e664b645334ea4ac81e8f3143db562ebbe75a1c84e8f0e"
     },
     {
       "path": ".claude/skills/ec-verification/SKILL.md",
       "kind": "skill",
       "platform": "claude-code",
-      "sha256": "ad60d0f03f5f9d63ca5d1df65cec1a231666ca7d94f503ddf37d11dbd4603fa3"
+      "sha256": "4dc9cbbbae7a66d708d8f7139598eac7b7177b01de48fdf4e4413c855db60029"
     },
     {
       "path": ".claude/skills/ec-workflow/SKILL.md",
       "kind": "skill",
       "platform": "claude-code",
-      "sha256": "c656b28b4a48c36de150afc2c395704c61a6be4a7837e52c2519bb88c75f374d"
+      "sha256": "876593c2ccb4b937fc5ae39de509a59bcfec9520287f6fcb140c3812f00cc232"
     },
     {
       "path": ".codex/agents/ec-fixer.toml",
@@ -300,13 +312,25 @@
       "path": ".codex/hooks/easy_coding_state.py",
       "kind": "hook",
       "platform": "codex",
-      "sha256": "eba9cca19bf48807852f58857e89eb7fd3e59f184c68c42cb7c29be5604ca902"
+      "sha256": "6f67a384bfa3707ec9f56aadf5449be6a73bb2bfdec802d3bcb786f4acba16c4"
     },
     {
       "path": ".codex/hooks/easy_coding_status.py",
       "kind": "hook",
       "platform": "codex",
       "sha256": "a92ad40888e46cab621ab703bc225e994a214a7d299f45ad57e25980cd5c7db4"
+    },
+    {
+      "path": ".codex/hooks/easy_dev_spec_protocol.py",
+      "kind": "hook",
+      "platform": "codex",
+      "sha256": "9c01b94771a5d8d760ede748cd98b1dabfa792c168a57d2eea71afc4bc00dfd1"
+    },
+    {
+      "path": ".codex/hooks/easy_dev_spec.py",
+      "kind": "hook",
+      "platform": "codex",
+      "sha256": "1eedd83410ba35b824702712c6b8beb689b7dba2d0e6837e8d8bcb374502f64b"
     },
     {
       "path": ".codex/hooks/inject-workflow-state.py",
@@ -348,13 +372,25 @@
       "path": ".qoder/hooks/easy_coding_state.py",
       "kind": "hook",
       "platform": "qoder",
-      "sha256": "eba9cca19bf48807852f58857e89eb7fd3e59f184c68c42cb7c29be5604ca902"
+      "sha256": "6f67a384bfa3707ec9f56aadf5449be6a73bb2bfdec802d3bcb786f4acba16c4"
     },
     {
       "path": ".qoder/hooks/easy_coding_status.py",
       "kind": "hook",
       "platform": "qoder",
       "sha256": "a92ad40888e46cab621ab703bc225e994a214a7d299f45ad57e25980cd5c7db4"
+    },
+    {
+      "path": ".qoder/hooks/easy_dev_spec_protocol.py",
+      "kind": "hook",
+      "platform": "qoder",
+      "sha256": "9c01b94771a5d8d760ede748cd98b1dabfa792c168a57d2eea71afc4bc00dfd1"
+    },
+    {
+      "path": ".qoder/hooks/easy_dev_spec.py",
+      "kind": "hook",
+      "platform": "qoder",
+      "sha256": "1eedd83410ba35b824702712c6b8beb689b7dba2d0e6837e8d8bcb374502f64b"
     },
     {
       "path": ".qoder/hooks/inject-subagent-context.py",
