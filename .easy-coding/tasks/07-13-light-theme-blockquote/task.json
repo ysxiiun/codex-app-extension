@@ -22,14 +22,9 @@
       "entered_at": "2026-07-13T08:42:35.505283+00:00"
     },
     {
-      "stage": "REVIEW",
+      "stage": "QUALITY",
       "agent": "qoder",
       "entered_at": "2026-07-13T08:56:46.257494+00:00"
-    },
-    {
-      "stage": "VERIFICATION",
-      "agent": "qoder",
-      "entered_at": "2026-07-13T09:05:48.032817+00:00"
     },
     {
       "stage": "MEMORY",

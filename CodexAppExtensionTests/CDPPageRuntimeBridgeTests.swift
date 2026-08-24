@@ -1,10 +1,11 @@
 import Foundation
+import JavaScriptCore
 import XCTest
 @testable import ExtensionCore
 
 final class CDPPageRuntimeBridgeTests: XCTestCase {
     func testUndefinedSideEffectResultsContinueThroughHandshakeAndAdapterExecution() async throws {
-        XCTAssertEqual(CDPPageRuntimeBridge.implementationRevision, 11)
+        XCTAssertEqual(CDPPageRuntimeBridge.implementationRevision, 15)
         let cdp = BridgeCDPDouble(sideEffectsReturnUndefined: true)
         let bridge = CDPPageRuntimeBridge(
             client: cdp,
@@ -115,6 +116,11 @@ final class CDPPageRuntimeBridgeTests: XCTestCase {
         XCTAssertTrue(evaluations.allSatisfy { $0.session == "session-1" })
         let probeExpression = try XCTUnwrap(evaluations.first?.params?["expression"]?.stringValue)
         XCTAssertTrue(probeExpression.contains("querySelectorAll"))
+        XCTAssertTrue(probeExpression.contains("markedComposerSelector"))
+        XCTAssertTrue(probeExpression.contains("fallbackComposerSelector"))
+        XCTAssertTrue(probeExpression.contains("threadScroller === 0"))
+        XCTAssertTrue(probeExpression.contains("aria-hidden"))
+        XCTAssertTrue(probeExpression.contains("getComputedStyle"))
         XCTAssertFalse(probeExpression.contains("innerText"))
         XCTAssertFalse(probeExpression.contains("textContent"))
         XCTAssertFalse(probeExpression.contains("innerHTML"))
@@ -175,6 +181,61 @@ final class CDPPageRuntimeBridgeTests: XCTestCase {
 
         XCTAssertEqual(duplicateProbe.counts, [.layoutRoot: 1, .threadScroller: 0, .composer: 2])
         XCTAssertFalse(duplicateProbe.isCodexSurface)
+    }
+
+    func testProbeExpressionExecutesFallbackPriorityVisibilityAndContainmentRules() async throws {
+        let cdp = BridgeCDPDouble()
+        let bridge = CDPPageRuntimeBridge(
+            client: cdp,
+            healthCenter: HealthCenter(),
+            bundle: Bundle(for: Self.self)
+        )
+        _ = try await bridge.probe(
+            target: .init(identifier: "target-probe-expression", url: TargetCoordinator.codexSurfaceURL),
+            requiredAnchors: TargetCoordinator.requiredAnchors
+        )
+        let expressions = await cdp.evaluateExpressions()
+        let expression = try XCTUnwrap(expressions.first)
+        let context = try XCTUnwrap(JSContext())
+        context.exceptionHandler = { _, exception in
+            XCTFail("probe expression JavaScript exception: \(exception?.toString() ?? "unknown")")
+        }
+        context.evaluateScript(Self.probeExpressionDOM)
+
+        func counts(_ setup: String) throws -> [String: Int] {
+            context.evaluateScript(setup)
+            let object = try XCTUnwrap(context.evaluateScript(expression)?.toDictionary() as? [String: Any])
+            return [
+                "layoutRoot": try XCTUnwrap(object["layoutRoot"] as? Int),
+                "threadScroller": try XCTUnwrap(object["threadScroller"] as? Int),
+                "composer": try XCTUnwrap(object["composer"] as? Int)
+            ]
+        }
+
+        XCTAssertEqual(
+            try counts("__setProbeNodes([], [__visibleFallback]);"),
+            ["layoutRoot": 1, "threadScroller": 0, "composer": 1]
+        )
+        XCTAssertEqual(
+            try counts("__setProbeNodes([], [__hiddenFallback]);"),
+            ["layoutRoot": 1, "threadScroller": 0, "composer": 0]
+        )
+        XCTAssertEqual(
+            try counts("__setProbeNodes([], [__outsideFallback]);"),
+            ["layoutRoot": 1, "threadScroller": 0, "composer": 0]
+        )
+        XCTAssertEqual(
+            try counts("__setProbeNodes([], [__visibleFallback, __secondVisibleFallback]);"),
+            ["layoutRoot": 1, "threadScroller": 0, "composer": 2]
+        )
+        XCTAssertEqual(
+            try counts("__setProbeNodes([__visibleMarked], [__visibleMarked, __visibleFallback, __secondVisibleFallback]);"),
+            ["layoutRoot": 1, "threadScroller": 0, "composer": 1]
+        )
+        XCTAssertEqual(
+            try counts("__setProbeNodes([__hiddenMarked], [__hiddenMarked, __visibleFallback]);"),
+            ["layoutRoot": 1, "threadScroller": 0, "composer": 1]
+        )
     }
 
     func testMissingAdapterSourceDegradesOnlyThatAdapterSkipsExecuteAndUpdateStillThrows() async throws {
@@ -673,6 +734,82 @@ final class CDPPageRuntimeBridgeTests: XCTestCase {
         XCTAssertTrue(targets.isEmpty)
     }
 
+    func testPollPerformanceDistinguishesMissingRuntimeFromMalformedSnapshot() async throws {
+        let target = CDPTarget(identifier: "target-performance-envelope", url: TargetCoordinator.codexSurfaceURL)
+        let missingBridge = CDPPageRuntimeBridge(
+            client: BridgeCDPDouble(performanceRuntimeMissing: true),
+            healthCenter: HealthCenter(),
+            bundle: Bundle(for: Self.self)
+        )
+        do {
+            _ = try await missingBridge.pollPerformance(target: target)
+            XCTFail("PageRuntime 缺失必须返回专用恢复信号")
+        } catch let error as PageRuntimeBridgeError {
+            XCTAssertEqual(error, .runtimeUnavailable(target.identifier))
+        }
+
+        let malformedBridge = CDPPageRuntimeBridge(
+            client: BridgeCDPDouble(malformedPerformanceSnapshot: true),
+            healthCenter: HealthCenter(),
+            bundle: Bundle(for: Self.self)
+        )
+        do {
+            _ = try await malformedBridge.pollPerformance(target: target)
+            XCTFail("已存在 runtime 的畸形 snapshot 不得伪装成可恢复缺失")
+        } catch let error as PageRuntimeBridgeError {
+            XCTAssertEqual(error, .invalidResponse("performance-snapshot"))
+        }
+    }
+
+    private static let probeExpressionDOM = #"""
+    var window = this;
+    (function installProbeDOM() {
+      function node(name, parent, attributes, style) {
+        return {
+          name: name,
+          parentElement: parent || null,
+          hidden: false,
+          attributes: attributes || {},
+          style: Object.assign({ display: 'block', visibility: 'visible', opacity: '1' }, style || {}),
+          getAttribute: function(key) {
+            return Object.prototype.hasOwnProperty.call(this.attributes, key) ? this.attributes[key] : null;
+          },
+          contains: function(candidate) {
+            for (let current = candidate; current; current = current.parentElement) {
+              if (current === this) return true;
+            }
+            return false;
+          }
+        };
+      }
+      window.__probeLayout = node('layout', null);
+      window.__probeOwner = node('owner', window.__probeLayout);
+      window.__hiddenOwner = node('hidden-owner', window.__probeLayout, { 'aria-hidden': 'true' });
+      window.__visibleFallback = node('visible-fallback', window.__probeOwner);
+      window.__secondVisibleFallback = node('second-visible-fallback', window.__probeOwner);
+      window.__hiddenFallback = node('hidden-fallback', window.__hiddenOwner);
+      window.__outsideFallback = node('outside-fallback', null);
+      window.__visibleMarked = node('visible-marked', window.__probeOwner);
+      window.__hiddenMarked = node('hidden-marked', window.__hiddenOwner);
+      window.__probeMarked = [];
+      window.__probeFallback = [];
+      window.__setProbeNodes = function(marked, fallback) {
+        window.__probeMarked = marked;
+        window.__probeFallback = fallback;
+      };
+      window.getComputedStyle = function(candidate) { return candidate.style; };
+      window.document = {
+        querySelectorAll: function(selector) {
+          if (selector === '[data-app-shell-main-content-layout]') return [window.__probeLayout];
+          if (selector === '.thread-scroll-container') return [];
+          if (selector.includes('data-codex-composer')) return window.__probeMarked;
+          if (selector.includes('.ProseMirror[contenteditable')) return window.__probeFallback;
+          return [];
+        }
+      };
+    })();
+    """#
+
     private static func registrationMarker(for adapter: String) -> String {
         switch adapter {
         case "wide-layout": return "registerWideLayout"
@@ -704,6 +841,8 @@ private actor BridgeCDPDouble: CDPCommanding {
     private let exceptionExpressionMarker: String?
     private let rehydrationRequired: Bool
     private let probeCounts: [CodexSurfaceAnchor: Int]
+    private let performanceRuntimeMissing: Bool
+    private let malformedPerformanceSnapshot: Bool
 
     init(
         failingAdapter: String? = nil,
@@ -717,6 +856,8 @@ private actor BridgeCDPDouble: CDPCommanding {
         missingProbeValue: Bool = false,
         exceptionExpressionMarker: String? = nil,
         rehydrationRequired: Bool = false,
+        performanceRuntimeMissing: Bool = false,
+        malformedPerformanceSnapshot: Bool = false,
         probeCounts: [CodexSurfaceAnchor: Int] = [.layoutRoot: 1, .threadScroller: 1, .composer: 1]
     ) {
         self.failingAdapter = failingAdapter
@@ -730,6 +871,8 @@ private actor BridgeCDPDouble: CDPCommanding {
         self.missingProbeValue = missingProbeValue
         self.exceptionExpressionMarker = exceptionExpressionMarker
         self.rehydrationRequired = rehydrationRequired
+        self.performanceRuntimeMissing = performanceRuntimeMissing
+        self.malformedPerformanceSnapshot = malformedPerformanceSnapshot
         self.probeCounts = probeCounts
     }
 
@@ -780,15 +923,27 @@ private actor BridgeCDPDouble: CDPCommanding {
                 "hydrated": .bool(true)
             ]))
         }
-        if expression.contains("window.__codexAppExtensionV2.performanceSnapshot().observers") {
-            return remoteValue(.array([
-                .object([
-                    "adapterId": .string("wide-layout"),
-                    "strikeCount": .number(0),
-                    "durationMilliseconds": .number(1),
-                    "degraded": .bool(false),
-                    "qualified": .bool(true)
+        if expression.contains("const runtime = window.__codexAppExtensionV2") {
+            if performanceRuntimeMissing {
+                return remoteValue(.object([
+                    "runtimeMissing": .bool(true),
+                    "observers": .null
+                ]))
+            }
+            let observers: JSONValue = malformedPerformanceSnapshot
+                ? .null
+                : .array([
+                    .object([
+                        "adapterId": .string("wide-layout"),
+                        "strikeCount": .number(0),
+                        "durationMilliseconds": .number(1),
+                        "degraded": .bool(false),
+                        "qualified": .bool(true)
+                    ])
                 ])
+            return remoteValue(.object([
+                "runtimeMissing": .bool(false),
+                "observers": observers
             ]))
         }
         if expression.contains(".execute("), let adapter = adapterIdentifier(in: expression) {

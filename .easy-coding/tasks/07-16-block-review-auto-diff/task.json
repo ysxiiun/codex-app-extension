@@ -22,7 +22,7 @@
       "entered_at": "2026-07-16T09:04:10.496908+00:00"
     },
     {
-      "stage": "REVIEW",
+      "stage": "QUALITY",
       "agent": "codex",
       "entered_at": "2026-07-16T09:19:54.651952+00:00"
     },

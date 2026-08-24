@@ -24,8 +24,15 @@
 - 需求 vs 现有代码：[[EC_TODO:填写结果或“无冲突”]]
 - Dev-Spec vs 现有代码：[[EC_TODO:填写结果或“无冲突”]]
 
+### 决策闭环
+decision_status: [[EC_TODO:仅当所有实质性问题均已解决并回填后写 closed]]
+- **已解决问题与结论**：[[EC_TODO:逐项记录影响技术路线、接口、模型、状态、范围或验收的问题及最终结论；无则写“无”]]
+- **确认依据**：[[EC_TODO:用户答复、冻结 Spec、现有代码证据或“无额外决策”]]
+
 ### Canonical Spec 来源
-- **来源**：[[EC_TODO:非 Canonical 任务写“无”；否则填写 repo-relative path、spec_id、revision、SHA-256]]
+- **来源定位**：[[EC_TODO:非 Canonical 任务写“无”；否则填写 path、path_mode、spec_id 与 design revision]]
+- **设计 / 文档摘要**：[[EC_TODO:非 Canonical 任务写“无”；否则填写 design_sha256、document_sha256]]
+- **共享执行状态**：[[EC_TODO:非 Canonical 任务写“无”；否则填写 execution_revision、writeback 状态及是否需要 reconcile]]
 - **选择任务 / 仓库**：[[EC_TODO:非 Canonical 任务写“无”；否则填写 selected task IDs 与 repo IDs]]
 - **消费闭包**：[[EC_TODO:非 Canonical 任务写“无”；否则填写 contracts、direct dependencies、changes、steps、tests 摘要]]
 - **基线与冲突**：[[EC_TODO:非 Canonical 任务写“无”；否则逐仓填写 exact/scope-unchanged/scope-drifted/baseline-unavailable 及处理结论]]
@@ -39,7 +46,7 @@
 - **关联历史任务**：[[EC_TODO:相关短期记忆 ID；无则“无”]]
 
 ### 改动范围
-> 只列真实项目源码/配置文件的改动。禁止把 `.easy-coding/` 下的 harness 产物（dev-spec / execution.jsonl / test-strategy / 记忆 / 报告等）当作改动对象。本表为空仅允许用于"用户明确要求的无代码交付形态"；代码类任务（重构/修复/功能）若此表为空，即为自我降级。
+> 只列真实项目源码/配置文件的改动。禁止把 `.easy-coding/` 下的 harness 产物（dev-spec / execution.jsonl / test-strategy / 记忆 / 报告等）当作改动对象。Harness 只为明确的仓库修改创建任务，因此本表不得为空。
 
 | 改动文件 | 改动类型 | 文件编码 | 改动核心内容 |
 |----------|---------|---------|-------------|
@@ -83,7 +90,7 @@
 - **机械最低模式**：[[EC_TODO:fast / standard / strict]]
 - **推荐并选择**：[[EC_TODO:fast / standard / strict]]
 - **选择原因**：[[EC_TODO:风险、范围和兼容性依据]]
-- **状态内执行差异**：[[EC_TODO:IMPLEMENT / REVIEW / VERIFICATION / MEMORY 将采用的深度]]
+- **状态内执行差异**：[[EC_TODO:IMPLEMENT / QUALITY / MEMORY 将采用的深度]]
 
 ### 风险与注意事项
 - [[EC_TODO:风险 1]]

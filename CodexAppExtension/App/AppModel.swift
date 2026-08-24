@@ -30,6 +30,8 @@ final class AppModel: ObservableObject {
     @Published var presentedError: String?
     @Published var selectedSettingsPage: SettingsPage = .general
     @Published private(set) var isApplying = false
+    /// 仅在用户已确认的重启请求执行期间为 true；失败后必须释放以允许再次确认。
+    @Published private(set) var isRestartConfirmationInFlight = false
     @Published private(set) var diagnosticActionMessage: String?
     @Published private(set) var settingsRequestID = 0
 
@@ -38,7 +40,6 @@ final class AppModel: ObservableObject {
     private let restartConfirmationPresenter = RestartConfirmationPresenter()
     private var updatesTask: Task<Void, Never>?
     private var handledStartupSettings = false
-    private var hasConfirmedCurrentRestart = false
 #if DEBUG
     private let isUITesting = ProcessInfo.processInfo.arguments.contains("--ui-testing")
     let exposesRestartUITestState = ProcessInfo.processInfo.arguments.contains("--ui-test-real-menu")
@@ -54,6 +55,9 @@ final class AppModel: ObservableObject {
     init(runtime: any RuntimeControlling, settingsOpener: (() -> Void)? = nil) {
         self.runtime = runtime
         self.settingsOpener = settingsOpener ?? {}
+#if DEBUG
+        if exposesRestartUITestState { NSMenu.setMenuBarVisible(true) }
+#endif
         updatesTask = Task {
             let updates = await runtime.updates()
             for await next in updates {
@@ -68,9 +72,6 @@ final class AppModel: ObservableObject {
                 snapshot = next
                 draft = nextDraft
                 presentedError = next.lastError
-                if !next.pendingRestartConfirmation {
-                    hasConfirmedCurrentRestart = false
-                }
                 if next.isInitialized, !handledStartupSettings {
                     handledStartupSettings = true
                     if next.configuration.startup.openSettingsOnLaunch { self.requestSettingsWindow() }
@@ -127,6 +128,8 @@ final class AppModel: ObservableObject {
     var statusTone: ExtensionStatusTone { ExtensionStatusResolver.tone(for: snapshot) }
 
     var statusText: String {
+        if isRestartConfirmationInFlight { return "正在重启 ChatGPT" }
+        if snapshot.pendingRestartConfirmation { return "等待重启确认" }
         switch statusTone {
         case .green: return "运行正常"
         case .yellow:
@@ -138,7 +141,7 @@ final class AppModel: ObservableObject {
                 if case .waiting = $0.state { return true }
                 return false
             }) { return "等待页面就绪" }
-            return snapshot.pendingRestartConfirmation ? "等待重启确认" : "正在连接"
+            return "正在连接"
         case .red: return "增强降级"
         case .gray:
             return snapshot.configuration.global.isEnabled ? "ChatGPT 未运行" : "扩展已停用"
@@ -196,10 +199,16 @@ final class AppModel: ObservableObject {
     func reinject() { Task { await runtime.reinject() } }
     func diagnose() { Task { await runtime.diagnose() } }
     func requestRestartConfirmation() {
-        guard snapshot.pendingRestartConfirmation, !hasConfirmedCurrentRestart else { return }
+        guard snapshot.pendingRestartConfirmation, !isRestartConfirmationInFlight else { return }
         guard restartConfirmationPresenter.requestConfirmation() else { return }
-        hasConfirmedCurrentRestart = true
-        Task { await runtime.confirmRestart() }
+        isRestartConfirmationInFlight = true
+        Task {
+            defer { isRestartConfirmationInFlight = false }
+            await runtime.confirmRestart()
+            let latest = await runtime.snapshot()
+            snapshot = latest
+            presentedError = latest.lastError
+        }
     }
     func setLaunchAtLogin(_ enabled: Bool) { Task { await runtime.setLaunchAtLogin(enabled) } }
     func openOfficialSettings() { Task { await runtime.openOfficialSettings() } }
@@ -295,9 +304,13 @@ private final class RestartConfirmationPresenter {
 private actor UITestingRuntimeController: RuntimeControlling {
     private var current: RuntimeControllerSnapshot
     private var restartConfirmationCount = 0
+    private let restartShouldFail: Bool
+    private let restartShouldPause: Bool
     private var observers: [UUID: AsyncStream<RuntimeControllerSnapshot>.Continuation] = [:]
 
     init(arguments: [String]) {
+        restartShouldFail = arguments.contains("--ui-restart-fails")
+        restartShouldPause = arguments.contains("--ui-restart-pauses")
         let requested = arguments.first(where: { $0.hasPrefix("--ui-status=") })?.split(separator: "=").last.map(String.init) ?? "normal"
         let process: ChatGPTProcessHealth = requested == "offline" ? .notRunning : .running(processIdentifier: 4242)
         let lifecycle: AppLifecyclePhase
@@ -342,13 +355,20 @@ private actor UITestingRuntimeController: RuntimeControlling {
     func start() {}
     func refresh() {}
     func startChatGPT() {}
-    func confirmRestart() {
+    func confirmRestart() async {
         restartConfirmationCount &+= 1
-        current = replacing(
-            lifecycle: .active(processIdentifier: 4242, targetCount: 1),
-            pending: false,
-            activeTargetIdentifier: "ui-restart-confirmations-\(restartConfirmationCount)"
-        )
+        if restartShouldPause { try? await Task.sleep(for: .seconds(3)) }
+        current = restartShouldFail
+            ? replacing(
+                lifecycle: .awaitingRestartConfirmation(processIdentifier: 4242),
+                pending: true,
+                activeTargetIdentifier: "ui-restart-confirmations-\(restartConfirmationCount)"
+            )
+            : replacing(
+                lifecycle: .active(processIdentifier: 4242, targetCount: 1),
+                pending: false,
+                activeTargetIdentifier: "ui-restart-confirmations-\(restartConfirmationCount)"
+            )
         publish()
     }
     func reconnect() {

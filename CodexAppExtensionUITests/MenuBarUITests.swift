@@ -43,7 +43,7 @@ final class MenuBarUITests: XCTestCase {
         reopenRealStatusMenu(app, status: status)
         XCTAssertTrue(app.staticTexts["等待重启确认"].exists)
         XCTAssertTrue(app.buttons["action.confirmRestart"].exists)
-        XCTAssertEqual(app.staticTexts["ui.restart.confirmationCount"].label, "重启确认次数：0")
+        XCTAssertEqual(restartConfirmationCount(in: app), "0")
     }
 
     func testRestartConfirmationCallsRuntimeExactlyOnceAndClearsPending() throws {
@@ -57,7 +57,49 @@ final class MenuBarUITests: XCTestCase {
         reopenRealStatusMenu(app, status: status)
         XCTAssertTrue(app.staticTexts["运行正常"].waitForExistence(timeout: 2))
         XCTAssertFalse(app.buttons["action.confirmRestart"].exists)
-        XCTAssertEqual(app.staticTexts["ui.restart.confirmationCount"].label, "重启确认次数：1")
+        XCTAssertEqual(restartConfirmationCount(in: app), "1")
+    }
+
+    func testRestartConfirmationDisablesDuplicateSubmitWhileInFlight() throws {
+        let (app, status) = launchRealMenuWaitingForRestart(extraArguments: ["--ui-restart-pauses"])
+        openRealStatusMenu(app, status: status)
+        app.buttons["action.confirmRestart"].click()
+        let confirm = app.buttons["restart.confirm"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 2))
+        confirm.click()
+
+        reopenRealStatusMenu(app, status: status)
+        let inFlight = app.buttons["action.confirmRestart"]
+        XCTAssertTrue(inFlight.waitForExistence(timeout: 2))
+        XCTAssertEqual(inFlight.label, "正在重启 ChatGPT…")
+        XCTAssertFalse(inFlight.isEnabled)
+        XCTAssertTrue(app.staticTexts["运行正常"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["action.confirmRestart"].exists)
+        XCTAssertEqual(restartConfirmationCount(in: app), "1")
+    }
+
+    func testRestartFailureReleasesLockAndAllowsAnotherConfirmation() throws {
+        let (app, status) = launchRealMenuWaitingForRestart(extraArguments: ["--ui-restart-fails"])
+        openRealStatusMenu(app, status: status)
+        app.buttons["action.confirmRestart"].click()
+        let firstConfirm = app.buttons["restart.confirm"]
+        XCTAssertTrue(firstConfirm.waitForExistence(timeout: 2))
+        firstConfirm.click()
+
+        reopenRealStatusMenu(app, status: status)
+        let retry = app.buttons["action.confirmRestart"]
+        XCTAssertTrue(retry.waitForExistence(timeout: 2))
+        XCTAssertTrue(retry.isEnabled)
+        XCTAssertEqual(retry.label, "确认重启 ChatGPT…")
+        XCTAssertEqual(restartConfirmationCount(in: app), "1")
+
+        retry.click()
+        let secondConfirm = app.buttons["restart.confirm"]
+        XCTAssertTrue(secondConfirm.waitForExistence(timeout: 2))
+        secondConfirm.click()
+
+        reopenRealStatusMenu(app, status: status)
+        XCTAssertEqual(restartConfirmationCount(in: app), "2")
     }
 
     func testQuickTogglesShareAlignedColumnsAndRemainInteractive() throws {
@@ -132,9 +174,9 @@ final class MenuBarUITests: XCTestCase {
         XCTAssertTrue(preview.waitForExistence(timeout: 2))
     }
 
-    private func launchRealMenuWaitingForRestart() -> (XCUIApplication, XCUIElement) {
+    private func launchRealMenuWaitingForRestart(extraArguments: [String] = []) -> (XCUIApplication, XCUIElement) {
         let app = XCUIApplication()
-        app.launchArguments = ["--ui-testing", "--ui-test-real-menu", "--ui-status=waiting"]
+        app.launchArguments = ["--ui-testing", "--ui-test-real-menu", "--ui-status=waiting"] + extraArguments
         app.launch()
         let status = app.menuBars.statusItems["menuBar.status"]
         XCTAssertTrue(status.waitForExistence(timeout: 3))
@@ -143,19 +185,31 @@ final class MenuBarUITests: XCTestCase {
     }
 
     private func openRealStatusMenu(_ app: XCUIApplication, status: XCUIElement) {
-        status.click()
+        clickStatusItem(status)
         XCTAssertTrue(app.staticTexts["ui.restart.confirmationCount"].waitForExistence(timeout: 2))
     }
 
     private func reopenRealStatusMenu(_ app: XCUIApplication, status: XCUIElement) {
         let marker = app.staticTexts["ui.restart.confirmationCount"]
         if marker.exists {
-            status.click()
+            clickStatusItem(status)
             let closed = NSPredicate(format: "exists == false")
             expectation(for: closed, evaluatedWith: marker)
             waitForExpectations(timeout: 2)
         }
-        status.click()
+        clickStatusItem(status)
         XCTAssertTrue(marker.waitForExistence(timeout: 2))
+    }
+
+    private func clickStatusItem(_ status: XCUIElement) {
+        if status.isHittable {
+            status.click()
+        } else {
+            status.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
+        }
+    }
+
+    private func restartConfirmationCount(in app: XCUIApplication) -> String {
+        String(describing: app.staticTexts["ui.restart.confirmationCount"].value ?? "")
     }
 }

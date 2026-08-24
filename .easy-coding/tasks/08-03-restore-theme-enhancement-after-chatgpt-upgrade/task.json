@@ -22,14 +22,9 @@
       "entered_at": "2026-08-03T03:09:22.699635+00:00"
     },
     {
-      "stage": "REVIEW",
+      "stage": "QUALITY",
       "agent": "codex",
       "entered_at": "2026-08-03T03:15:10.687132+00:00"
-    },
-    {
-      "stage": "VERIFICATION",
-      "agent": "codex",
-      "entered_at": "2026-08-03T03:20:22.646977+00:00"
     },
     {
       "stage": "MEMORY",

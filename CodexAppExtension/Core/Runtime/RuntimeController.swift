@@ -257,7 +257,7 @@ public actor CDPRuntimePipeline: RuntimePipelining {
                 timeout: .seconds(5)
             )
             try await waitForQualifiedTarget(configuration: configuration, generation: runtimeGeneration)
-        } catch {
+        } catch let error as PageRuntimeBridgeError {
             await synchronizeConnectionHealth()
             await healthCenter.updateLifecycle(.degraded(processIdentifier: nil, reason: error.localizedDescription))
             throw error
@@ -308,12 +308,39 @@ public actor CDPRuntimePipeline: RuntimePipelining {
 
     public func pollHealth() async -> RuntimePerformancePollSummary? {
         guard let activeTarget,
-              let measurements = try? await bridge.pollPerformance(target: activeTarget) else { return nil }
-        let degraded = measurements.filter(\.isDegraded)
-        return .init(
-            degradedAdapterCount: degraded.count,
-            maximumDurationMilliseconds: degraded.map(\.durationMilliseconds).max() ?? 0
-        )
+              let generation = activeRuntimeGeneration,
+              let targetRevision = currentTargetRevision(
+                targetIdentifier: activeTarget.identifier,
+                lifecycleGeneration: generation
+              ) else { return nil }
+        do {
+            let measurements = try await bridge.pollPerformance(target: activeTarget)
+            let degraded = measurements.filter(\.isDegraded)
+            return .init(
+                degradedAdapterCount: degraded.count,
+                maximumDurationMilliseconds: degraded.map(\.durationMilliseconds).max() ?? 0
+            )
+        } catch let bridgeError as PageRuntimeBridgeError {
+            // 同一 target 内的页面导航会保留 CDP 身份但替换 JavaScript 上下文；
+            // targetInfoChanged 又可能早于新 composer DOM 就绪。此时事件探测可以暂时
+            // 不合格，而 pipeline 仍认为旧 target 处于 active。只有运行时确实缺失时，
+            // 才把健康轮询作为恢复信号，等待页面稳定后重新探测并安装全部 adapter。
+            guard case let .runtimeUnavailable(targetIdentifier) = bridgeError,
+                  targetIdentifier == activeTarget.identifier,
+                  activeRuntimeGeneration == generation,
+                  self.activeTarget == activeTarget,
+                  knownTargetIdentifiers.contains(activeTarget.identifier),
+                  currentTargetRevision(
+                    targetIdentifier: activeTarget.identifier,
+                    lifecycleGeneration: generation
+                  ) == targetRevision else { return nil }
+            await activateEventTarget(activeTarget, generation: generation)
+            return nil
+        } catch {
+            // transport、protocol、stale 等普通轮询错误只结束本轮健康检查；
+            // 不触发 probe/apply，避免健康轮询在非运行时缺失场景中写入页面。
+            return nil
+        }
     }
 
     private func startEventLoop(_ events: AsyncStream<CDPEvent>, generation: UInt64) {
@@ -687,6 +714,10 @@ public actor RuntimeController: RuntimeControlling {
     private let diagnosticAppVersion: DiagnosticVersion
     private var current = RuntimeControllerSnapshot()
     private var pendingPlan: DebugSessionPlan?
+    /// 仅覆盖用户已确认的破坏性重启调用，避免 actor 重入重复执行或替换计划。
+    private var isRestartConfirmationInFlight = false
+    /// 每次刷新取得独立版本；确认重启会推进版本，使挂起的旧刷新无法继续写入状态。
+    private var refreshRevision: UInt64 = 0
     private var observedProcessIdentifier: Int32?
     private var observedDebugPort: UInt16?
     private var observers: [UUID: AsyncStream<RuntimeControllerSnapshot>.Continuation] = [:]
@@ -765,80 +796,122 @@ public actor RuntimeController: RuntimeControlling {
     }
 
     public func refresh() async {
+        guard !isRestartConfirmationInFlight else { return }
+        refreshRevision &+= 1
+        let revision = refreshRevision
         let application = await lifecycle.refreshProcess()
+        guard isCurrentRefresh(revision) else { return }
         guard let application else {
             let pipelineReady = await pipeline.isReady()
+            guard isCurrentRefresh(revision) else { return }
             let requiresCleanup = observedProcessIdentifier != nil || pipelineReady
-            pendingPlan = nil
+            let preservesLaunchRetry: Bool
+            if case .launch = pendingPlan {
+                preservesLaunchRetry = true
+            } else {
+                preservesLaunchRetry = false
+                pendingPlan = nil
+            }
             observedProcessIdentifier = nil
             observedDebugPort = nil
-            if requiresCleanup { await pipeline.stop() }
+            if requiresCleanup {
+                await pipeline.stop()
+                guard isCurrentRefresh(revision) else { return }
+            }
             await healthCenter.updateProcess(.notRunning)
+            guard isCurrentRefresh(revision) else { return }
             await healthCenter.updateConnection(.disconnected)
+            guard isCurrentRefresh(revision) else { return }
             await healthCenter.updateLifecycle(.notRunning)
+            guard isCurrentRefresh(revision) else { return }
             await synchronizeRuntimeFromHealth()
-            publish(pendingRestart: false, clearingError: true)
+            guard isCurrentRefresh(revision) else { return }
+            publish(pendingRestart: preservesLaunchRetry, clearingError: !preservesLaunchRetry)
             await recordDiagnostic(kind: .lifecycle, state: .inactive, errorCode: .applicationNotRunning)
             return
         }
         await healthCenter.updateProcess(.running(processIdentifier: application.processIdentifier))
+        guard isCurrentRefresh(revision) else { return }
 
         let sameProcess = observedProcessIdentifier == application.processIdentifier
         let samePort = observedDebugPort == application.debugPort
         if sameProcess, samePort {
             if application.debugPort != nil {
-                if await pipeline.isReady() {
+                let pipelineReady = await pipeline.isReady()
+                guard isCurrentRefresh(revision) else { return }
+                if pipelineReady {
                     let performance = await pipeline.pollHealth()
+                    guard isCurrentRefresh(revision) else { return }
                     await synchronizeRuntimeFromHealth()
-                    publish(clearingError: true)
+                    guard isCurrentRefresh(revision) else { return }
+                    publish(pendingRestart: false, clearingError: true)
                     await recordPerformanceDegradationIfNeeded(performance)
                     return
                 }
                 do {
                     try await pipeline.reconnect(configuration: current.configuration)
+                    guard isCurrentRefresh(revision) else { return }
                     await healthCenter.updateLifecycle(.active(processIdentifier: application.processIdentifier, targetCount: 1))
+                    guard isCurrentRefresh(revision) else { return }
                     await synchronizeRuntimeFromHealth()
-                    publish(clearingError: true)
+                    guard isCurrentRefresh(revision) else { return }
+                    publish(pendingRestart: false, clearingError: true)
                     return
                 } catch {
+                    guard isCurrentRefresh(revision) else { return }
                     await healthCenter.updateLifecycle(.degraded(processIdentifier: application.processIdentifier, reason: error.localizedDescription))
+                    guard isCurrentRefresh(revision) else { return }
                     await synchronizeRuntimeFromHealth()
+                    guard isCurrentRefresh(revision) else { return }
                     await setError(error)
                     return
                 }
             }
             await synchronizeRuntimeFromHealth()
+            guard isCurrentRefresh(revision) else { return }
             publish(clearingError: true)
             return
         }
 
         if observedProcessIdentifier != nil {
             await pipeline.stop()
+            guard isCurrentRefresh(revision) else { return }
         }
         observedProcessIdentifier = application.processIdentifier
         observedDebugPort = application.debugPort
         do {
             let plan = try await sessionManager.makePlan(for: application)
+            guard isCurrentRefresh(revision) else { return }
             switch plan {
             case let .connect(pid, port):
                 pendingPlan = nil
                 await healthCenter.updateLifecycle(.connecting(processIdentifier: pid, port: port))
+                guard isCurrentRefresh(revision) else { return }
                 try await pipeline.connect(port: port, configuration: current.configuration)
+                guard isCurrentRefresh(revision) else { return }
                 await healthCenter.updateLifecycle(.active(processIdentifier: pid, targetCount: 1))
+                guard isCurrentRefresh(revision) else { return }
                 await synchronizeRuntimeFromHealth()
+                guard isCurrentRefresh(revision) else { return }
                 publish(pendingRestart: false, clearingError: true)
             case .restartAfterConfirmation:
                 pendingPlan = plan
                 try? await lifecycle.transition(to: .awaitingRestartConfirmation(processIdentifier: application.processIdentifier))
+                guard isCurrentRefresh(revision) else { return }
                 await healthCenter.updateLifecycle(.awaitingRestartConfirmation(processIdentifier: application.processIdentifier))
+                guard isCurrentRefresh(revision) else { return }
                 await synchronizeRuntimeFromHealth()
+                guard isCurrentRefresh(revision) else { return }
                 publish(pendingRestart: true)
             case .launch:
                 break
             }
         } catch {
+            guard isCurrentRefresh(revision) else { return }
             await healthCenter.updateLifecycle(.degraded(processIdentifier: application.processIdentifier, reason: error.localizedDescription))
+            guard isCurrentRefresh(revision) else { return }
             await synchronizeRuntimeFromHealth()
+            guard isCurrentRefresh(revision) else { return }
             await setError(error)
         }
     }
@@ -858,21 +931,43 @@ public actor RuntimeController: RuntimeControlling {
     }
 
     public func confirmRestart() async {
-        guard let pendingPlan else {
+        guard !isRestartConfirmationInFlight else { return }
+        guard let plan = pendingPlan else {
             await setError(RuntimeControllerError.restartConfirmationUnavailable)
             return
         }
+
+        refreshRevision &+= 1
+        isRestartConfirmationInFlight = true
+        defer { isRestartConfirmationInFlight = false }
+
+        let result: DebugSessionLaunchResult
         do {
-            let result = try await sessionManager.execute(pendingPlan, restartConfirmed: true)
-            self.pendingPlan = nil
-            observedProcessIdentifier = result.processIdentifier
-            observedDebugPort = result.port
+            result = try await sessionManager.execute(plan, restartConfirmed: true)
+        } catch {
+            await reconcileFailedRestartExecution(plan)
+            await setError(error)
+            return
+        }
+
+        pendingPlan = nil
+        observedProcessIdentifier = result.processIdentifier
+        observedDebugPort = result.port
+        await healthCenter.updateProcess(.running(processIdentifier: result.processIdentifier))
+        await healthCenter.updateLifecycle(.connecting(processIdentifier: result.processIdentifier, port: result.port))
+        await synchronizeRuntimeFromHealth()
+        publish(pendingRestart: false, clearingError: true)
+
+        do {
             try await pipeline.connect(port: result.port, configuration: current.configuration)
-            await healthCenter.updateProcess(.running(processIdentifier: result.processIdentifier))
             await healthCenter.updateLifecycle(.active(processIdentifier: result.processIdentifier, targetCount: 1))
             await synchronizeRuntimeFromHealth()
             publish(pendingRestart: false, clearingError: true)
-        } catch { await setError(error) }
+        } catch {
+            await healthCenter.updateLifecycle(.degraded(processIdentifier: result.processIdentifier, reason: error.localizedDescription))
+            await synchronizeRuntimeFromHealth()
+            await setError(error)
+        }
     }
 
     public func reconnect() async {
@@ -1084,6 +1179,45 @@ public actor RuntimeController: RuntimeControlling {
             lastError: current.lastError,
             isInitialized: current.isInitialized
         )
+    }
+
+    private func isCurrentRefresh(_ revision: UInt64) -> Bool {
+        revision == refreshRevision && !isRestartConfirmationInFlight
+    }
+
+    private func reconcileFailedRestartExecution(_ plan: DebugSessionPlan) async {
+        guard case let .restartAfterConfirmation(processIdentifier, port, arguments) = plan else { return }
+        let runningApplications = await applications.runningApplications()
+        let application = AppLifecycleMonitor.matchMainApplication(in: runningApplications)
+
+        if application?.processIdentifier == processIdentifier {
+            return
+        }
+
+        if let application {
+            pendingPlan = nil
+            observedProcessIdentifier = application.debugPort == nil ? nil : application.processIdentifier
+            observedDebugPort = application.debugPort
+            await healthCenter.updateProcess(.running(processIdentifier: application.processIdentifier))
+            await healthCenter.updateConnection(.disconnected)
+            if let debugPort = application.debugPort {
+                await healthCenter.updateLifecycle(.connecting(processIdentifier: application.processIdentifier, port: debugPort))
+            } else {
+                await healthCenter.updateLifecycle(.runningWithoutCDP(processIdentifier: application.processIdentifier))
+            }
+            await synchronizeRuntimeFromHealth()
+            publish(pendingRestart: false)
+            return
+        }
+
+        pendingPlan = .launch(port: port, arguments: arguments)
+        observedProcessIdentifier = nil
+        observedDebugPort = nil
+        await healthCenter.updateProcess(.notRunning)
+        await healthCenter.updateConnection(.disconnected)
+        await healthCenter.updateLifecycle(.notRunning)
+        await synchronizeRuntimeFromHealth()
+        publish(pendingRestart: true)
     }
 
     private func publish(pendingRestart: Bool? = nil, clearingError: Bool = false) {

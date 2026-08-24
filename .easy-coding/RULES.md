@@ -36,3 +36,7 @@
 - `project.pbxproj` 使用明确 PBX group/target membership；新文件必须注册到正确 target 并保持 shared scheme 可测。
 - README 命令必须与真实 Xcode project/scheme/target 和产物路径一致，不得宣称公开更新器、公证或未实施的分发链。
 - 当前产品入口只有 `Codex App Extension.app` 菜单栏/Settings UI；禁止把已移除的脚本、环境变量或 CLI 写成可用入口。
+
+## 任务与开发
+
+- 完成任务,通过验证后,要直接进行构建并安装最新版本.

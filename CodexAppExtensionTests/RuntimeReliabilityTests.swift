@@ -387,6 +387,137 @@ final class RuntimeReliabilityTests: XCTestCase {
         XCTAssertEqual(applied, ["target-1"])
     }
 
+    func testPerformancePollRecoversSameTargetAfterEventTimeProbeWasTooEarly() async throws {
+        let client = PipelineCDPDouble(targetBatches: [[Self.targetInfo("target-1")]])
+        let bridge = PipelineBridgeDouble()
+        let health = HealthCenter()
+        let pipeline = CDPRuntimePipeline(
+            client: client,
+            bridge: bridge,
+            healthCenter: health,
+            clock: RecordingRuntimeClock(),
+            retryPolicy: .init(connectionAttempts: 1, targetAttempts: 1)
+        )
+        try await pipeline.connect(port: 55_117, configuration: .defaultConfiguration)
+        await bridge.markRuntimeMissing(targetIdentifier: "target-1")
+        await bridge.unqualifyProbeOnce(targetIdentifier: "target-1")
+
+        await client.emit(.init(method: "Target.targetInfoChanged", params: .object([
+            "targetInfo": Self.targetInfo("target-1")
+        ])))
+        await eventually {
+            await Self.runtimeState(in: health, targetIdentifier: "target-1") == .degraded
+        }
+        let appliedBeforeRecovery = await bridge.appliedTargets()
+        XCTAssertEqual(appliedBeforeRecovery, ["target-1"])
+
+        let recoveringPoll = await pipeline.pollHealth()
+        let activeAfterRecovery = await pipeline.activeTargetIdentifier()
+        let appliedAfterRecovery = await bridge.appliedTargets()
+        let invalidatedAfterRecovery = await bridge.invalidatedTargets()
+
+        XCTAssertNil(recoveringPoll)
+        XCTAssertEqual(activeAfterRecovery, "target-1")
+        XCTAssertEqual(appliedAfterRecovery, ["target-1", "target-1"])
+        XCTAssertTrue(invalidatedAfterRecovery.isEmpty)
+
+        let healthyPoll = await pipeline.pollHealth()
+        XCTAssertEqual(healthyPoll, .init(degradedAdapterCount: 0, maximumDurationMilliseconds: 0))
+    }
+
+    func testLateFailedPerformancePollCannotOverrideNewerTargetRefresh() async throws {
+        let client = PipelineCDPDouble(targetBatches: [[Self.targetInfo("target-1")]])
+        let bridge = PipelineBridgeDouble()
+        let pipeline = CDPRuntimePipeline(
+            client: client,
+            bridge: bridge,
+            healthCenter: HealthCenter(),
+            clock: RecordingRuntimeClock(),
+            retryPolicy: .init(connectionAttempts: 1, targetAttempts: 1)
+        )
+        try await pipeline.connect(port: 55_118, configuration: .defaultConfiguration)
+        await bridge.markRuntimeMissing(targetIdentifier: "target-1")
+        await bridge.pauseNextPerformancePoll(targetIdentifier: "target-1")
+        let stalePoll = Task { await pipeline.pollHealth() }
+        await eventually { await bridge.hasPausedPerformancePoll(targetIdentifier: "target-1") }
+
+        await client.emit(.init(method: "Target.targetInfoChanged", params: .object([
+            "targetInfo": Self.targetInfo("target-1")
+        ])))
+        await eventually { await bridge.appliedTargets().count == 2 }
+        await bridge.resumePerformancePoll(targetIdentifier: "target-1")
+        _ = await stalePoll.value
+        try? await Task.sleep(for: .milliseconds(25))
+
+        let applied = await bridge.appliedTargets()
+        let active = await pipeline.activeTargetIdentifier()
+        XCTAssertEqual(applied, ["target-1", "target-1"])
+        XCTAssertEqual(active, "target-1")
+    }
+
+    func testOnlyDedicatedRuntimeMissingPollFailureCanReinstallAdapters() async throws {
+        let client = PipelineCDPDouble(targetBatches: [[Self.targetInfo("target-1")]])
+        let bridge = PipelineBridgeDouble()
+        let pipeline = CDPRuntimePipeline(
+            client: client,
+            bridge: bridge,
+            healthCenter: HealthCenter(),
+            clock: RecordingRuntimeClock(),
+            retryPolicy: .init(connectionAttempts: 1, targetAttempts: 1)
+        )
+        try await pipeline.connect(port: 55_119, configuration: .defaultConfiguration)
+
+        for failure in [
+            PipelinePerformancePollFailure.invalidResponse,
+            .staleRevision,
+            .transport
+        ] {
+            await bridge.failPerformancePoll(targetIdentifier: "target-1", with: failure)
+            _ = await pipeline.pollHealth()
+        }
+
+        let applied = await bridge.appliedTargets()
+        let probed = await bridge.probedTargets()
+        XCTAssertEqual(applied, ["target-1"])
+        XCTAssertEqual(probed, ["target-1"])
+    }
+
+    func testLateRuntimeMissingPollAfterReconnectCannotReinstallDestroyedTarget() async throws {
+        let client = PipelineCDPDouble(targetBatches: [
+            [Self.targetInfo("target-old")],
+            [Self.targetInfo("target-new")]
+        ])
+        let bridge = PipelineBridgeDouble()
+        let pipeline = CDPRuntimePipeline(
+            client: client,
+            bridge: bridge,
+            healthCenter: HealthCenter(),
+            clock: RecordingRuntimeClock(),
+            retryPolicy: .init(connectionAttempts: 1, targetAttempts: 1)
+        )
+        try await pipeline.connect(port: 55_120, configuration: .defaultConfiguration)
+        await bridge.markRuntimeMissing(targetIdentifier: "target-old")
+        await bridge.pauseNextPerformancePoll(targetIdentifier: "target-old")
+        let stalePoll = Task { await pipeline.pollHealth() }
+        await eventually { await bridge.hasPausedPerformancePoll(targetIdentifier: "target-old") }
+
+        let reconnect = Task {
+            await pipeline.stop()
+            try await pipeline.connect(port: 55_121, configuration: .defaultConfiguration)
+        }
+        await eventually { await pipeline.activeTargetIdentifier() == "target-new" }
+        await bridge.resumePerformancePoll(targetIdentifier: "target-old")
+        _ = await stalePoll.value
+        try await reconnect.value
+
+        let applied = await bridge.appliedTargets()
+        let invalidated = await bridge.invalidatedTargets()
+        let active = await pipeline.activeTargetIdentifier()
+        XCTAssertEqual(applied, ["target-old", "target-new"])
+        XCTAssertEqual(invalidated.filter { $0 == "target-old" }.count, 1)
+        XCTAssertEqual(active, "target-new")
+    }
+
     func testSameTargetFailureAndUnqualifiedDegradationRecoverAfterSuccessfulRefresh() async throws {
         let client = PipelineCDPDouble(targetBatches: [[Self.targetInfo("target-1")]])
         let bridge = PipelineBridgeDouble()
@@ -633,6 +764,9 @@ private actor PipelineBridgeDouble: PageRuntimeBridging {
     private var completedProbes: [String] = []
     private var applied: [String] = []
     private var invalidated: [String] = []
+    private var performancePollFailures: [String: PipelinePerformancePollFailure] = [:]
+    private var performancePollsToPause: Set<String> = []
+    private var pausedPerformancePollContinuations: [String: CheckedContinuation<Void, Never>] = [:]
 
     init(healthCenter: HealthCenter? = nil) {
         self.healthCenter = healthCenter
@@ -641,6 +775,22 @@ private actor PipelineBridgeDouble: PageRuntimeBridging {
     func fail(targetIdentifier: String?) { failingTarget = targetIdentifier }
     func staleProbeOnce(targetIdentifier: String) { staleProbeTargets.insert(targetIdentifier) }
     func unqualifyProbeOnce(targetIdentifier: String) { unqualifiedProbeTargets.insert(targetIdentifier) }
+    func markRuntimeMissing(targetIdentifier: String) {
+        performancePollFailures[targetIdentifier] = .runtimeMissing
+    }
+    func failPerformancePoll(
+        targetIdentifier: String,
+        with failure: PipelinePerformancePollFailure
+    ) {
+        performancePollFailures[targetIdentifier] = failure
+    }
+    func pauseNextPerformancePoll(targetIdentifier: String) { performancePollsToPause.insert(targetIdentifier) }
+    func hasPausedPerformancePoll(targetIdentifier: String) -> Bool {
+        pausedPerformancePollContinuations[targetIdentifier] != nil
+    }
+    func resumePerformancePoll(targetIdentifier: String) {
+        pausedPerformancePollContinuations.removeValue(forKey: targetIdentifier)?.resume()
+    }
     func pauseNextProbe(targetIdentifier: String) { probesToPause.insert(targetIdentifier) }
     func hasPausedProbe(targetIdentifier: String) -> Bool { pausedProbeContinuations[targetIdentifier] != nil }
     func resumeProbe(targetIdentifier: String) {
@@ -669,6 +819,30 @@ private actor PipelineBridgeDouble: PageRuntimeBridging {
     func apply(configuration: AppConfiguration, to target: CDPTarget, operation: PageRuntimeOperation) throws -> [FeatureExecutionResult] {
         applied.append(target.identifier)
         if failingTarget == target.identifier { throw RuntimeControllerError.configurationRejected("fixture-target-failure") }
+        if performancePollFailures[target.identifier] == .runtimeMissing {
+            performancePollFailures.removeValue(forKey: target.identifier)
+        }
+        return []
+    }
+    func pollPerformance(target: CDPTarget) async throws -> [AdapterPerformanceMeasurement] {
+        let failure = performancePollFailures[target.identifier]
+        if performancePollsToPause.remove(target.identifier) != nil {
+            await withCheckedContinuation { continuation in
+                pausedPerformancePollContinuations[target.identifier] = continuation
+            }
+        }
+        switch failure {
+        case .runtimeMissing?:
+            throw PageRuntimeBridgeError.runtimeUnavailable(target.identifier)
+        case .invalidResponse?:
+            throw PageRuntimeBridgeError.invalidResponse("fixture-performance-snapshot")
+        case .staleRevision?:
+            throw PageRuntimeBridgeError.staleRevision(target.identifier)
+        case .transport?:
+            throw CDPClientError.transport("fixture-performance-transport")
+        case nil:
+            break
+        }
         return []
     }
     func invalidate(targetIdentifier: String) async {
@@ -679,4 +853,11 @@ private actor PipelineBridgeDouble: PageRuntimeBridging {
     func completedProbeTargets() -> [String] { completedProbes }
     func appliedTargets() -> [String] { applied }
     func invalidatedTargets() -> [String] { invalidated }
+}
+
+private enum PipelinePerformancePollFailure: Equatable, Sendable {
+    case runtimeMissing
+    case invalidResponse
+    case staleRevision
+    case transport
 }

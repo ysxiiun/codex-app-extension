@@ -1,0 +1,118 @@
+{
+  "type": "bugfix",
+  "title": "修复 ChatGPT 更新后宽屏内容与环境信息重叠",
+  "status": "COMPLETE",
+  "created_at": "2026-08-21T04:05:05.422476+00:00",
+  "created_by": "codex",
+  "last_agent": "codex",
+  "stage_history": [
+    {
+      "stage": "INIT",
+      "agent": "codex",
+      "entered_at": "2026-08-21T04:05:05.422476+00:00"
+    },
+    {
+      "stage": "ANALYSIS",
+      "agent": "codex",
+      "entered_at": "2026-08-21T04:05:10.566252+00:00"
+    },
+    {
+      "stage": "IMPLEMENT",
+      "agent": "codex",
+      "entered_at": "2026-08-21T05:02:37.423444+00:00"
+    },
+    {
+      "stage": "QUALITY",
+      "agent": "codex",
+      "entered_at": "2026-08-21T05:08:31.417012+00:00"
+    },
+    {
+      "stage": "IMPLEMENT",
+      "agent": "codex",
+      "entered_at": "2026-08-21T05:19:08.753631+00:00"
+    },
+    {
+      "stage": "QUALITY",
+      "agent": "codex",
+      "entered_at": "2026-08-21T05:22:52.207489+00:00"
+    },
+    {
+      "stage": "MEMORY",
+      "agent": "codex",
+      "entered_at": "2026-08-21T06:14:10.444902+00:00"
+    },
+    {
+      "stage": "COMPLETE",
+      "agent": "codex",
+      "entered_at": "2026-08-21T06:17:06.953343+00:00"
+    }
+  ],
+  "context": {},
+  "spawned_from": null,
+  "spawned_tasks": [],
+  "closed_reason": null,
+  "repos": [],
+  "workflow_mode_proposal": {
+    "configured_mode": "adaptive",
+    "selected_mode": "standard",
+    "minimum_mode": "fast",
+    "source": "adaptive",
+    "reasons": [
+      "当前 ChatGPT 版本的有界兼容修复，涉及透明 PIP 占位、动画最终帧与几何快路径联动",
+      "需同步 runtime revision、全量 ExtensionCoreTests、Release 安装及 count-only live gate"
+    ],
+    "proposed_at": "2026-08-21T04:23:23.934475+00:00",
+    "proposed_by": "codex"
+  },
+  "workflow_mode": "standard",
+  "workflow_mode_confirmed_at": "2026-08-21T05:02:37.423408+00:00",
+  "workflow_mode_confirmed_by": "codex",
+  "tdd_enabled": false,
+  "tdd_coverage_threshold": 90,
+  "tdd_confirmed_at": "2026-08-21T05:02:37.423441+00:00",
+  "tdd_confirmed_by": "codex",
+  "quality_consumed_attempt": 1,
+  "memory_progress": {
+    "short_memory_written": true,
+    "short_memory_file": ".easy-coding/memory/short/SM-01a022f5-7f3b-748b-9ad7-5294f74ea63e_20260821_新版环境信息PIP右栏避让修复.md",
+    "short_memory_sha256": "92048cc4abf138723f2cf02e9f887ca5a4c9e700729e61ca57435731a65a9565",
+    "updated_at": "2026-08-21T06:17:01.353567+00:00",
+    "instruction": {
+      "short_count": 7,
+      "short_term_max": 10,
+      "short_term_keep": 5,
+      "action": "no-op",
+      "trim_count": 0,
+      "candidate_files": [],
+      "kept_files": [
+        ".easy-coding/memory/short/SM-019fcfe3-0cfa-7d6b-987c-0edda8fb811c_20260805_Release幂等安装与动态宽屏布局稳定修复.md",
+        ".easy-coding/memory/short/SM-019fd53f-8d9a-7886-be56-6aa8478898ca_20260806_外观重设计与Tab功能彻底移除.md",
+        ".easy-coding/memory/short/SM-019fda0c-9017-72d5-a414-01a80b272a95_20260807_新建任务宽屏与动态右栏连续收敛.md",
+        ".easy-coding/memory/short/SM-019fda3e-d44a-78cc-8ef4-a3d545953de9_20260807_Markdown表格组件内水平滚动.md",
+        ".easy-coding/memory/short/SM-019feee0-c0e1-7ebe-a85e-ddd4f909e151_20260811_新建会话增强捕获与运行时恢复.md",
+        ".easy-coding/memory/short/SM-01a013c0-83be-729c-a865-77107f0abe89_20260818_菜单重启确认与CDP恢复修复.md",
+        ".easy-coding/memory/short/SM-01a022f5-7f3b-748b-9ad7-5294f74ea63e_20260821_新版环境信息PIP右栏避让修复.md"
+      ],
+      "checkpoint_disposition": "kept",
+      "architecture_assessment": {
+        "required": false,
+        "trigger": "none",
+        "allowed_actions": [],
+        "abstract": {
+          "path": ".easy-coding/ABSTRACT.md",
+          "exists": true,
+          "non_empty": true,
+          "sha256": "f4fae3ad90edb23c7ad262ae4e8500fa0b42be3d1a14cecdfac3a9cfdb8763dd"
+        },
+        "changelog": {
+          "path": ".easy-coding/CHANGELOG.md",
+          "exists": false,
+          "non_empty": false,
+          "sha256": null
+        }
+      }
+    },
+    "long_memory_action": "no-op",
+    "completed": true
+  }
+}

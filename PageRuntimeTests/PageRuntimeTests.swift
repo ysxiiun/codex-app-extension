@@ -98,6 +98,7 @@ final class PageRuntimeTests: XCTestCase {
     func testSurfaceUsesStableLayoutIdentityAndTreatsEditorAsOptionalCapability() throws {
         let harness = try JSRuntimeHarness(fixture: "current-surface")
         XCTAssertTrue(try harness.bool("window.__codexAppExtensionV2.surface().qualified"))
+        XCTAssertEqual(try harness.string("window.__codexAppExtensionV2.surface().kind"), "thread")
         XCTAssertTrue(try harness.bool("window.__codexAppExtensionV2.surface().composer === window.__codexAppExtensionV2.surface().editor"))
         XCTAssertEqual(try harness.string("window.__codexAppExtensionV2.surface().composerSignal"), "true")
 
@@ -115,6 +116,42 @@ final class PageRuntimeTests: XCTestCase {
         """)
         XCTAssertTrue(try unmarked.bool("window.__codexAppExtensionV2.surface().qualified"))
         XCTAssertTrue(try unmarked.value("window.__codexAppExtensionV2.surface().editor").isNull)
+
+        let emptyMarked = try JSRuntimeHarness(fixture: "current-surface")
+        try emptyMarked.evaluate("document.__loadFixture('<main data-app-shell-main-content-layout data-empty-task></main>')")
+        XCTAssertTrue(try emptyMarked.bool("window.__codexAppExtensionV2.surface().qualified"))
+        XCTAssertEqual(try emptyMarked.string("window.__codexAppExtensionV2.surface().kind"), "empty-composer")
+        XCTAssertEqual(try emptyMarked.string("window.__codexAppExtensionV2.surface().editorSignal"), "marked")
+
+        let emptyFallback = try JSRuntimeHarness(fixture: "current-surface")
+        try emptyFallback.evaluate("""
+        (() => {
+          document.__loadFixture('<main data-app-shell-main-content-layout data-empty-task></main>');
+          const editor = document.querySelector(".ProseMirror[contenteditable='true']");
+          editor.removeAttribute('data-codex-composer');
+          document.__registerAll(".ProseMirror[data-codex-composer='true'][contenteditable='true'], .ProseMirror[data-codex-composer='true'][contenteditable='plaintext-only']", []);
+          document.__registerAll('[data-codex-composer]', []);
+        })();
+        """)
+        XCTAssertTrue(try emptyFallback.bool("window.__codexAppExtensionV2.surface().qualified"))
+        XCTAssertEqual(try emptyFallback.string("window.__codexAppExtensionV2.surface().kind"), "empty-composer")
+        XCTAssertEqual(try emptyFallback.string("window.__codexAppExtensionV2.surface().editorSignal"), "fallback")
+        XCTAssertFalse(try emptyFallback.value("window.__codexAppExtensionV2.surface().editor").isNull)
+
+        let hiddenFallback = try JSRuntimeHarness(fixture: "current-surface")
+        try hiddenFallback.evaluate("""
+        (() => {
+          document.__loadFixture('<main data-app-shell-main-content-layout data-empty-task></main>');
+          const editor = document.querySelector(".ProseMirror[contenteditable='true']");
+          editor.removeAttribute('data-codex-composer');
+          editor.setAttribute('aria-hidden', 'true');
+          document.__registerAll(".ProseMirror[data-codex-composer='true'][contenteditable='true'], .ProseMirror[data-codex-composer='true'][contenteditable='plaintext-only']", []);
+          document.__registerAll('[data-codex-composer]', []);
+        })();
+        """)
+        XCTAssertFalse(try hiddenFallback.bool("window.__codexAppExtensionV2.surface().qualified"))
+        XCTAssertEqual(try hiddenFallback.int("window.__codexAppExtensionV2.surface().editorCount"), 0)
+        XCTAssertTrue(try hiddenFallback.value("window.__codexAppExtensionV2.surface().editor").isNull)
 
         try harness.evaluate("document.__loadFixture('<main data-app-shell-main-content-layout data-duplicate-editor></main>')")
         XCTAssertTrue(try harness.bool("window.__codexAppExtensionV2.surface().qualified"))
@@ -646,6 +683,7 @@ final class JSRuntimeHarness {
           this.__registerAll('.thread-scroll-container', emptyTask ? [] : [scroller]);
           this.__registerAll(".ProseMirror[data-codex-composer='true'][contenteditable='true'], .ProseMirror[data-codex-composer='true'][contenteditable='plaintext-only']", editorMatches);
           this.__registerAll(".ProseMirror[contenteditable='true'], .ProseMirror[contenteditable='plaintext-only']", editorMatches);
+          this.__registerAll('.ProseMirror', editorMatches);
           this.__registerAll(".ProseMirror[contenteditable='true']", editorMatches);
           this.__registerAll(".ProseMirror[contenteditable='plaintext-only']", []);
           this.__registerAll('[data-codex-composer]', [editor]);
@@ -763,6 +801,7 @@ final class JSRuntimeHarness {
           this.__registerAll('.thread-scroll-container', [nextScroller]);
           this.__registerAll(".ProseMirror[data-codex-composer='true'][contenteditable='true'], .ProseMirror[data-codex-composer='true'][contenteditable='plaintext-only']", [nextEditor]);
           this.__registerAll(".ProseMirror[contenteditable='true'], .ProseMirror[contenteditable='plaintext-only']", [nextEditor]);
+          this.__registerAll('.ProseMirror', [nextEditor]);
           this.__registerAll(".ProseMirror[contenteditable='true']", [nextEditor]);
           this.__registerAll(".ProseMirror[contenteditable='plaintext-only']", []);
           this.__registerAll('[data-codex-composer]', [nextEditor]);
@@ -819,6 +858,20 @@ final class JSRuntimeHarness {
         (this.options ||= []).push(options || {});
       };
       window.MutationObserver.prototype.disconnect = function() { this.disconnected = true; this.targets = []; };
+      window.__dispatchObservedAttribute = function(node, attributeName) {
+        window.__mutationObservers
+          .filter((observer) => !observer.disconnected)
+          .forEach((observer) => observer.targets.forEach((target, index) => {
+            const optionOffset = Math.max(0, (observer.options?.length || 0) - observer.targets.length);
+            const options = observer.options?.[optionOffset + index] || {};
+            const inScope = target === node || (options.subtree === true && target.contains(node));
+            const attributeAllowed = !Array.isArray(options.attributeFilter) ||
+              options.attributeFilter.includes(attributeName);
+            if (options.attributes === true && inScope && attributeAllowed) {
+              observer.callback([{ type: 'attributes', target: node, attributeName }]);
+            }
+          }));
+      };
       window.__triggerMutation = function(count) {
         for (let index = 0; index < count; index += 1) {
           window.__mutationObservers

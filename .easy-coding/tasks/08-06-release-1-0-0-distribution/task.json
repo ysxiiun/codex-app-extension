@@ -3,22 +3,22 @@
   "title": "建立 1.0.0 版本元数据、发布文档与 macOS 分发能力",
   "status": "CLOSED",
   "created_at": "2026-08-06T05:08:34.931372+00:00",
-  "created_by": "root",
-  "last_agent": "root",
+  "created_by": "codex",
+  "last_agent": "codex",
   "stage_history": [
     {
       "stage": "INIT",
-      "agent": "root",
+      "agent": "codex",
       "entered_at": "2026-08-06T05:08:34.931372+00:00"
     },
     {
       "stage": "ANALYSIS",
-      "agent": "root",
+      "agent": "codex",
       "entered_at": "2026-08-06T05:08:35.000850+00:00"
     },
     {
       "stage": "CLOSED",
-      "agent": "root",
+      "agent": "codex",
       "entered_at": "2026-08-06T06:17:37.551706+00:00"
     }
   ],
@@ -37,6 +37,6 @@
       "变更横跨 Xcode 配置、SwiftUI、Shell 发布流水线和公开文档"
     ],
     "proposed_at": "2026-08-06T05:33:09.321534+00:00",
-    "proposed_by": "root"
+    "proposed_by": "codex"
   }
 }

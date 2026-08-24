@@ -582,6 +582,7 @@ final class AdapterFixtureTests: XCTestCase {
           const railBody = new window.__FakeNode('right-rail-rendered-body');
           const shortRailWrapper = new window.__FakeNode('right-rail-short-empty-state-wrapper');
           const shortRailBody = new window.__FakeNode('right-rail-short-empty-state');
+          const pipObstacle = new window.__FakeNode('right-rail-pip-obstacle');
           const childlessMarkerRail = new window.__FakeNode('childless-explicit-marker-rail');
           const latentRailBody = new window.__FakeNode('right-rail-latent-body');
           const showingRailBody = new window.__FakeNode('right-rail-showing-body');
@@ -613,6 +614,8 @@ final class AdapterFixtureTests: XCTestCase {
           railBody.style.backgroundColor = 'rgb(24, 24, 27)';
           railBody.getBoundingClientRect = measuredRect(() => rect(1660, 1900, 112, 460));
           shortRailBody.getBoundingClientRect = measuredRect(() => rect(1608, 1908, 112, 172));
+          pipObstacle.setAttribute('aria-hidden', 'true');
+          pipObstacle.getBoundingClientRect = measuredRect(() => rect(1604, 1904, 104, 1068));
           childlessMarkerRail.setAttribute('data-codex-app-extension-native-floating-panel', 'true');
           childlessMarkerRail.style.backgroundColor = 'rgb(24, 24, 27)';
           childlessMarkerRail.getBoundingClientRect = measuredRect(() => rect(1604, 1920, 104, 1068));
@@ -621,6 +624,7 @@ final class AdapterFixtureTests: XCTestCase {
           nestedRailMenu.style.backgroundColor = 'rgb(39, 39, 42)';
           nestedRailMenu.getBoundingClientRect = () => rect(1680, 1880, 180, 380);
           railBody.appendChild(nestedRailMenu);
+          rail.appendChild(pipObstacle);
           rail.appendChild(railBody);
           shortRailWrapper.appendChild(shortRailBody);
           rail.appendChild(shortRailWrapper);
@@ -629,7 +633,7 @@ final class AdapterFixtureTests: XCTestCase {
           rail.appendChild(churnRailBody);
           showingRailBody.getBoundingClientRect = () => rect(1660, 1900, 112, 460);
           churnRailBody.getBoundingClientRect = () => rect(1660, 1900, 112, 460);
-          rail.registerAll('*', [railBody, shortRailWrapper, shortRailBody, nestedRailMenu, latentRailBody, showingRailBody, churnRailBody]);
+          rail.registerAll('*', [pipObstacle, railBody, shortRailWrapper, shortRailBody, nestedRailMenu, latentRailBody, showingRailBody, churnRailBody]);
           transientRail.setAttribute('class', 'absolute thread-floating-content-menu');
           transientRail.setAttribute('role', 'menu');
           transientRail.style.position = 'absolute';
@@ -668,12 +672,14 @@ final class AdapterFixtureTests: XCTestCase {
           window.__triggerResize = (node) => window.__resizeObservers
             .filter((observer) => !observer.disconnected && observer.observed.includes(node))
             .forEach((observer) => observer.callback([{ target: node }]));
-          window.__triggerRailMutation = (node) => window.__mutationObservers
+          window.__triggerRailMutation = (node, attributeName = 'style') => window.__mutationObservers
             .filter((observer) => !observer.disconnected && observer.targets.some((target, index) => {
               const options = observer.options?.[index] || {};
-              return options.attributes && (target === node || (options.subtree && target.contains(node)));
+              const observesNode = target === node || (options.subtree && target.contains(node));
+              const observesAttribute = !options.attributeFilter || options.attributeFilter.includes(attributeName);
+              return options.attributes && observesNode && observesAttribute;
             }))
-            .forEach((observer) => observer.callback([{ type: 'attributes', target: node }]));
+            .forEach((observer) => observer.callback([{ type: 'attributes', target: node, attributeName }]));
           window.__wideLayoutOwnerMutationCallbacks = 0;
           for (const owner of [canonicalOwner, composerOwner]) {
             const originalSetProperty = owner.style.setProperty.bind(owner.style);
@@ -690,6 +696,7 @@ final class AdapterFixtureTests: XCTestCase {
             };
           }
           window.__wideLayoutStreamingLeaf = streamingLeaf;
+          window.__wideLayoutInner = inner;
           window.__wideLayoutNativeShiftHost = nativeShiftHost;
           window.__wideLayoutComposerShiftHost = composerShiftHost;
           window.__wideLayoutCanonicalOwner = canonicalOwner;
@@ -698,6 +705,7 @@ final class AdapterFixtureTests: XCTestCase {
           window.__wideLayoutRailBody = railBody;
           window.__wideLayoutShortRailWrapper = shortRailWrapper;
           window.__wideLayoutShortRailBody = shortRailBody;
+          window.__wideLayoutPIPObstacle = pipObstacle;
           window.__wideLayoutChildlessMarkerRail = childlessMarkerRail;
           window.__wideLayoutLatentRailBody = latentRailBody;
           window.__wideLayoutShowingRailBody = showingRailBody;
@@ -735,6 +743,7 @@ final class AdapterFixtureTests: XCTestCase {
         XCTAssertFalse(try harness.bool("window.__resizeObservers.some((observer) => observer.observed.includes(window.__wideLayoutLatentRailBody))"))
         XCTAssertFalse(try harness.bool("window.__resizeObservers.some((observer) => observer.observed.some((node) => node.getAttribute?.('role') === 'menu'))"))
         XCTAssertTrue(try harness.bool("window.__mutationObservers.some((observer) => observer.targets.includes(window.__wideLayoutRail))"))
+        XCTAssertTrue(try harness.bool("window.__mutationObservers.some((observer) => observer.targets.some((target, index) => target === window.__wideLayoutRail && ['data-pip-home-surface', 'data-pip-obstacle'].every((attribute) => observer.options[index].attributeFilter.includes(attribute))))"))
         XCTAssertTrue(try harness.bool("window.__mutationObservers.some((observer) => observer.targets.includes(window.__wideLayoutCanonicalOwner))"))
         XCTAssertTrue(try harness.bool("window.__mutationObservers.some((observer) => observer.targets.includes(window.__wideLayoutComposerOwner))"))
         XCTAssertTrue(try harness.bool("window.__mutationObservers.some((observer) => observer.targets.includes(window.__wideLayoutNativeShiftHost))"))
@@ -764,7 +773,7 @@ final class AdapterFixtureTests: XCTestCase {
         let ownerMutationCallbacksBeforeTransform = try harness.int("window.__wideLayoutOwnerMutationCallbacks")
         try harness.evaluate("""
         window.__wideLayoutCanonicalOwner.setAttribute('class', 'mx-auto changed max-w-(--thread-content-max-width)');
-        window.__triggerRailMutation(window.__wideLayoutCanonicalOwner);
+        window.__triggerRailMutation(window.__wideLayoutCanonicalOwner, 'class');
         window.__flushRAF();
         window.__flushTimers();
         window.__flushRAF();
@@ -1069,7 +1078,47 @@ final class AdapterFixtureTests: XCTestCase {
         XCTAssertEqual(try harness.string("\(scroller).style.getPropertyValue('--cae-wide-layout-content-offset-x')"), "0px")
 
         try harness.evaluate("""
+        window.__wideLayoutInner.getBoundingClientRect = () => ({
+          left: 297.41, right: 1905, top: 934, bottom: 1080, width: 1607.59, height: 146
+        });
+        window.__wideLayoutPIPObstacle.getBoundingClientRect = () => ({
+          left: 1604, right: 1904, top: 104, bottom: 460, width: 300, height: 356
+        });
+        window.__wideLayoutPIPObstacle.setAttribute('data-pip-home-surface', 'thread-summary-panel');
+        window.__wideLayoutRail.registerAll('*', [window.__wideLayoutPIPObstacle]);
+        window.__triggerRailMutation(window.__wideLayoutPIPObstacle, 'data-pip-home-surface');
+        window.__flushRAF();
+        window.__flushTimers();
+        """)
+        XCTAssertEqual(try harness.string("\(scroller).style.getPropertyValue('--thread-content-max-width')"), "1300px")
+
+        try harness.evaluate("""
+        window.__wideLayoutPIPObstacle.setAttribute('data-pip-obstacle', 'thread-summary-panel');
+        window.__triggerRailMutation(window.__wideLayoutPIPObstacle, 'data-pip-obstacle');
+        window.__flushRAF();
+        window.__flushTimers();
+        """)
+        XCTAssertEqual(try harness.string("\(scroller).style.getPropertyValue('--thread-content-max-width')"), "1258px")
+
+        try harness.evaluate("""
+        window.__wideLayoutPIPObstacle.removeAttribute('data-pip-home-surface');
+        window.__triggerRailMutation(window.__wideLayoutPIPObstacle, 'data-pip-home-surface');
+        window.__flushRAF();
+        window.__flushTimers();
+        window.__wideLayoutPIPObstacle.removeAttribute('data-pip-obstacle');
+        window.__wideLayoutInner.getBoundingClientRect = () => ({
+          left: 297.41, right: 1905, top: -1000, bottom: 1080, width: 1607.59, height: 2080
+        });
+        window.__wideLayoutPIPObstacle.getBoundingClientRect = () => ({
+          left: 1604, right: 1904, top: 104, bottom: 1068, width: 300, height: 964
+        });
+        """)
+        XCTAssertEqual(try harness.string("\(scroller).style.getPropertyValue('--thread-content-max-width')"), "1300px")
+        XCTAssertEqual(try harness.string("\(scroller).style.getPropertyValue('--cae-wide-layout-content-offset-x')"), "0px")
+
+        try harness.evaluate("""
         window.__wideLayoutRail.registerAll('*', [
+          window.__wideLayoutPIPObstacle,
           window.__wideLayoutRailBody,
           window.__wideLayoutShortRailWrapper,
           window.__wideLayoutShortRailBody,
@@ -1109,7 +1158,7 @@ final class AdapterFixtureTests: XCTestCase {
         XCTAssertTrue(try harness.bool("window.__mutationObservers.every((observer) => observer.disconnected)"))
         XCTAssertEqual(try harness.string("window.__wideLayoutCanonicalOwner.style.getPropertyValue('--cae-wide-layout-owner-offset-x')"), "")
         XCTAssertEqual(try harness.string("window.__wideLayoutComposerOwner.style.getPropertyValue('--cae-wide-layout-owner-offset-x')"), "")
-        XCTAssertTrue(try harness.bool("['transitionrun','transitionstart','transitionend','transitioncancel','animationstart','animationend','animationcancel'].every((type) => window.__wideLayoutNativeShiftHost.listenerCount(type) === 0 && window.__wideLayoutRail.listenerCount(type) === 0)"))
+        XCTAssertTrue(try harness.bool("['transitionrun','transitionstart','transitionend','transitioncancel','animationstart','animationend','animationcancel'].every((type) => window.__wideLayoutNativeShiftHost.listenerCount(type) === 0 && window.__wideLayoutRail.listenerCount(type) === 0 && window.__wideLayoutPIPObstacle.listenerCount(type) === 0)"))
         XCTAssertEqual(try harness.int("window.__rafQueue.length"), 0)
     }
 
@@ -1758,7 +1807,8 @@ final class AdapterFixtureTests: XCTestCase {
             config: harness.defaultConfig(adapterId: "wide-layout")
         ))
         XCTAssertEqual((installed["result"] as? [String: Any])?["qualified"] as? Bool, true)
-        XCTAssertFalse(try harness.bool("window.__codexAppExtensionV2.surface().qualified"))
+        XCTAssertTrue(try harness.bool("window.__codexAppExtensionV2.surface().qualified"))
+        XCTAssertEqual(try harness.string("window.__codexAppExtensionV2.surface().kind"), "empty-composer")
         XCTAssertTrue(try harness.value("document.querySelector('.thread-scroll-container')").isNull)
         XCTAssertEqual(try harness.string("document.querySelector('[data-app-shell-main-content-layout]').getAttribute('data-cae-wide-layout')"), "true")
         XCTAssertEqual(
@@ -1794,6 +1844,159 @@ final class AdapterFixtureTests: XCTestCase {
         XCTAssertEqual(try harness.string("document.getElementById('cae-wide-layout-style').textContent"), "host-empty-style")
     }
 
+    func testWideLayoutAcceptsCanonicalContentWidthOwnerOnUniqueEmptyTaskPath() throws {
+        let harness = try JSRuntimeHarness(fixture: "current-surface")
+        try harness.evaluate("""
+        document.__loadFixture('<main data-app-shell-main-content-layout data-empty-task></main>');
+        (() => {
+          const layout = document.querySelector('[data-app-shell-main-content-layout]');
+          const editor = document.querySelector(".ProseMirror[contenteditable='true']");
+          const owner = layout.querySelectorAll("[class*='thread-composer-max-width']")[0];
+          owner.setAttribute('class', 'mx-auto w-full max-w-(--thread-content-max-width) px-toolbar');
+          const hiddenOwner = new window.__FakeNode('hidden-marked-owner');
+          hiddenOwner.setAttribute('class', 'mx-auto max-w-(--thread-content-max-width)');
+          hiddenOwner.setAttribute('aria-hidden', 'true');
+          hiddenOwner.style.setProperty('--cae-wide-layout-owner-offset-x', '31px', 'important');
+          const hiddenEditor = new window.__FakeNode('hidden-marked-editor');
+          hiddenEditor.setAttribute('class', 'ProseMirror');
+          hiddenEditor.setAttribute('contenteditable', 'true');
+          hiddenEditor.setAttribute('data-codex-composer', 'true');
+          hiddenOwner.appendChild(hiddenEditor);
+          layout.appendChild(hiddenOwner);
+          layout.registerAll("[class*='thread-content-max-width']", [owner, hiddenOwner]);
+          layout.registerAll("[class*='thread-composer-max-width']", []);
+          document.__registerAll(".ProseMirror[data-codex-composer='true'][contenteditable='true'], .ProseMirror[data-codex-composer='true'][contenteditable='plaintext-only']", [editor, hiddenEditor]);
+          window.__canonicalEmptyTaskOwner = owner;
+          window.__hiddenMarkedOwner = hiddenOwner;
+          window.__hiddenMarkedEditor = hiddenEditor;
+        })();
+        """)
+        try harness.loadAdapter("wide-layout")
+
+        let installed = try harness.invoke("install", request: harness.request(
+            id: 1,
+            adapterId: "wide-layout",
+            operation: "install",
+            config: harness.defaultConfig(adapterId: "wide-layout")
+        ))
+        XCTAssertEqual((installed["result"] as? [String: Any])?["qualified"] as? Bool, true)
+        XCTAssertEqual(try harness.string("window.__codexAppExtensionV2.surface().kind"), "empty-composer")
+        XCTAssertEqual(try harness.string("window.__codexAppExtensionV2.surface().editorSignal"), "marked")
+        XCTAssertEqual(try harness.string("window.__canonicalEmptyTaskOwner.style.getPropertyValue('--cae-wide-layout-owner-offset-x')"), "0px")
+        XCTAssertEqual(try harness.string("window.__hiddenMarkedOwner.style.getPropertyValue('--cae-wide-layout-owner-offset-x')"), "31px")
+        XCTAssertEqual(try harness.string("window.__hiddenMarkedOwner.style.getPropertyPriority('--cae-wide-layout-owner-offset-x')"), "important")
+        XCTAssertTrue(try harness.value("window.__hiddenMarkedEditor.getAttribute('data-cae-wide-layout-editor')").isNull)
+        XCTAssertEqual(
+            try harness.string("document.querySelector('[data-app-shell-main-content-layout]').style.getPropertyValue('--thread-composer-max-width')"),
+            "min(1800px, max(1px, calc(100% - 48px)))"
+        )
+        XCTAssertEqual(try harness.string("document.querySelector('[data-app-shell-main-content-layout]').style.getPropertyValue('--thread-content-max-width')"), "")
+        XCTAssertTrue(try harness.bool("document.getElementById('cae-wide-layout-style').textContent.includes(\"[class*='thread-content-max-width']:has(\")"))
+        XCTAssertTrue(try harness.bool("document.getElementById('cae-wide-layout-style').textContent.includes('data-cae-wide-layout-editor')"))
+        XCTAssertFalse(try harness.bool("document.getElementById('cae-wide-layout-style').textContent.includes('data-codex-composer')"))
+
+        let diagnosed = try harness.invoke("diagnose", request: harness.request(
+            id: 2, adapterId: "wide-layout", operation: "diagnose", config: [:]
+        ))
+        XCTAssertEqual((diagnosed["result"] as? [String: Any])?["qualified"] as? Bool, true)
+
+        _ = try harness.invoke("uninstall", request: harness.request(
+            id: 3, adapterId: "wide-layout", operation: "uninstall", config: [:]
+        ))
+        XCTAssertTrue(try harness.value("document.querySelector('[data-app-shell-main-content-layout]').getAttribute('data-cae-wide-layout')").isNull)
+        XCTAssertEqual(try harness.string("document.querySelector('[data-app-shell-main-content-layout]').style.getPropertyValue('--thread-composer-max-width')"), "")
+        XCTAssertEqual(try harness.string("window.__canonicalEmptyTaskOwner.style.getPropertyValue('--cae-wide-layout-owner-offset-x')"), "")
+        XCTAssertEqual(try harness.string("window.__hiddenMarkedOwner.style.getPropertyValue('--cae-wide-layout-owner-offset-x')"), "31px")
+        XCTAssertTrue(try harness.value("window.__hiddenMarkedEditor.getAttribute('data-cae-wide-layout-editor')").isNull)
+        XCTAssertTrue(try harness.value("document.getElementById('cae-wide-layout-style')").isNull)
+    }
+
+    func testWideLayoutTracksPendingEmptyOwnerClassBidirectionally() throws {
+        let harness = try JSRuntimeHarness(fixture: "current-surface")
+        try harness.evaluate("""
+        document.__loadFixture('<main data-app-shell-main-content-layout data-empty-task></main>');
+        (() => {
+          const layout = document.querySelector('[data-app-shell-main-content-layout]');
+          const owner = layout.querySelectorAll("[class*='thread-composer-max-width']")[0];
+          owner.setAttribute('class', 'pending-empty-composer-shell');
+          layout.registerAll("[class*='thread-content-max-width']", []);
+          layout.registerAll("[class*='thread-composer-max-width']", []);
+          window.__pendingEmptyOwner = owner;
+          window.__dispatchObservedAttribute = (node, attributeName) => {
+            window.__mutationObservers
+              .filter((observer) => !observer.disconnected)
+              .forEach((observer) => observer.targets.forEach((target, index) => {
+                const optionOffset = Math.max(0, (observer.options?.length || 0) - observer.targets.length);
+                const options = observer.options?.[optionOffset + index] || {};
+                const inScope = target === node || (options.subtree === true && target.contains(node));
+                const attributeAllowed = !Array.isArray(options.attributeFilter) ||
+                  options.attributeFilter.includes(attributeName);
+                if (options.attributes === true && inScope && attributeAllowed) {
+                  observer.callback([{ type: 'attributes', target: node, attributeName }]);
+                }
+              }));
+          };
+        })();
+        """)
+        try harness.loadAdapter("wide-layout")
+
+        let waiting = try harness.invoke("install", request: harness.request(
+            id: 1,
+            adapterId: "wide-layout",
+            operation: "install",
+            config: harness.defaultConfig(adapterId: "wide-layout")
+        ))
+        let waitingResult = try XCTUnwrap(waiting["result"] as? [String: Any])
+        XCTAssertEqual(waitingResult["qualified"] as? Bool, false)
+        XCTAssertEqual(waitingResult["recoverable"] as? Bool, true)
+        XCTAssertEqual(waitingResult["reason"] as? String, "wide-composer-owner-missing")
+        XCTAssertTrue(try harness.bool("window.__mutationObservers.some((observer) => !observer.disconnected && observer.targets.includes(window.__pendingEmptyOwner))"))
+
+        try harness.evaluate("""
+        (() => {
+          const layout = document.querySelector('[data-app-shell-main-content-layout]');
+          window.__pendingEmptyOwner.setAttribute('class', 'mx-auto max-w-(--thread-content-max-width)');
+          layout.registerAll("[class*='thread-content-max-width']", [window.__pendingEmptyOwner]);
+          window.__dispatchObservedAttribute(window.__pendingEmptyOwner, 'class');
+        })();
+        """)
+        XCTAssertEqual(try harness.int("window.__rafQueue.length"), 1)
+        try harness.evaluate("window.__flushRAF(); window.__flushTimers();")
+        XCTAssertTrue(try harness.bool("window.__codexAppExtensionV2.performanceSnapshot().observers.find((item) => item.adapterId === 'wide-layout').qualified === true"))
+        XCTAssertTrue(try harness.bool("window.__codexAppExtensionV2.performanceSnapshot().observers.find((item) => item.adapterId === 'wide-layout').recoverable === false"))
+        XCTAssertEqual(try harness.string("window.__pendingEmptyOwner.style.getPropertyValue('--cae-wide-layout-owner-offset-x')"), "0px")
+
+        try harness.evaluate("""
+        (() => {
+          const layout = document.querySelector('[data-app-shell-main-content-layout]');
+          window.__pendingEmptyOwner.setAttribute('class', 'pending-empty-composer-shell');
+          layout.registerAll("[class*='thread-content-max-width']", []);
+          window.__dispatchObservedAttribute(window.__pendingEmptyOwner, 'class');
+        })();
+        """)
+        XCTAssertEqual(try harness.int("window.__rafQueue.length"), 1)
+        try harness.evaluate("window.__flushRAF(); window.__flushTimers();")
+        XCTAssertTrue(try harness.bool("window.__codexAppExtensionV2.performanceSnapshot().observers.find((item) => item.adapterId === 'wide-layout').qualified === false"))
+        XCTAssertTrue(try harness.bool("window.__codexAppExtensionV2.performanceSnapshot().observers.find((item) => item.adapterId === 'wide-layout').recoverable === true"))
+        XCTAssertEqual(try harness.string("window.__pendingEmptyOwner.style.getPropertyValue('--cae-wide-layout-owner-offset-x')"), "")
+        XCTAssertEqual(try harness.string("document.querySelector('[data-app-shell-main-content-layout]').getAttribute('data-cae-wide-layout')"), "true")
+        XCTAssertEqual(
+            try harness.string("document.querySelector('[data-app-shell-main-content-layout]').style.getPropertyValue('--thread-composer-max-width')"),
+            "min(1800px, max(1px, calc(100% - 48px)))"
+        )
+
+        _ = try harness.invoke("uninstall", request: harness.request(
+            id: 2, adapterId: "wide-layout", operation: "uninstall", config: [:]
+        ))
+        XCTAssertTrue(try harness.value("document.querySelector('[data-app-shell-main-content-layout]').getAttribute('data-cae-wide-layout')").isNull)
+        XCTAssertEqual(try harness.string("document.querySelector('[data-app-shell-main-content-layout]').style.getPropertyValue('--thread-composer-max-width')"), "")
+        XCTAssertTrue(try harness.value("document.querySelector(\".ProseMirror[contenteditable='true']\").getAttribute('data-cae-wide-layout-editor')").isNull)
+        XCTAssertTrue(try harness.value("document.getElementById('cae-wide-layout-style')").isNull)
+        XCTAssertTrue(try harness.bool("window.__mutationObservers.every((observer) => observer.disconnected)"))
+        XCTAssertEqual(try harness.int("window.__rafQueue.length"), 0)
+        XCTAssertEqual(try harness.int("window.__timerQueue.length"), 0)
+    }
+
     func testWideLayoutSwitchesBetweenEmptyTaskAndSessionWithoutScopeResidue() throws {
         let harness = try JSRuntimeHarness(fixture: "current-surface")
         try harness.evaluate("document.__loadFixture('<main data-app-shell-main-content-layout data-empty-task></main>')")
@@ -1827,7 +2030,8 @@ final class AdapterFixtureTests: XCTestCase {
         window.__flushRAF();
         window.__flushTimers();
         """)
-        XCTAssertFalse(try harness.bool("window.__codexAppExtensionV2.surface().qualified"))
+        XCTAssertTrue(try harness.bool("window.__codexAppExtensionV2.surface().qualified"))
+        XCTAssertEqual(try harness.string("window.__codexAppExtensionV2.surface().kind"), "empty-composer")
         XCTAssertTrue(try harness.value("document.querySelector('.thread-scroll-container')").isNull)
         XCTAssertTrue(try harness.value("window.__oldSessionScroller.getAttribute('data-cae-wide-layout')").isNull)
         XCTAssertEqual(try harness.string("window.__oldSessionScroller.style.getPropertyValue('--thread-content-max-width')"), "")
@@ -1878,6 +2082,102 @@ final class AdapterFixtureTests: XCTestCase {
             id: 2, adapterId: "wide-layout", operation: "uninstall", config: [:]
         ))
         XCTAssertEqual(try harness.int("window.__codexAppExtensionV2.observerCount()"), 0)
+    }
+
+    func testQualifiedEmptyNewChatRunsLayoutAndInputAdaptersWhileMarkdownWaits() throws {
+        let harness = try JSRuntimeHarness(fixture: "current-surface")
+        try harness.evaluate("""
+        (() => {
+          document.__loadFixture('<main data-app-shell-main-content-layout data-empty-task></main>');
+          const editor = document.querySelector(".ProseMirror[contenteditable='true']");
+          editor.removeAttribute('data-codex-composer');
+          document.__registerAll(".ProseMirror[data-codex-composer='true'][contenteditable='true'], .ProseMirror[data-codex-composer='true'][contenteditable='plaintext-only']", []);
+          document.__registerAll('[data-codex-composer]', []);
+        })();
+        """)
+        for adapter in ["wide-layout", "header-offset", "ime-enter-guard", "markdown-semantic-theme"] {
+            try harness.loadAdapter(adapter)
+        }
+
+        var responses: [String: [String: Any]] = [:]
+        for (index, adapter) in ["wide-layout", "header-offset", "ime-enter-guard", "markdown-semantic-theme"].enumerated() {
+            responses[adapter] = try harness.invoke("install", request: harness.request(
+                id: index + 1,
+                adapterId: adapter,
+                operation: "install",
+                config: harness.defaultConfig(adapterId: adapter)
+            ))
+        }
+
+        XCTAssertTrue(try harness.bool("window.__codexAppExtensionV2.surface().qualified"))
+        XCTAssertEqual(try harness.string("window.__codexAppExtensionV2.surface().kind"), "empty-composer")
+        XCTAssertEqual(try harness.string("window.__codexAppExtensionV2.surface().editorSignal"), "fallback")
+        XCTAssertEqual((responses["wide-layout"]?["result"] as? [String: Any])?["qualified"] as? Bool, true)
+        XCTAssertEqual((responses["header-offset"]?["result"] as? [String: Any])?["qualified"] as? Bool, true)
+        XCTAssertEqual((responses["ime-enter-guard"]?["result"] as? [String: Any])?["qualified"] as? Bool, true)
+        XCTAssertEqual((responses["markdown-semantic-theme"]?["result"] as? [String: Any])?["qualified"] as? Bool, false)
+        XCTAssertEqual((responses["markdown-semantic-theme"]?["result"] as? [String: Any])?["recoverable"] as? Bool, true)
+        XCTAssertEqual(try harness.string("document.querySelector('[data-app-shell-main-content-layout]').getAttribute('data-cae-wide-layout')"), "true")
+        XCTAssertEqual(try harness.string("document.querySelector(\".ProseMirror[contenteditable='true']\").getAttribute('data-cae-wide-layout-editor')"), "true")
+        XCTAssertTrue(try harness.bool("document.getElementById('cae-wide-layout-style').textContent.includes(\"[data-cae-wide-layout-editor='true']\")"))
+        XCTAssertEqual(try harness.string("document.querySelector('[data-app-shell-main-content-layout]').getAttribute('data-cae-header-offset')"), "true")
+        XCTAssertEqual(try harness.string("document.querySelector(\".ProseMirror[contenteditable='true']\").getAttribute('data-cae-ime-enter-guard')"), "true")
+        XCTAssertTrue(try harness.value("document.getElementById('cae-markdown-semantic-theme-style')").isNull)
+
+        try harness.evaluate("""
+        (() => {
+          const editor = document.querySelector(".ProseMirror[contenteditable='true']");
+          const owner = editor.parentElement;
+          owner.setAttribute('aria-hidden', 'true');
+          window.__dispatchObservedAttribute(owner, 'aria-hidden');
+        })();
+        window.__flushRAF();
+        window.__flushTimers();
+        """)
+        XCTAssertFalse(try harness.bool("window.__codexAppExtensionV2.surface().qualified"))
+        XCTAssertTrue(try harness.value("document.querySelector('[data-app-shell-main-content-layout]').getAttribute('data-cae-wide-layout')").isNull)
+        XCTAssertTrue(try harness.value("document.querySelector(\".ProseMirror[contenteditable='true']\").getAttribute('data-cae-ime-enter-guard')").isNull)
+
+        try harness.evaluate("""
+        (() => {
+          const owner = document.querySelector(".ProseMirror[contenteditable='true']").parentElement;
+          owner.removeAttribute('aria-hidden');
+          window.__dispatchObservedAttribute(owner, 'aria-hidden');
+        })();
+        window.__flushRAF();
+        window.__flushTimers();
+        """)
+        XCTAssertTrue(try harness.bool("window.__codexAppExtensionV2.surface().qualified"))
+        XCTAssertEqual(try harness.string("window.__codexAppExtensionV2.surface().editorSignal"), "fallback")
+        XCTAssertEqual(try harness.string("document.querySelector('[data-app-shell-main-content-layout]').getAttribute('data-cae-wide-layout')"), "true")
+        XCTAssertEqual(try harness.string("document.querySelector(\".ProseMirror[contenteditable='true']\").getAttribute('data-cae-ime-enter-guard')"), "true")
+
+        try harness.evaluate("""
+        (() => {
+          const editor = document.querySelector(".ProseMirror[contenteditable='true']");
+          editor.setAttribute('data-codex-composer', 'true');
+          document.__registerAll(".ProseMirror[data-codex-composer='true'][contenteditable='true'], .ProseMirror[data-codex-composer='true'][contenteditable='plaintext-only']", [editor]);
+          document.__registerAll('[data-codex-composer]', [editor]);
+        })();
+        document.__setSurfaceMode('session');
+        window.__triggerMutation(1);
+        window.__flushRAF();
+        window.__flushTimers();
+        """)
+        XCTAssertTrue(try harness.bool("window.__codexAppExtensionV2.surface().qualified"))
+        XCTAssertEqual(try harness.string("window.__codexAppExtensionV2.surface().kind"), "thread")
+        XCTAssertTrue(try harness.bool("window.__codexAppExtensionV2.performanceSnapshot().observers.every((item) => item.qualified === true && item.recoverable === false)"))
+        XCTAssertEqual(try harness.string("document.querySelector('.thread-scroll-container').getAttribute('data-cae-wide-layout')"), "true")
+        XCTAssertEqual(try harness.string("document.querySelector('.thread-scroll-container').getAttribute('data-cae-markdown-theme')"), "true")
+
+        try uninstallAll(in: harness)
+        XCTAssertEqual(try harness.int("window.__codexAppExtensionV2.observerCount()"), 0)
+        XCTAssertEqual(try harness.int("window.__rafQueue.length"), 0)
+        XCTAssertEqual(try harness.int("window.__timerQueue.length"), 0)
+        XCTAssertTrue(try harness.value("document.getElementById('cae-wide-layout-style')").isNull)
+        XCTAssertTrue(try harness.value("document.getElementById('cae-header-offset-style')").isNull)
+        XCTAssertTrue(try harness.value("document.getElementById('cae-markdown-semantic-theme-style')").isNull)
+        XCTAssertTrue(try harness.value("document.querySelector(\".ProseMirror[contenteditable='true']\").getAttribute('data-cae-wide-layout-editor')").isNull)
     }
 
     func testObserverBusUsesStableDocumentRootAndThreeQualifiedNativeNodesAndCoalescesBursts() throws {

@@ -457,8 +457,9 @@ private actor PerformanceCDPDouble: CDPCommanding {
             return .object([:])
         }
         recordedExpressions.append(expression)
-        return .object(["result": .object(["value": .array([
-            .object([
+        return .object(["result": .object(["value": .object([
+            "runtimeMissing": .bool(false),
+            "observers": .array([.object([
                 "adapterId": .string("wide-layout"),
                 "strikeCount": .number(3),
                 "durationMilliseconds": .number(9),
@@ -478,7 +479,7 @@ private actor PerformanceCDPDouble: CDPCommanding {
                 "durationMilliseconds": .number(99),
                 "degraded": .bool(true),
                 "qualified": .bool(true)
-            ])
+            ])])
         ])])])
     }
 
@@ -495,15 +496,16 @@ private actor SequencedPerformanceCDPDouble: CDPCommanding {
         guard method == "Runtime.evaluate" else { return .object([:]) }
         pollCount += 1
         let isWaiting = pollCount == 1
-        return .object(["result": .object(["value": .array([
-            .object([
+        return .object(["result": .object(["value": .object([
+            "runtimeMissing": .bool(false),
+            "observers": .array([.object([
                 "adapterId": .string("markdown-semantic-theme"),
                 "strikeCount": .number(0),
                 "durationMilliseconds": .number(2),
                 "degraded": .bool(false),
                 "qualified": .bool(!isWaiting),
                 "recoverable": .bool(isWaiting)
-            ])
+            ])])
         ])])])
     }
 }

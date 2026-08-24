@@ -175,6 +175,160 @@ final class RuntimeControllerTests: XCTestCase {
         XCTAssertEqual(actionsAfterConfirmation, ["terminate:700", "launch"])
     }
 
+    func testRestartTerminationFailurePreservesPendingPlanForExplicitRetry() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("RuntimeControllerRestartRetry-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ConfigStore(applicationSupportDirectory: root)
+        let applications = RuntimeApplicationDouble(pid: 700)
+        let process = RuntimeProcessDouble()
+        await process.setTerminationFailure(true)
+        let controller = RuntimeController(
+            store: store,
+            migrator: LegacyConfigMigrator(legacyDirectory: root.appendingPathComponent("legacy")),
+            applications: applications,
+            lifecycle: AppLifecycleMonitor(inspector: applications),
+            sessionManager: DebugSessionManager(portAllocator: RuntimePortDouble(), processController: process),
+            pipeline: RuntimePipelineDouble(),
+            healthCenter: HealthCenter(),
+            launchAtLoginController: RuntimeLoginDouble(),
+            monitorPolicy: .disabled
+        )
+
+        await controller.start()
+        await controller.confirmRestart()
+
+        let failedSnapshot = await controller.snapshot()
+        let actionsAfterFailure = await process.actions()
+        XCTAssertTrue(failedSnapshot.pendingRestartConfirmation)
+        XCTAssertNotNil(failedSnapshot.lastError)
+        XCTAssertEqual(actionsAfterFailure, ["terminate:700"])
+
+        await process.setTerminationFailure(false)
+        await controller.confirmRestart()
+
+        let recoveredSnapshot = await controller.snapshot()
+        let actionsAfterRetry = await process.actions()
+        XCTAssertFalse(recoveredSnapshot.pendingRestartConfirmation)
+        XCTAssertNil(recoveredSnapshot.lastError)
+        XCTAssertEqual(actionsAfterRetry, ["terminate:700", "terminate:700", "launch"])
+    }
+
+    func testRestartLaunchFailureRetriesLaunchWithoutTerminatingExitedProcessAgain() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("RuntimeControllerLaunchRetry-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ConfigStore(applicationSupportDirectory: root)
+        let applications = RuntimeApplicationDouble(pid: 700)
+        let process = RuntimeProcessDouble(applications: applications)
+        await process.setLaunchFailure(true)
+        let controller = RuntimeController(
+            store: store,
+            migrator: LegacyConfigMigrator(legacyDirectory: root.appendingPathComponent("legacy")),
+            applications: applications,
+            lifecycle: AppLifecycleMonitor(inspector: applications),
+            sessionManager: DebugSessionManager(portAllocator: RuntimePortDouble(), processController: process),
+            pipeline: RuntimePipelineDouble(),
+            healthCenter: HealthCenter(),
+            launchAtLoginController: RuntimeLoginDouble(),
+            monitorPolicy: .disabled
+        )
+
+        await controller.start()
+        await controller.confirmRestart()
+
+        let failedSnapshot = await controller.snapshot()
+        let actionsAfterFailure = await process.actions()
+        XCTAssertTrue(failedSnapshot.pendingRestartConfirmation)
+        XCTAssertEqual(failedSnapshot.runtime.process, .notRunning)
+        XCTAssertNotNil(failedSnapshot.lastError)
+        XCTAssertEqual(actionsAfterFailure, ["terminate:700", "launch"])
+
+        await process.setLaunchFailure(false)
+        await controller.confirmRestart()
+
+        let recoveredSnapshot = await controller.snapshot()
+        let actionsAfterRetry = await process.actions()
+        XCTAssertFalse(recoveredSnapshot.pendingRestartConfirmation)
+        XCTAssertNil(recoveredSnapshot.lastError)
+        XCTAssertEqual(actionsAfterRetry, ["terminate:700", "launch", "launch"])
+    }
+
+    func testSuspendedRefreshCannotRestoreRestartPlanAfterConfirmationCompletes() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("RuntimeControllerStaleRefresh-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let applications = RuntimeApplicationDouble(pid: 700)
+        let process = RuntimeProcessDouble()
+        let controller = RuntimeController(
+            store: ConfigStore(applicationSupportDirectory: root),
+            migrator: LegacyConfigMigrator(legacyDirectory: root.appendingPathComponent("legacy")),
+            applications: applications,
+            lifecycle: AppLifecycleMonitor(inspector: applications),
+            sessionManager: DebugSessionManager(portAllocator: RuntimePortDouble(), processController: process),
+            pipeline: RuntimePipelineDouble(),
+            healthCenter: HealthCenter(),
+            launchAtLoginController: RuntimeLoginDouble(),
+            monitorPolicy: .disabled
+        )
+
+        await controller.start()
+        await applications.suspendNextInspection()
+        let staleRefresh = Task { await controller.runMonitorCycle() }
+        await applications.waitUntilInspectionSuspended()
+
+        await controller.confirmRestart()
+        await applications.resumeInspection()
+        await staleRefresh.value
+
+        let snapshot = await controller.snapshot()
+        let actions = await process.actions()
+        XCTAssertFalse(snapshot.pendingRestartConfirmation)
+        XCTAssertNil(snapshot.lastError)
+        XCTAssertEqual(actions, ["terminate:700", "launch"])
+    }
+
+    func testRestartConnectFailureConsumesPlanAndMonitorReconnectsWithoutAnotherRestart() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("RuntimeControllerRestartReconnect-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ConfigStore(applicationSupportDirectory: root)
+        let applications = RuntimeApplicationDouble(pid: 700)
+        let process = RuntimeProcessDouble()
+        let pipeline = RuntimePipelineDouble()
+        await pipeline.setConnectFailure(true)
+        let controller = RuntimeController(
+            store: store,
+            migrator: LegacyConfigMigrator(legacyDirectory: root.appendingPathComponent("legacy")),
+            applications: applications,
+            lifecycle: AppLifecycleMonitor(inspector: applications),
+            sessionManager: DebugSessionManager(portAllocator: RuntimePortDouble(), processController: process),
+            pipeline: pipeline,
+            healthCenter: HealthCenter(),
+            launchAtLoginController: RuntimeLoginDouble(),
+            monitorPolicy: .disabled
+        )
+
+        await controller.start()
+        await controller.confirmRestart()
+
+        let failedSnapshot = await controller.snapshot()
+        let actionsAfterFailure = await process.actions()
+        XCTAssertFalse(failedSnapshot.pendingRestartConfirmation)
+        XCTAssertNotNil(failedSnapshot.lastError)
+        XCTAssertEqual(actionsAfterFailure, ["terminate:700", "launch"])
+
+        await applications.set(pid: 701, debugPort: 55_700)
+        await pipeline.setConnectFailure(false)
+        await controller.runMonitorCycle()
+
+        let recoveredSnapshot = await controller.snapshot()
+        let counts = await pipeline.counts()
+        let finalActions = await process.actions()
+        XCTAssertFalse(recoveredSnapshot.pendingRestartConfirmation)
+        XCTAssertNil(recoveredSnapshot.lastError)
+        XCTAssertEqual(recoveredSnapshot.activeTargetIdentifier, "fixture-target")
+        XCTAssertEqual(counts.connect, 1)
+        XCTAssertEqual(counts.reconnect, 1)
+        XCTAssertEqual(finalActions, ["terminate:700", "launch"])
+    }
+
     func testLocalOnlyConfigurationPersistsOfflineWithoutPageApply() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("RuntimeControllerLocal-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -411,15 +565,18 @@ private actor RuntimePipelineDouble: RuntimePipelining {
     private var reconnectCalls = 0
     private var stopCalls = 0
     private var ready = false
+    private var connectShouldFail = false
     private var failingOperation: PageRuntimeOperation?
     private var operations: [PageRuntimeOperation] = []
     func rejectWidth(_ width: Int) { rejected = width }
     func rejectAdapters(_ identifiers: Set<FeatureIdentifier>) { rejectedAdapters = identifiers }
     func setReady(_ value: Bool) { ready = value }
+    func setConnectFailure(_ value: Bool) { connectShouldFail = value }
     func setFailingOperation(_ operation: PageRuntimeOperation?) { failingOperation = operation }
-    func connect(port: UInt16, configuration: AppConfiguration) {
+    func connect(port: UInt16, configuration: AppConfiguration) throws {
         connectCalls += 1
         connectWidths.append(configuration.features.wideLayout.maximumContentWidth)
+        if connectShouldFail { throw RuntimeControllerError.configurationRejected("fixture-connect") }
         ready = true
     }
     func apply(configuration: AppConfiguration, operation: PageRuntimeOperation) throws {
@@ -463,9 +620,30 @@ private actor RuntimePipelineDouble: RuntimePipelining {
 private actor RuntimeApplicationDouble: ApplicationServicing {
     private var pid: Int32?
     private var debugPort: UInt16?
+    private var shouldSuspendNextInspection = false
+    private var inspectionIsSuspended = false
+    private var inspectionEntryWaiters: [CheckedContinuation<Void, Never>] = []
+    private var inspectionResumeContinuation: CheckedContinuation<Void, Never>?
     init(pid: Int32?, debugPort: UInt16? = nil) { self.pid = pid; self.debugPort = debugPort }
     func set(pid: Int32?, debugPort: UInt16?) { self.pid = pid; self.debugPort = debugPort }
-    func runningApplications() -> [RunningApplicationDescriptor] {
+    func suspendNextInspection() { shouldSuspendNextInspection = true }
+    func waitUntilInspectionSuspended() async {
+        if inspectionIsSuspended { return }
+        await withCheckedContinuation { inspectionEntryWaiters.append($0) }
+    }
+    func resumeInspection() {
+        inspectionResumeContinuation?.resume()
+        inspectionResumeContinuation = nil
+    }
+    func runningApplications() async -> [RunningApplicationDescriptor] {
+        if shouldSuspendNextInspection {
+            shouldSuspendNextInspection = false
+            inspectionIsSuspended = true
+            inspectionEntryWaiters.forEach { $0.resume() }
+            inspectionEntryWaiters.removeAll()
+            await withCheckedContinuation { inspectionResumeContinuation = $0 }
+            inspectionIsSuspended = false
+        }
         guard let pid else { return [] }
         return [.init(processIdentifier: pid, bundleIdentifier: "com.openai.codex", executableURL: AppLifecycleMonitor.expectedExecutableURL, debugPort: debugPort)]
     }
@@ -476,8 +654,22 @@ private actor RuntimeApplicationDouble: ApplicationServicing {
 
 private actor RuntimeProcessDouble: DebugProcessControlling {
     private var recorded: [String] = []
-    func terminate(processIdentifier: Int32) { recorded.append("terminate:\(processIdentifier)") }
-    func launch(applicationURL: URL, arguments: [String]) -> Int32 { recorded.append("launch"); return 701 }
+    private var terminationShouldFail = false
+    private var launchShouldFail = false
+    private let applications: RuntimeApplicationDouble?
+    init(applications: RuntimeApplicationDouble? = nil) { self.applications = applications }
+    func setTerminationFailure(_ value: Bool) { terminationShouldFail = value }
+    func setLaunchFailure(_ value: Bool) { launchShouldFail = value }
+    func terminate(processIdentifier: Int32) async throws {
+        recorded.append("terminate:\(processIdentifier)")
+        if terminationShouldFail { throw RuntimeControllerError.configurationRejected("fixture-terminate") }
+        await applications?.set(pid: nil, debugPort: nil)
+    }
+    func launch(applicationURL: URL, arguments: [String]) throws -> Int32 {
+        recorded.append("launch")
+        if launchShouldFail { throw RuntimeControllerError.configurationRejected("fixture-launch") }
+        return 701
+    }
     func actions() -> [String] { recorded }
 }
 

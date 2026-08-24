@@ -4,6 +4,7 @@
   const adapterId = "wide-layout";
   const styleId = "cae-wide-layout-style";
   const marker = "data-cae-wide-layout";
+  const emptyEditorMarker = "data-cae-wide-layout-editor";
   const properties = [
     "--thread-content-max-width",
     "--thread-composer-max-width",
@@ -18,6 +19,8 @@
     "[class*='thread-floating-content-top-inset'][class*='thread-floating-content-bottom-inset']",
     "[data-codex-app-extension-native-floating-panel='true']"
   ].join(", ");
+  // 新版宿主只在 thread summary rail 展开时同时挂载这两项 PIP 占位属性。
+  const persistentRailPIPSurface = "thread-summary-panel";
   const transientOverlayRoles = new Set(["menu", "listbox", "dialog"]);
   const excludedContentScope = [
     "[data-selected-text-overlay-target]",
@@ -44,6 +47,8 @@
   let target = null;
   let attributeSnapshot = null;
   let propertySnapshots = null;
+  let emptyEditor = null;
+  let emptyEditorAttributeSnapshot = null;
   let styleSnapshot = null;
   let geometryObserver = null;
   let geometryMutationObserver = null;
@@ -58,6 +63,7 @@
   let geometryFrame = null;
   let recoveryUpdateSequence = 0;
   let ownerClassSyncPending = false;
+  let railGeometryDirty = false;
   let windowResizeBound = false;
   let cachedOrdinaryIdentity = null;
   let lastPublicState = null;
@@ -115,7 +121,7 @@
     const outsideTransientOverlay = ":not([role='menu'], [role='menu'] *, [role='listbox'], [role='listbox'] *, [role='dialog'], [role='dialog'] *)";
     const markdownTable = `${scrollerScope} [data-selected-text-overlay-target] [data-markdown-table]${outsideTransientOverlay}`;
     const markdownTableBody = `table${outsideTransientOverlay}`;
-    const activeEditor = ":is(.ProseMirror[data-codex-composer='true'][contenteditable='true'], .ProseMirror[data-codex-composer='true'][contenteditable='plaintext-only'])";
+    const activeEditor = `:is(.ProseMirror[${emptyEditorMarker}='true'][contenteditable='true'], .ProseMirror[${emptyEditorMarker}='true'][contenteditable='plaintext-only'])`;
     const widthOwners = [canonicalWidthConsumer, composerWidthConsumer];
     const outsideOwnerAncestor = widthOwners
       .map((selector) => `:not(${selector} *)`)
@@ -151,6 +157,7 @@
     return [
       rule(scrollerScope, canonicalWidthConsumer, "--thread-content-max-width"),
       rule(scrollerScope, composerWidthConsumer, "--thread-composer-max-width"),
+      rule(emptyTaskScope, `${canonicalWidthConsumer}:has(${activeEditor})`, "--thread-composer-max-width"),
       rule(emptyTaskScope, `${composerWidthConsumer}:has(${activeEditor})`, "--thread-composer-max-width"),
       tableContainment
     ].join("\n");
@@ -193,6 +200,11 @@
       borderWidth > 0;
   }
 
+  function isActivePersistentRailObstacle(element) {
+    return element.getAttribute?.("data-pip-home-surface") === persistentRailPIPSurface &&
+      element.getAttribute?.("data-pip-obstacle") === persistentRailPIPSurface;
+  }
+
   function isWithinTransientRailSubtree(element, railShell) {
     for (let current = element; current && current !== railShell; current = current.parentElement) {
       if (transientOverlayRoles.has(current.getAttribute?.("role"))) return true;
@@ -226,12 +238,15 @@
       if (!hasVisibleRenderChain(component, railShell)) return false;
       const horizontalOverlap = Math.min(rect.right, railRect.right, referenceRect.right) -
         Math.max(rect.left, railRect.left, referenceRect.left);
-      const verticalOverlap = Math.min(rect.bottom, railRect.bottom, referenceRect.bottom) -
-        Math.max(rect.top, railRect.top, referenceRect.top);
-      if (horizontalOverlap < Math.min(80, rect.width / 2) || verticalOverlap < Math.min(24, rect.height / 2)) {
-        return false;
-      }
-      return true;
+      if (horizontalOverlap < Math.min(80, rect.width / 2)) return false;
+      // The host can select a full-width composer row as the layout reference
+      // while the explicit PIP obstacle occupies the top of the same rail.
+      // The dual PIP contract reserves the stable shell, so only its own
+      // vertical intersection with that shell is relevant.
+      const verticalReference = isActivePersistentRailObstacle(component) ? railRect : referenceRect;
+      const verticalOverlap = Math.min(rect.bottom, railRect.bottom, verticalReference.bottom) -
+        Math.max(rect.top, railRect.top, verticalReference.top);
+      return verticalOverlap >= Math.min(24, rect.height / 2);
     });
   }
 
@@ -257,7 +272,8 @@
       const bodies = panelBodyCandidates(element);
       return {
         element,
-        renderedComponents: bodies.filter(hasPaintedPanelAppearance)
+        renderedComponents: bodies.filter((body) =>
+          hasPaintedPanelAppearance(body) || isActivePersistentRailObstacle(body))
       };
     });
   }
@@ -298,7 +314,7 @@
   }
 
   function wideSurfaceState(surface) {
-    if (surface?.qualified) {
+    if (surface?.threadScrollerCount === 1 && surface.threadScroller) {
       const owners = enhancedWidthOwners(surface.threadScroller);
       return {
         scope: surface.threadScroller,
@@ -339,7 +355,7 @@
         reachedLayout = true;
         break;
       }
-      if ((current.getAttribute?.("class") ?? "").includes("thread-composer-max-width")) {
+      if (isWidthOwnerNode(current)) {
         pathOwners.push(current);
       }
     }
@@ -504,6 +520,8 @@
 
   function appliedStateMatches() {
     if (!target || !lastPublicState || target.getAttribute(marker) !== "true") return false;
+    if (lastPublicState.emptyTask &&
+        (!emptyEditor || emptyEditor.getAttribute(emptyEditorMarker) !== "true")) return false;
     const style = document.getElementById(styleId);
     if (!styleSnapshot || style !== styleSnapshot.node || style.textContent !== desiredStyleText()) return false;
     const propertiesMatch = lastPublicState.emptyTask
@@ -525,7 +543,10 @@
   }
 
   function pendingWidthOwnerNodes(currentSurface, scope, owners) {
-    if (owners.length > 0 || scope !== currentSurface?.threadScroller || !currentSurface?.editor) return [];
+    const observesThreadPath = scope === currentSurface?.threadScroller;
+    const observesEmptyPath = currentSurface?.threadScrollerCount === 0 &&
+      scope === currentSurface?.layoutRoot;
+    if (owners.length > 0 || (!observesThreadPath && !observesEmptyPath) || !currentSurface?.editor) return [];
     const nodes = [];
     const visited = new Set();
     for (let current = currentSurface.editor.parentElement; current; current = current.parentElement) {
@@ -621,6 +642,10 @@
   }
 
   function handleGeometryMutations(records) {
+    if (records.some((record) => observedRailShells.some((railShell) =>
+        record?.target === railShell || railShell.contains?.(record?.target)))) {
+      railGeometryDirty = true;
+    }
     if (records.some((record) => record?.type === "attributes" &&
         record.attributeName === "class" &&
         (observedWidthOwners.includes(record.target) || observedPendingWidthOwnerNodes.includes(record.target)))) {
@@ -639,6 +664,10 @@
       observedRailShells.includes(event.currentTarget) &&
       panelBodyCandidates(event.currentTarget).includes(event.target);
     if (event.target !== event.currentTarget && !delegatedRailMotion) return;
+    if (observedRailShells.some((railShell) =>
+        railShell === event.currentTarget || railShell.contains?.(event.currentTarget))) {
+      railGeometryDirty = true;
+    }
     const key = geometryMotionKey(event);
     const ending = event.type.endsWith("end") || event.type.endsWith("cancel");
     const motionTarget = event.target;
@@ -702,7 +731,7 @@
         attributeFilter: ["class", "style", "hidden", "aria-hidden", "data-state"]
       }));
       // 新任务页会复用已挂载的祖先节点，再原地补上 width-owner class。
-      // 等待态只观察唯一 editor 到 scroller 的有限祖先链，避免全子树属性噪声。
+      // 等待态只观察唯一 editor 到当前 surface scope 的有限祖先链，避免全子树属性噪声。
       observedPendingWidthOwnerNodes.forEach((node) => geometryMutationObserver.observe(node, {
         attributes: true,
         attributeFilter: ["class"]
@@ -711,7 +740,10 @@
         attributes: true,
         childList: true,
         subtree: true,
-        attributeFilter: ["class", "style", "hidden", "aria-hidden", "data-state"]
+        attributeFilter: [
+          "class", "style", "hidden", "aria-hidden", "data-state",
+          "data-pip-home-surface", "data-pip-obstacle"
+        ]
       }));
       observedNativeShiftNodes.forEach((node) => geometryMutationObserver.observe(node, {
         attributes: true,
@@ -729,6 +761,7 @@
     observedWidthOwners = [];
     observedPendingWidthOwnerNodes = [];
     ownerClassSyncPending = false;
+    railGeometryDirty = false;
     observedRailShells = [];
     observedNativeShiftNodes = [];
     rebindMotionListeners([]);
@@ -838,8 +871,28 @@
     return changed;
   }
 
+  function restoreEmptyEditor() {
+    if (!emptyEditor) return false;
+    const changed = restoreAttribute(emptyEditor, emptyEditorMarker, emptyEditorAttributeSnapshot);
+    emptyEditor = null;
+    emptyEditorAttributeSnapshot = null;
+    return changed;
+  }
+
+  function bindEmptyEditor(nextEditor) {
+    let changed = false;
+    if (emptyEditor && emptyEditor !== nextEditor) changed = restoreEmptyEditor();
+    if (!nextEditor) return restoreEmptyEditor() || changed;
+    if (!emptyEditor) {
+      emptyEditor = nextEditor;
+      emptyEditorAttributeSnapshot = captureAttribute(emptyEditor, emptyEditorMarker);
+    }
+    return writeAttribute(emptyEditor, emptyEditorMarker, "true") || changed;
+  }
+
   function restoreTarget() {
-    let changed = restoreOwnerProperties();
+    let changed = restoreEmptyEditor();
+    changed = restoreOwnerProperties() || changed;
     if (!target) return changed;
     changed = restoreAttribute(target, marker, attributeSnapshot) || changed;
     changed = restoreProperties(target, propertySnapshots) || changed;
@@ -883,7 +936,7 @@
     const railCandidates = persistentRailCandidates();
     const identity = ordinaryIdentity(currentSurface, scope, owners, railCandidates);
     const ordinaryRefresh = reason === "animation-frame" || reason === "settled";
-    if (ordinaryRefresh && activeConfig && wideSurface.qualified &&
+    if (ordinaryRefresh && !railGeometryDirty && activeConfig && wideSurface.qualified &&
         target === scope && sameOrdinaryIdentity(identity, cachedOrdinaryIdentity) &&
         appliedStateMatches()) {
       return { changed: false, qualified: true, recoverable: false, ...lastPublicState };
@@ -892,6 +945,7 @@
     bindGeometryObservers(currentSurface, scope, owners, railRecords);
     const contentCandidateCount = owners.length;
     if (!activeConfig || !scope) {
+      railGeometryDirty = false;
       clearOrdinaryCache();
       let changed = restoreTarget();
       changed = restoreStyle() || changed;
@@ -911,6 +965,7 @@
         ? ["--thread-composer-max-width"]
         : properties);
     }
+    changed = bindEmptyEditor(wideSurface.emptyTask ? currentSurface.editor : null) || changed;
     changed = ensureStyle() || changed;
     changed = writeAttribute(target, marker, "true") || changed;
     const state = layoutState(target, owners, railRecords);
@@ -927,6 +982,7 @@
     cachedOrdinaryIdentity = identity;
     lastPublicState = publicState;
     lastOwnerOffsets = state.ownerOffsets.slice();
+    railGeometryDirty = false;
     return {
       changed,
       qualified: wideSurface.qualified,
@@ -952,6 +1008,10 @@
     if (!unsubscribe) return { qualified: false, reason: "adapter-observer-missing" };
     if (target !== wideSurface.scope) return { qualified: false, reason: "adapter-target-stale" };
     if (target.getAttribute(marker) !== "true") return { qualified: false, reason: "adapter-marker-missing" };
+    if (wideSurface.emptyTask &&
+        (emptyEditor !== surface.editor || emptyEditor?.getAttribute(emptyEditorMarker) !== "true")) {
+      return { qualified: false, reason: "adapter-editor-marker-missing" };
+    }
     const style = document.getElementById(styleId);
     if (!styleSnapshot || style !== styleSnapshot.node || !style.textContent.includes(marker)) {
       return { qualified: false, reason: "adapter-style-missing" };

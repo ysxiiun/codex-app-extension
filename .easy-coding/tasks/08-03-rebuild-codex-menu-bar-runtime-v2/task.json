@@ -4,7 +4,7 @@
   "status": "COMPLETE",
   "created_at": "2026-08-03T06:36:53.293434+00:00",
   "created_by": "codex",
-  "last_agent": "root",
+  "last_agent": "codex",
   "stage_history": [
     {
       "stage": "INIT",
@@ -22,7 +22,7 @@
       "entered_at": "2026-08-03T06:45:27.063142+00:00"
     },
     {
-      "stage": "REVIEW",
+      "stage": "QUALITY",
       "agent": "codex",
       "entered_at": "2026-08-03T10:00:58.028433+00:00"
     },
@@ -32,7 +32,7 @@
       "entered_at": "2026-08-03T10:09:22.678233+00:00"
     },
     {
-      "stage": "REVIEW",
+      "stage": "QUALITY",
       "agent": "codex",
       "entered_at": "2026-08-03T10:38:37.358302+00:00"
     },
@@ -42,14 +42,9 @@
       "entered_at": "2026-08-03T10:41:39.124700+00:00"
     },
     {
-      "stage": "REVIEW",
+      "stage": "QUALITY",
       "agent": "codex",
       "entered_at": "2026-08-03T10:50:33.351278+00:00"
-    },
-    {
-      "stage": "VERIFICATION",
-      "agent": "codex",
-      "entered_at": "2026-08-03T10:53:01.719854+00:00"
     },
     {
       "stage": "IMPLEMENT",
@@ -57,7 +52,7 @@
       "entered_at": "2026-08-03T10:59:47.659143+00:00"
     },
     {
-      "stage": "REVIEW",
+      "stage": "QUALITY",
       "agent": "codex",
       "entered_at": "2026-08-03T11:15:43.999131+00:00"
     },
@@ -67,23 +62,18 @@
       "entered_at": "2026-08-03T11:19:50.068679+00:00"
     },
     {
-      "stage": "REVIEW",
+      "stage": "QUALITY",
       "agent": "codex",
       "entered_at": "2026-08-03T11:22:02.970068+00:00"
     },
     {
-      "stage": "VERIFICATION",
-      "agent": "codex",
-      "entered_at": "2026-08-03T11:22:57.478628+00:00"
-    },
-    {
       "stage": "MEMORY",
-      "agent": "root",
+      "agent": "codex",
       "entered_at": "2026-08-03T11:38:45.059690+00:00"
     },
     {
       "stage": "COMPLETE",
-      "agent": "root",
+      "agent": "codex",
       "entered_at": "2026-08-03T11:40:31.196098+00:00"
     }
   ],

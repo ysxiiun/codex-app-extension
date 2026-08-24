@@ -3,17 +3,17 @@
   "title": "让宽屏布局在新建任务空白页持续生效",
   "status": "COMPLETE",
   "created_at": "2026-08-06T06:33:37.380807+00:00",
-  "created_by": "root",
+  "created_by": "codex",
   "last_agent": "codex",
   "stage_history": [
     {
       "stage": "INIT",
-      "agent": "root",
+      "agent": "codex",
       "entered_at": "2026-08-06T06:33:37.380807+00:00"
     },
     {
       "stage": "ANALYSIS",
-      "agent": "root",
+      "agent": "codex",
       "entered_at": "2026-08-06T06:33:37.444240+00:00"
     },
     {
@@ -22,7 +22,7 @@
       "entered_at": "2026-08-06T07:33:07.045354+00:00"
     },
     {
-      "stage": "REVIEW",
+      "stage": "QUALITY",
       "agent": "codex",
       "entered_at": "2026-08-06T07:49:12.417822+00:00"
     },
@@ -32,14 +32,9 @@
       "entered_at": "2026-08-06T07:53:52.606150+00:00"
     },
     {
-      "stage": "REVIEW",
+      "stage": "QUALITY",
       "agent": "codex",
       "entered_at": "2026-08-06T08:01:28.673406+00:00"
-    },
-    {
-      "stage": "VERIFICATION",
-      "agent": "codex",
-      "entered_at": "2026-08-06T08:03:08.430929+00:00"
     },
     {
       "stage": "IMPLEMENT",
@@ -47,7 +42,7 @@
       "entered_at": "2026-08-06T08:15:50.805015+00:00"
     },
     {
-      "stage": "REVIEW",
+      "stage": "QUALITY",
       "agent": "codex",
       "entered_at": "2026-08-06T08:19:39.063781+00:00"
     },
@@ -57,14 +52,9 @@
       "entered_at": "2026-08-06T08:22:11.336027+00:00"
     },
     {
-      "stage": "REVIEW",
+      "stage": "QUALITY",
       "agent": "codex",
       "entered_at": "2026-08-06T08:23:52.142619+00:00"
-    },
-    {
-      "stage": "VERIFICATION",
-      "agent": "codex",
-      "entered_at": "2026-08-06T08:24:51.905803+00:00"
     },
     {
       "stage": "IMPLEMENT",
@@ -72,7 +62,7 @@
       "entered_at": "2026-08-06T08:30:23.797238+00:00"
     },
     {
-      "stage": "REVIEW",
+      "stage": "QUALITY",
       "agent": "codex",
       "entered_at": "2026-08-06T08:40:02.670510+00:00"
     },
@@ -82,14 +72,9 @@
       "entered_at": "2026-08-06T08:43:28.666792+00:00"
     },
     {
-      "stage": "REVIEW",
+      "stage": "QUALITY",
       "agent": "codex",
       "entered_at": "2026-08-06T08:48:20.436520+00:00"
-    },
-    {
-      "stage": "VERIFICATION",
-      "agent": "codex",
-      "entered_at": "2026-08-06T08:51:51.722071+00:00"
     },
     {
       "stage": "IMPLEMENT",
@@ -97,7 +82,7 @@
       "entered_at": "2026-08-06T11:41:26.494740+00:00"
     },
     {
-      "stage": "REVIEW",
+      "stage": "QUALITY",
       "agent": "codex",
       "entered_at": "2026-08-06T11:53:41.084306+00:00"
     },
@@ -107,14 +92,9 @@
       "entered_at": "2026-08-06T11:58:56.065726+00:00"
     },
     {
-      "stage": "REVIEW",
+      "stage": "QUALITY",
       "agent": "codex",
       "entered_at": "2026-08-06T12:05:59.096158+00:00"
-    },
-    {
-      "stage": "VERIFICATION",
-      "agent": "codex",
-      "entered_at": "2026-08-07T01:57:12.522102+00:00"
     },
     {
       "stage": "MEMORY",

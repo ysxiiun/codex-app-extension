@@ -1,0 +1,106 @@
+{
+  "type": "bugfix",
+  "title": "修复菜单栏确认重启 ChatGPT 无响应与 CDP 无法恢复",
+  "status": "COMPLETE",
+  "created_at": "2026-08-18T03:42:35.089924+00:00",
+  "created_by": "codex",
+  "last_agent": "codex",
+  "stage_history": [
+    {
+      "stage": "INIT",
+      "agent": "codex",
+      "entered_at": "2026-08-18T03:42:35.089924+00:00"
+    },
+    {
+      "stage": "ANALYSIS",
+      "agent": "codex",
+      "entered_at": "2026-08-18T03:42:39.392454+00:00"
+    },
+    {
+      "stage": "IMPLEMENT",
+      "agent": "codex",
+      "entered_at": "2026-08-18T06:27:49.713899+00:00"
+    },
+    {
+      "stage": "QUALITY",
+      "agent": "codex",
+      "entered_at": "2026-08-18T06:45:43.546041+00:00"
+    },
+    {
+      "stage": "MEMORY",
+      "agent": "codex",
+      "entered_at": "2026-08-18T07:22:41.692292+00:00"
+    },
+    {
+      "stage": "COMPLETE",
+      "agent": "codex",
+      "entered_at": "2026-08-18T07:24:29.569208+00:00"
+    }
+  ],
+  "context": {},
+  "spawned_from": null,
+  "spawned_tasks": [],
+  "closed_reason": null,
+  "repos": [],
+  "workflow_mode_proposal": {
+    "configured_mode": "adaptive",
+    "selected_mode": "standard",
+    "minimum_mode": "standard",
+    "source": "adaptive",
+    "reasons": [
+      "重启确认涉及显式破坏性操作和 actor 重入状态一致性，属于受控高风险修复",
+      "计划包含三个顺序单元和六个真实文件，需要 Core、真实菜单栏 UI 与 Release 分层验证"
+    ],
+    "proposed_at": "2026-08-18T03:51:13.010535+00:00",
+    "proposed_by": "codex"
+  },
+  "workflow_mode": "standard",
+  "workflow_mode_confirmed_at": "2026-08-18T06:27:49.713860+00:00",
+  "workflow_mode_confirmed_by": "codex",
+  "tdd_enabled": false,
+  "tdd_coverage_threshold": 90,
+  "tdd_confirmed_at": "2026-08-18T06:27:49.713896+00:00",
+  "tdd_confirmed_by": "codex",
+  "memory_progress": {
+    "short_memory_written": true,
+    "short_memory_file": ".easy-coding/memory/short/SM-01a013c0-83be-729c-a865-77107f0abe89_20260818_菜单重启确认与CDP恢复修复.md",
+    "short_memory_sha256": "d19e47c8f99e5e6f53749a7370008867423c217ad45ea30d0756018e9e971021",
+    "updated_at": "2026-08-18T07:24:24.515518+00:00",
+    "instruction": {
+      "short_count": 6,
+      "short_term_max": 10,
+      "short_term_keep": 5,
+      "action": "no-op",
+      "trim_count": 0,
+      "candidate_files": [],
+      "kept_files": [
+        ".easy-coding/memory/short/SM-019fcfe3-0cfa-7d6b-987c-0edda8fb811c_20260805_Release幂等安装与动态宽屏布局稳定修复.md",
+        ".easy-coding/memory/short/SM-019fd53f-8d9a-7886-be56-6aa8478898ca_20260806_外观重设计与Tab功能彻底移除.md",
+        ".easy-coding/memory/short/SM-019fda0c-9017-72d5-a414-01a80b272a95_20260807_新建任务宽屏与动态右栏连续收敛.md",
+        ".easy-coding/memory/short/SM-019fda3e-d44a-78cc-8ef4-a3d545953de9_20260807_Markdown表格组件内水平滚动.md",
+        ".easy-coding/memory/short/SM-019feee0-c0e1-7ebe-a85e-ddd4f909e151_20260811_新建会话增强捕获与运行时恢复.md",
+        ".easy-coding/memory/short/SM-01a013c0-83be-729c-a865-77107f0abe89_20260818_菜单重启确认与CDP恢复修复.md"
+      ],
+      "checkpoint_disposition": "kept",
+      "architecture_assessment": {
+        "required": false,
+        "trigger": "none",
+        "allowed_actions": [],
+        "abstract": {
+          "path": ".easy-coding/ABSTRACT.md",
+          "exists": true,
+          "non_empty": true,
+          "sha256": "dff034f9d8b54532380137a6cd86da78c0c4814845ec824a6f5ff41fe07056f0"
+        },
+        "changelog": {
+          "path": ".easy-coding/CHANGELOG.md",
+          "exists": false,
+          "non_empty": false,
+          "sha256": null
+        }
+      }
+    },
+    "long_memory_action": "no-op",
+    "completed": true
+  }
+}

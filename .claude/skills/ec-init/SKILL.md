@@ -85,6 +85,11 @@ initialization standard. Check each item:
   and non-empty?
 - **Project profile**: `project.yaml` exists with `mode` and `test` fields (ec-init owns it;
   `config.yaml` is CLI-owned — not ec-init's concern)?
+- **TDD runtime contract**: CLI-owned `config.yaml` has schema 5 TDD defaults and both
+  `.easy-coding/tools/easy_coding_java_coverage.py` and
+  `.easy-coding/tools/easy_coding_tdd_readiness.py` exist? Missing fields or tools mean
+  `easy-coding upgrade` is required; ec-init must not repair them directly. Project-specific
+  JaCoCo/GitLab readiness remains owned by `ec-tdd-init`, not `ec-init`.
 - **Platform hook config freshness**: for each installed platform in `.easy-coding/config.yaml`,
   read the platform hook config and verify managed Easy Coding hook commands use the portable
   relative hook launcher bound to this project root's `project.id`. If `project.id` is missing,
@@ -142,7 +147,14 @@ agent must be able to see what was generated and on what evidence.
    - Naming conventions actually in use (scan representative files)
    - Comment language: if more than 70% of existing comments are Chinese, the rule is
      "comments in Chinese"; same logic for English; mixed → follow each file's dominant language
-   - Error handling style, import ordering, formatter/linter in use (read their configs)
+   - Null/empty handling and error-handling style, including where the project intentionally
+     relies on upstream contracts instead of adding defensive checks
+   - Existing class/method extraction granularity and architecture boundaries; do not turn a
+     preference for single responsibility into a generic demand for many one-use helpers
+   - Literal and constant conventions, including when local magic values are accepted and when
+     a stable domain/config/protocol value is promoted to a named constant
+   - Javadoc/doc-comment coverage for core code and the inline-comment style used for complex logic
+   - Import ordering and formatter/linter in use (read their configs)
    Structure as one section per language plus a General section. Every rule must be
    mechanically checkable — "be clean" is not a rule; "exported functions carry explicit
    return types" is.
@@ -154,6 +166,10 @@ agent must be able to see what was generated and on what evidence.
    tests live, naming conventions, coverage expectations, which classes of code this project
    tests vs skips. Also fill `project.yaml` `test.framework` and `test.command` with commands
    you verified exist (read package.json scripts or equivalent — do not guess).
+   If effective TDD is disabled, do not inspect JaCoCo or GitLab and do not add TDD-specific
+   requirements. If it is enabled for Java, additionally document JUnit/JaCoCo commands,
+   production/test source roots, XML report paths, the local acceptance gate, and the generated
+   GitLab TEST-stage job as non-blocking automation infrastructure.
 5. **Memory migration probe** — Check for old-format memory files:
    - `.easy-coding/memory/long/MEMORY.md` exists but lacks `memory_schema: 2` frontmatter
    - `.easy-coding/memory/long/BUSINESS.md` or `TECHNICAL.md` missing
@@ -182,7 +198,9 @@ agent must be able to see what was generated and on what evidence.
    - TEST_STRATEGY.md (skeleton for the chosen framework)
 3. **Skip ABSTRACT.md** — no architecture exists yet. Note in init_log:
    "ABSTRACT pending; ec-memory backfills after the first substantive task." (ec-memory
-   detects the missing file during MEMORY and generates it from the then-current code.)
+   detects the missing file during MEMORY and uses the explicit `missing-abstract` assessment
+   exception to generate it from the then-current code. This one-time backfill does not enable
+   routine per-task architecture updates.)
 4. Memory migration probe and memory init, same as iterative steps 5-7.
 5. Recommend: design first with `/ec-brainstorming`, then build via
    `/ec-workflow`.
@@ -192,7 +210,7 @@ agent must be able to see what was generated and on what evidence.
 - Every claim grounded in observed evidence — file paths and configs you actually read.
   No filler like "follow best practices".
 - SOUL stays short. RULES and ABSTRACT run as long as the evidence supports, in named
-  sections. TEST_STRATEGY must be concrete enough that ec-verification can derive runnable
+  sections. TEST_STRATEGY must be concrete enough that QUALITY's Verification Gate can derive runnable
   commands from it.
 
 ## Boundaries

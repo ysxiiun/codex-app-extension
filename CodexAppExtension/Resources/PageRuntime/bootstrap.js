@@ -2,7 +2,7 @@
   "use strict";
 
   const runtimeVersion = 2;
-  const implementationRevision = 11;
+  const implementationRevision = 15;
   const existingRuntime = window.__codexAppExtensionV2;
   if (existingRuntime?.runtimeVersion === runtimeVersion &&
       existingRuntime?.implementationRevision === implementationRevision) {
@@ -42,7 +42,13 @@
   let settleTimer = null;
   let hydrated = false;
   let surfaceRevision = 0;
-  let previousSurfaceNodes = { layoutRoot: null, threadScroller: null, editor: null };
+  let previousSurfaceNodes = {
+    layoutRoot: null,
+    threadScroller: null,
+    editor: null,
+    kind: null,
+    editorSignal: null
+  };
   const performanceEvents = [];
   const performancePolicy = Object.freeze({
     durationBudgetMilliseconds: 8,
@@ -54,7 +60,9 @@
   const surfaceSelectors = Object.freeze({
     layoutRoot: "[data-app-shell-main-content-layout]",
     threadScroller: ".thread-scroll-container",
-    editor: ".ProseMirror[data-codex-composer='true'][contenteditable='true'], .ProseMirror[data-codex-composer='true'][contenteditable='plaintext-only']"
+    markedEditor: ".ProseMirror[data-codex-composer='true'][contenteditable='true'], .ProseMirror[data-codex-composer='true'][contenteditable='plaintext-only']",
+    fallbackEditor: ".ProseMirror[contenteditable='true'], .ProseMirror[contenteditable='plaintext-only']",
+    editorCandidate: ".ProseMirror"
   });
 
   function uniqueNode(selector) {
@@ -68,6 +76,23 @@
     return matches.length === 1 ? matches[0] : null;
   }
 
+  function nodesWithinLayout(layoutRoot, selector) {
+    return layoutRoot
+      ? Array.from(document.querySelectorAll(selector)).filter((node) => layoutRoot.contains(node))
+      : [];
+  }
+
+  function renderedEmptyEditor(node, layoutRoot) {
+    for (let current = node; current; current = current.parentElement) {
+      if (current.hidden || current.getAttribute?.("aria-hidden") === "true") return false;
+      const style = window.getComputedStyle(current);
+      if (style.display === "none" || style.visibility === "hidden" ||
+          style.visibility === "collapse" || Number(style.opacity) === 0) return false;
+      if (current === layoutRoot) return true;
+    }
+    return false;
+  }
+
   function surface() {
     const layoutRoots = Array.from(document.querySelectorAll(surfaceSelectors.layoutRoot));
     const layoutRoot = layoutRoots.length === 1 ? layoutRoots[0] : null;
@@ -75,25 +100,39 @@
       ? Array.from(document.querySelectorAll(surfaceSelectors.threadScroller)).filter((node) => layoutRoot.contains(node))
       : [];
     const threadScroller = threadScrollers.length === 1 ? threadScrollers[0] : null;
-    const editors = layoutRoot
-      ? Array.from(document.querySelectorAll(surfaceSelectors.editor)).filter((node) => layoutRoot.contains(node))
+    const rawMarkedEditors = nodesWithinLayout(layoutRoot, surfaceSelectors.markedEditor);
+    const markedEditors = threadScrollers.length === 0
+      ? rawMarkedEditors.filter((node) => renderedEmptyEditor(node, layoutRoot))
+      : rawMarkedEditors;
+    const fallbackEditors = layoutRoot && threadScrollers.length === 0 && markedEditors.length === 0
+      ? nodesWithinLayout(layoutRoot, surfaceSelectors.fallbackEditor)
+        .filter((node) => renderedEmptyEditor(node, layoutRoot))
       : [];
+    const editors = markedEditors.length > 0 ? markedEditors : fallbackEditors;
     const editor = editors.length === 1 ? editors[0] : null;
+    const editorSignal = editor ? (markedEditors.length > 0 ? "marked" : "fallback") : null;
+    const kind = layoutRoot && threadScrollers.length === 1
+      ? "thread"
+      : layoutRoot && threadScrollers.length === 0 && editor
+        ? "empty-composer"
+        : null;
     if (layoutRoot !== previousSurfaceNodes.layoutRoot ||
         threadScroller !== previousSurfaceNodes.threadScroller ||
-        editor !== previousSurfaceNodes.editor) {
+        editor !== previousSurfaceNodes.editor ||
+        kind !== previousSurfaceNodes.kind ||
+        editorSignal !== previousSurfaceNodes.editorSignal) {
       surfaceRevision += 1;
-      previousSurfaceNodes = { layoutRoot, threadScroller, editor };
+      previousSurfaceNodes = { layoutRoot, threadScroller, editor, kind, editorSignal };
     }
-    const qualified = Boolean(
-      layoutRoot && threadScroller
-    );
+    const qualified = kind !== null;
     return {
       layoutRoot,
       threadScroller,
       editor,
       composer: editor,
       composerSignal: editor ? "true" : null,
+      editorSignal,
+      kind,
       layoutRootCount: layoutRoots.length,
       threadScrollerCount: threadScrollers.length,
       editorCount: editors.length,
@@ -109,20 +148,36 @@
     if (stableRoot) {
       mutationObserver.observe(stableRoot, { childList: true, subtree: true });
     }
-    if (!currentSurface.qualified) return;
-    mutationObserver.observe(currentSurface.layoutRoot, {
-      attributes: true,
-      attributeFilter: ["data-app-shell-main-content-layout"]
-    });
-    mutationObserver.observe(currentSurface.threadScroller, {
-      attributes: true,
-      attributeFilter: ["class"]
-    });
-    if (currentSurface.editor) {
-      mutationObserver.observe(currentSurface.editor, {
+    if (currentSurface.layoutRoot) {
+      mutationObserver.observe(currentSurface.layoutRoot, {
         attributes: true,
-        attributeFilter: ["class", "contenteditable"]
+        attributeFilter: ["data-app-shell-main-content-layout", "hidden", "aria-hidden", "style"]
       });
+    }
+    if (currentSurface.threadScroller) {
+      mutationObserver.observe(currentSurface.threadScroller, {
+        attributes: true,
+        attributeFilter: ["class"]
+      });
+    }
+    const editorCandidates = currentSurface.layoutRoot && currentSurface.threadScrollerCount === 0
+      ? nodesWithinLayout(currentSurface.layoutRoot, surfaceSelectors.editorCandidate).slice(0, 16)
+      : currentSurface.editor ? [currentSurface.editor] : [];
+    for (const candidate of editorCandidates) {
+      mutationObserver.observe(candidate, {
+        attributes: true,
+        attributeFilter: ["class", "contenteditable", "data-codex-composer", "hidden", "aria-hidden", "style"]
+      });
+      if (currentSurface.threadScrollerCount === 0) {
+        for (let current = candidate.parentElement;
+             current && current !== currentSurface.layoutRoot;
+             current = current.parentElement) {
+          mutationObserver.observe(current, {
+            attributes: true,
+            attributeFilter: ["hidden", "aria-hidden", "style"]
+          });
+        }
+      }
     }
   }
 

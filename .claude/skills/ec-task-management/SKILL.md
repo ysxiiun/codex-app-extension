@@ -1,9 +1,9 @@
 ---
 name: ec-task-management
-description: View and manage Easy Coding tasks plus project/session approval and workflow-mode settings.
+description: View and manage Easy Coding task lifecycle, ownership, handoff, and closure.
 ---
 
-# ec-task-management — tasks and session modes
+# ec-task-management — task lifecycle
 
 Communicate with the user in the user's language. A bare invocation is read-only: show the
 panel and available actions, but do not mutate a session without an explicit choice.
@@ -13,47 +13,32 @@ panel and available actions, but do not mutate a session without an explicit cho
 Call the state API snapshot and show:
 
 - current task, stage, last Agent, and pending transition;
-- `project_approval_mode`, `session_approval_mode`, `effective_approval_mode`;
-- `project_workflow_mode`, `session_workflow_mode`, `configured_workflow_mode`;
-- task `concrete_workflow_mode` or ANALYSIS proposal when present;
-- harness enabled/disabled state;
+- task `concrete_workflow_mode` and frozen TDD state when present;
+- harness enabled/disabled and Lite Direct state;
 - active and resumable tasks.
-- for Canonical-backed tasks: source Spec ID/revision/SHA, selected task IDs, repository
+- for Canonical-backed tasks: source locator/path mode, Spec ID/design revision/design digest,
+  document digest, execution revision, writeback status, selected task IDs, repository
   bindings/baseline status, and pending dependency evidence.
 
-Explain precedence:
-
-`session override > project config > approval:guard / workflow:adaptive`
-
-## Session settings
-
-After explicit user selection:
-
-```bash
-# approval
-python3 .claude/hooks/easy_coding_state.py set-approval-mode --mode approve|guard|confirm|auto --agent <agent-id> --session-file <P>
-python3 .claude/hooks/easy_coding_state.py clear-approval-mode --agent <agent-id> --session-file <P>
-
-# workflow
-python3 .claude/hooks/easy_coding_state.py set-workflow-mode --mode adaptive|fast|standard|strict --agent <agent-id> --session-file <P>
-python3 .claude/hooks/easy_coding_state.py clear-workflow-mode --agent <agent-id> --session-file <P>
-```
-
-Changing a session setting affects future ANALYSIS proposals. It does not silently rewrite a
-mode already frozen on an active task. During ANALYSIS, regenerate and show the proposal. During
-IMPLEMENT or REVIEW, use `raise-workflow-mode` for a justified increase; lowering is forbidden.
-From VERIFICATION, return to IMPLEMENT first so the raised mode receives fresh REVIEW evidence.
-
-Project settings are changed with `easy-coding config`, which edits both dimensions in one
-confirmed interaction.
+Mode inspection and configuration belongs to `ec-config`. If the user asks to change Approval,
+Workflow, TDD, or the TDD coverage threshold, route there and do not mutate those fields here.
 
 ## Task actions
 
 Support listing, creating, selecting, claiming, handing off, and closing tasks through the
-state API. Preserve pending transitions when merely changing approval mode. Never infer user
+state API. Preserve pending transitions when inspecting tasks. Never infer user
 acceptance from opening this panel.
 
-When creating from a Canonical Spec, call `inspect-dev-spec`, display the complete task and
-dependency selection, then call `select-dev-spec-scope` and `create-task-from-spec` only after
-explicit user selection. Multiple selected Spec tasks still create one Harness task, while the
-selector returns one deterministic consumption closure per selected repository.
+Create tasks only for explicit repository mutations. Pure analysis, explanation, reporting, and
+read-only review stay Ready and are answered directly. If Lite Direct is enabled, route task
+selection or creation to `ec-lite` so the user can exit it first.
+
+When creating from a Canonical Spec, call `inspect-dev-spec --manifest-only`, display the complete
+task and dependency selection, then call `create-task-from-spec` only after explicit user
+selection. Multiple selected Spec tasks still create one Harness task. Do not call
+`select-dev-spec-scope` during routing; ANALYSIS owns the single consumption-closure read.
+Initialize missing shared execution before creation. Support `rebind-spec-source` only when the
+new file matches schema + spec_id + design revision + design_sha256 and does not roll execution
+revision backward. A pending writeback is repaired with `reconcile-spec-execution`, never by
+editing the execution JSON block or starting a different writeback. A deterministic rejected
+action is cleared with `status:error`; correct its input instead of replaying it.

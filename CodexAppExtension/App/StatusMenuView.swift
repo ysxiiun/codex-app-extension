@@ -31,6 +31,8 @@ struct StatusMenuView: View {
                 if model.exposesRestartUITestState {
                     Text("重启确认次数：\(model.restartConfirmationCountForUITesting)")
                         .font(.caption)
+                        .accessibilityLabel("重启确认次数：\(model.restartConfirmationCountForUITesting)")
+                        .accessibilityValue("\(model.restartConfirmationCountForUITesting)")
                         .accessibilityIdentifier("ui.restart.confirmationCount")
                 }
 #endif
@@ -50,11 +52,18 @@ struct StatusMenuView: View {
             Divider()
 
             VStack(alignment: .leading, spacing: 4) {
-                if case .notRunning = model.snapshot.runtime.process {
+                if case .notRunning = model.snapshot.runtime.process,
+                   !model.snapshot.pendingRestartConfirmation {
                     actionButton("启动 ChatGPT", systemImage: "play.fill", identifier: "action.start", action: model.startChatGPT)
                 }
                 if model.snapshot.pendingRestartConfirmation {
-                    actionButton("确认重启 ChatGPT…", systemImage: "arrow.clockwise", identifier: "action.confirmRestart", action: model.requestRestartConfirmation)
+                    actionButton(
+                        model.isRestartConfirmationInFlight ? "正在重启 ChatGPT…" : "确认重启 ChatGPT…",
+                        systemImage: "arrow.clockwise",
+                        identifier: "action.confirmRestart",
+                        disabled: model.isRestartConfirmationInFlight,
+                        action: model.requestRestartConfirmation
+                    )
                 }
                 actionButton("重新连接", systemImage: "network", identifier: "action.reconnect", action: model.reconnect)
                 actionButton("重新注入", systemImage: "syringe", identifier: "action.reinject", action: model.reinject)
@@ -117,9 +126,15 @@ struct StatusMenuView: View {
         return false
 #endif
     }
-    private func actionButton(_ title: String, systemImage: String, identifier: String, action: @escaping () -> Void) -> some View {
+    private func actionButton(
+        _ title: String,
+        systemImage: String,
+        identifier: String,
+        disabled: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) { Label(title, systemImage: systemImage).frame(maxWidth: .infinity, alignment: .leading) }
-            .buttonStyle(.plain).padding(.vertical, 4).accessibilityIdentifier(identifier)
+            .buttonStyle(.plain).padding(.vertical, 4).accessibilityIdentifier(identifier).disabled(disabled)
     }
 
     @ViewBuilder

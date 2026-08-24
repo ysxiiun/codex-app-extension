@@ -21,6 +21,7 @@ extension HealthCenter: PageRuntimeHealthReporting {}
 
 public enum PageRuntimeBridgeError: Error, Equatable, Sendable, LocalizedError {
     case missingSession(String)
+    case runtimeUnavailable(String)
     case invalidResponse(String)
     case staleRevision(String)
     case adapterFailures([String])
@@ -28,6 +29,7 @@ public enum PageRuntimeBridgeError: Error, Equatable, Sendable, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case let .missingSession(target): return "Target \(target) 未返回 flattened sessionId"
+        case let .runtimeUnavailable(target): return "Target \(target) 的 PageRuntime 尚未安装"
         case let .invalidResponse(context): return "CDP Runtime 响应无效: \(context)"
         case let .staleRevision(target): return "Target \(target) 的旧 revision 结果已丢弃"
         case let .adapterFailures(adapters): return "以下增强未通过健康检查: \(adapters.joined(separator: ", "))"
@@ -87,7 +89,7 @@ public struct AdapterPerformanceMeasurement: Equatable, Sendable {
 }
 
 public actor CDPPageRuntimeBridge: PageRuntimeBridging, CodexSurfaceProbing {
-    static let implementationRevision = 11
+    static let implementationRevision = 15
 
     private struct SessionState: Sendable, Equatable {
         let identifier: String
@@ -151,9 +153,31 @@ public actor CDPPageRuntimeBridge: PageRuntimeBridging, CodexSurfaceProbing {
           const countWithinLayout = (selector) => layout
             ? Array.from(document.querySelectorAll(selector)).filter((node) => layout.contains(node)).length
             : 0;
+          const nodesWithinLayout = (selector) => layout
+            ? Array.from(document.querySelectorAll(selector)).filter((node) => layout.contains(node))
+            : [];
+          const markedComposerSelector = ".ProseMirror[data-codex-composer='true'][contenteditable='true'], .ProseMirror[data-codex-composer='true'][contenteditable='plaintext-only']";
+          const fallbackComposerSelector = ".ProseMirror[contenteditable='true'], .ProseMirror[contenteditable='plaintext-only']";
+          const isRenderedEmptyEditor = (node) => {
+            for (let current = node; current; current = current.parentElement) {
+              if (current.hidden || current.getAttribute?.('aria-hidden') === 'true') return false;
+              const style = window.getComputedStyle(current);
+              if (style.display === 'none' || style.visibility === 'hidden' ||
+                  style.visibility === 'collapse' || Number(style.opacity) === 0) return false;
+              if (current === layout) return true;
+            }
+            return false;
+          };
           const layoutRoot = layoutRoots.length;
           const threadScroller = countWithinLayout('.thread-scroll-container');
-          const composer = countWithinLayout(".ProseMirror[data-codex-composer='true'][contenteditable='true'], .ProseMirror[data-codex-composer='true'][contenteditable='plaintext-only']");
+          const rawMarkedComposers = nodesWithinLayout(markedComposerSelector);
+          const markedComposers = threadScroller === 0
+            ? rawMarkedComposers.filter(isRenderedEmptyEditor)
+            : rawMarkedComposers;
+          const fallbackComposers = threadScroller === 0 && markedComposers.length === 0
+            ? nodesWithinLayout(fallbackComposerSelector).filter(isRenderedEmptyEditor)
+            : [];
+          const composer = markedComposers.length > 0 ? markedComposers.length : fallbackComposers.length;
           return { layoutRoot, threadScroller, composer };
         })()
         """#
@@ -385,18 +409,37 @@ public actor CDPPageRuntimeBridge: PageRuntimeBridging, CodexSurfaceProbing {
     public func pollPerformance(target: CDPTarget) async throws -> [AdapterPerformanceMeasurement] {
         let session = try await ensureSession(for: target)
         let expression = #"""
-        (() => window.__codexAppExtensionV2.performanceSnapshot().observers.map((item) => ({
-          adapterId: item.adapterId,
-          strikeCount: item.strikeCount,
-          durationMilliseconds: Math.ceil(item.lastDurationMilliseconds),
-          degraded: item.degraded,
-          qualified: item.qualified,
-          recoverable: item.recoverable
-        })))()
+        (() => {
+          const runtime = window.__codexAppExtensionV2;
+          if (!runtime || typeof runtime.performanceSnapshot !== 'function') {
+            return { runtimeMissing: true, observers: null };
+          }
+          const snapshot = runtime.performanceSnapshot();
+          return {
+            runtimeMissing: false,
+            observers: Array.isArray(snapshot?.observers)
+              ? snapshot.observers.map((item) => ({
+                  adapterId: item.adapterId,
+                  strikeCount: item.strikeCount,
+                  durationMilliseconds: Math.ceil(item.lastDurationMilliseconds),
+                  degraded: item.degraded,
+                  qualified: item.qualified,
+                  recoverable: item.recoverable
+                }))
+              : null
+          };
+        })()
         """#
         let value = try await evaluateRequiringValue(expression, session: session)
         try assertCurrent(session, targetIdentifier: target.identifier)
-        guard case let .array(items) = value else {
+        guard case let .object(snapshot) = value else {
+            throw PageRuntimeBridgeError.invalidResponse("performance-snapshot")
+        }
+        if snapshot["runtimeMissing"] == .bool(true) {
+            throw PageRuntimeBridgeError.runtimeUnavailable(target.identifier)
+        }
+        guard snapshot["runtimeMissing"] == .bool(false),
+              case let .array(items)? = snapshot["observers"] else {
             throw PageRuntimeBridgeError.invalidResponse("performance-snapshot")
         }
         let measurements = items.compactMap(Self.decodePerformanceMeasurement)
