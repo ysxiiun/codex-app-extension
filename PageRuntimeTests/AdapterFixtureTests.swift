@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import WebKit
 import XCTest
@@ -493,6 +494,178 @@ final class AdapterFixtureTests: XCTestCase {
         XCTAssertEqual(try number("wideTableWidth", in: restored), 900, accuracy: 1)
     }
 
+    @MainActor
+    func testWideLayoutFloatingPanelUsesRealWebKitGeometryAcrossHostMarkupChanges() throws {
+        let webView = try floatingPanelWebKitFixture(panelHTML: """
+        <aside id="panel-host" class="thread-floating-content-top-inset thread-floating-content-bottom-inset">
+          <div id="panel" data-pip-obstacle="thread-summary-panel" aria-hidden="true"></div>
+          <div id="panel-body" class="painted-panel"></div>
+        </aside>
+        """)
+        let initial = try waitForFloatingPanelGeometry(in: webView, width: 772, right: 916)
+        try assertFloatingPanelClearance(initial)
+        XCTAssertGreaterThan(try number("referenceTop", in: initial), try number("panelBottom", in: initial))
+        XCTAssertEqual(initial["panelBackground"] as? String, "rgba(0, 0, 0, 0)")
+        XCTAssertEqual(try number("panelChildren", in: initial), 0)
+        XCTAssertEqual(initial["hasHomeSurface"] as? Bool, false)
+
+        try mutateFloatingPanelFixture("""
+        document.getElementById('panel').setAttribute('data-pip-obstacle', 'future-renamed-surface');
+        document.getElementById('panel-host').className = 'future-floating-wrapper';
+        const wrapper = document.createElement('section');
+        document.getElementById('panel-host').before(wrapper);
+        wrapper.appendChild(document.getElementById('panel-host'));
+        """, in: webView)
+        let renamed = try waitForFloatingPanelGeometry(in: webView, width: 772, right: 916)
+        try assertFloatingPanelClearance(renamed)
+
+        try mutateFloatingPanelFixture("""
+        document.getElementById('panel-host').className =
+          'thread-floating-content-top-inset thread-floating-content-bottom-inset';
+        document.getElementById('panel').setAttribute('data-pip-home-surface', 'unrelated-value');
+        document.getElementById('composer-shift').style.transform = 'translateX(-50px)';
+        """, in: webView)
+        let bothRoutes = try waitForFloatingPanelGeometry(in: webView, width: 772, right: 916)
+        try assertFloatingPanelClearance(bothRoutes)
+        XCTAssertEqual(try number("contentWidth", in: bothRoutes), try number("contentWidth", in: initial), accuracy: 1)
+        XCTAssertEqual(try number("composerRight", in: bothRoutes), try number("contentRight", in: bothRoutes), accuracy: 1)
+
+        let hostWindow = try XCTUnwrap(webView.window)
+        hostWindow.setContentSize(NSSize(width: 1_440, height: 800))
+        let resized = try waitForFloatingPanelGeometry(in: webView, width: 1_012, right: 1_156)
+        try assertFloatingPanelClearance(resized)
+    }
+
+    @MainActor
+    func testWideLayoutLegacyPaintedTopPanelUsesVisibleThreadHeightAndIgnoresNestedMenu() throws {
+        let webView = try floatingPanelWebKitFixture(panelHTML: """
+        <aside id="panel-host" class="thread-floating-content-top-inset thread-floating-content-bottom-inset">
+          <div id="panel" class="painted-panel">
+            <div role="menu" data-pip-obstacle="temporary-menu" style="position: absolute; width: 180px; height: 80px"></div>
+          </div>
+        </aside>
+        """)
+        let fullPanel = try waitForFloatingPanelGeometry(in: webView, width: 772, right: 916)
+        try assertFloatingPanelClearance(fullPanel)
+        XCTAssertGreaterThan(try number("referenceTop", in: fullPanel), try number("panelBottom", in: fullPanel))
+
+        try mutateFloatingPanelFixture("document.getElementById('panel').style.height = '32px';", in: webView)
+        let compact = try waitForFloatingPanelGeometry(in: webView, width: 772, right: 916)
+        try assertFloatingPanelClearance(compact)
+        XCTAssertEqual(try number("panelHeight", in: compact), 32, accuracy: 1)
+
+        try mutateFloatingPanelFixture("document.getElementById('panel-host').style.opacity = '0';", in: webView)
+        _ = try waitForFloatingPanelGeometry(in: webView, width: 1_032, right: 1_176)
+        try mutateFloatingPanelFixture("document.getElementById('panel-host').style.opacity = '1';", in: webView)
+        try assertFloatingPanelClearance(waitForFloatingPanelGeometry(in: webView, width: 772, right: 916))
+    }
+
+    @MainActor
+    func testWideLayoutSemanticMarkersExcludeContentComposerHeaderAndTransientSurfaces() throws {
+        let webView = try floatingPanelWebKitFixture(panelHTML: """
+        <header class="negative-panel" data-pip-obstacle="header"></header>
+        <div role="banner" class="negative-panel" data-pip-obstacle="banner"></div>
+        <div role="menu" class="negative-panel" data-pip-obstacle="menu"></div>
+        <div role="listbox" class="negative-panel"><div class="negative-panel" data-pip-obstacle="listbox-child"></div></div>
+        <div role="dialog" class="negative-panel" data-pip-obstacle="dialog"></div>
+        <div class="negative-panel" data-pip-obstacle="menu-only-wrapper"><div role="menu">Temporary menu.</div></div>
+        <div data-selected-text-overlay-target class="negative-panel" data-pip-obstacle="detached-markdown"></div>
+        <div class="markdown-wide-block-max-width negative-panel" data-pip-obstacle="markdown-block"></div>
+        <div class="thread-composer-max-width-shell negative-panel" data-pip-obstacle="detached-width-owner"></div>
+        <div id="initial-transient-scope" role="menu"><div class="negative-panel" data-pip-obstacle="initially-transient"></div></div>
+        """)
+        try mutateFloatingPanelFixture("""
+        for (const id of ['content', 'markdown', 'composer', 'editor', 'scroller', 'layout']) {
+          document.getElementById(id).setAttribute('data-pip-obstacle', 'ordinary-' + id);
+        }
+        for (const id of ['content', 'markdown', 'composer', 'editor']) {
+          const child = document.createElement('div');
+          child.className = 'negative-panel';
+          child.setAttribute('data-pip-obstacle', 'ordinary-child-' + id);
+          document.getElementById(id).appendChild(child);
+        }
+        const outside = document.createElement('aside');
+        outside.className = 'negative-panel';
+        outside.setAttribute('data-pip-obstacle', 'outside-layout');
+        document.body.appendChild(outside);
+        """, in: webView)
+        let unoccluded = try waitForFloatingPanelGeometry(in: webView, width: 1_032, right: 1_176)
+        XCTAssertEqual(try number("contentLeft", in: unoccluded), 144, accuracy: 1)
+        XCTAssertEqual(try number("composerRight", in: unoccluded), 1_176, accuracy: 1)
+        try mutateFloatingPanelFixture("document.getElementById('initial-transient-scope').removeAttribute('role');", in: webView)
+        _ = try waitForFloatingPanelGeometry(in: webView, width: 732, right: 876)
+    }
+
+    @MainActor
+    func testWideLayoutSemanticPanelMutationLifecycleAndUninstallUseRealWebKitObservers() throws {
+        let webView = try floatingPanelWebKitFixture(panelHTML: """
+        <section id="visibility-host"><aside id="panel-host"><div id="panel"></div></aside></section>
+        """)
+        _ = try waitForFloatingPanelGeometry(in: webView, width: 1_032, right: 1_176)
+
+        try mutateFloatingPanelFixture("document.getElementById('panel').setAttribute('data-pip-obstacle', '');", in: webView)
+        try assertFloatingPanelClearance(waitForFloatingPanelGeometry(in: webView, width: 772, right: 916))
+        for nodeID in ["panel", "visibility-host"] {
+            try mutateFloatingPanelFixture("document.getElementById('\(nodeID)').setAttribute('role', 'menu');", in: webView)
+            _ = try waitForFloatingPanelGeometry(in: webView, width: 1_032, right: 1_176)
+            try mutateFloatingPanelFixture("document.getElementById('\(nodeID)').removeAttribute('role');", in: webView)
+            try assertFloatingPanelClearance(waitForFloatingPanelGeometry(in: webView, width: 772, right: 916))
+        }
+        try mutateFloatingPanelFixture("document.getElementById('panel').removeAttribute('data-pip-obstacle');", in: webView)
+        _ = try waitForFloatingPanelGeometry(in: webView, width: 1_032, right: 1_176)
+
+        try mutateFloatingPanelFixture("""
+        document.getElementById('visibility-host').style.opacity = '0';
+        document.getElementById('panel').setAttribute('data-pip-obstacle', 'restored-while-hidden');
+        """, in: webView)
+        _ = try waitForFloatingPanelGeometry(in: webView, width: 1_032, right: 1_176)
+        try mutateFloatingPanelFixture("document.getElementById('visibility-host').style.opacity = '1';", in: webView)
+        try assertFloatingPanelClearance(waitForFloatingPanelGeometry(in: webView, width: 772, right: 916))
+
+        try mutateFloatingPanelFixture("document.getElementById('visibility-host').style.transform = 'translateX(-40px)';", in: webView)
+        try assertFloatingPanelClearance(waitForFloatingPanelGeometry(in: webView, width: 732, right: 876))
+        try mutateFloatingPanelFixture("document.getElementById('visibility-host').style.transform = 'none';", in: webView)
+        _ = try waitForFloatingPanelGeometry(in: webView, width: 772, right: 916)
+
+        try mutateFloatingPanelFixture("""
+        const replacement = document.createElement('div');
+        replacement.id = 'panel';
+        replacement.setAttribute('data-pip-obstacle', 'replacement');
+        document.getElementById('panel').replaceWith(replacement);
+        document.getElementById('panel-host').style.width = '300px';
+        """, in: webView)
+        try assertFloatingPanelClearance(waitForFloatingPanelGeometry(in: webView, width: 732, right: 876))
+        try mutateFloatingPanelFixture("document.getElementById('panel-host').remove();", in: webView)
+        _ = try waitForFloatingPanelGeometry(in: webView, width: 1_032, right: 1_176)
+
+        let removed = try evaluateWebKitJSON("""
+        (() => {
+          const response = window.__codexAppExtensionV2.uninstall({
+            runtimeVersion: 2, requestId: 2, adapterId: 'wide-layout', operation: 'uninstall', config: {}
+          });
+          return JSON.stringify({
+            error: response.error,
+            observers: window.__codexAppExtensionV2.observerCount(),
+            stylesheet: !!document.getElementById('cae-wide-layout-style'),
+            marked: document.querySelectorAll('[data-cae-wide-layout]').length,
+            ownerOffset: document.getElementById('content').style.getPropertyValue('--cae-wide-layout-owner-offset-x')
+          });
+        })()
+        """, in: webView)
+        XCTAssertTrue(removed["error"] is NSNull)
+        XCTAssertEqual(try number("observers", in: removed), 0)
+        XCTAssertEqual(removed["stylesheet"] as? Bool, false)
+        XCTAssertEqual(try number("marked", in: removed), 0)
+        XCTAssertEqual(removed["ownerOffset"] as? String, "")
+        try mutateFloatingPanelFixture("""
+        const panel = document.createElement('aside');
+        panel.id = 'panel-host';
+        panel.innerHTML = '<div id="panel" data-pip-obstacle="after-uninstall"></div>';
+        document.getElementById('layout').appendChild(panel);
+        """, in: webView)
+        _ = try waitForFloatingPanelGeometry(in: webView, width: 900, right: 1_110)
+    }
+
     func testWideLayoutReconcileIsDifferenceOnlyAndObserverQueuesConverge() throws {
         let harness = try JSRuntimeHarness(fixture: "current-surface")
         try addSyntheticWideOwner(to: harness)
@@ -583,6 +756,12 @@ final class AdapterFixtureTests: XCTestCase {
           const shortRailWrapper = new window.__FakeNode('right-rail-short-empty-state-wrapper');
           const shortRailBody = new window.__FakeNode('right-rail-short-empty-state');
           const pipObstacle = new window.__FakeNode('right-rail-pip-obstacle');
+          const layoutRoot = document.querySelector('[data-app-shell-main-content-layout]');
+          const originalLayoutQuery = layoutRoot.querySelectorAll.bind(layoutRoot);
+          // This fixture's selector dictionary must reflect attribute addition/removal.
+          layoutRoot.querySelectorAll = (selector) => selector === '[data-pip-obstacle]'
+            ? [pipObstacle].filter((node) => node.hasAttribute('data-pip-obstacle') && layoutRoot.contains(node))
+            : originalLayoutQuery(selector);
           const childlessMarkerRail = new window.__FakeNode('childless-explicit-marker-rail');
           const latentRailBody = new window.__FakeNode('right-rail-latent-body');
           const showingRailBody = new window.__FakeNode('right-rail-showing-body');
@@ -674,7 +853,8 @@ final class AdapterFixtureTests: XCTestCase {
             .forEach((observer) => observer.callback([{ target: node }]));
           window.__triggerRailMutation = (node, attributeName = 'style') => window.__mutationObservers
             .filter((observer) => !observer.disconnected && observer.targets.some((target, index) => {
-              const options = observer.options?.[index] || {};
+              const optionOffset = Math.max(0, (observer.options?.length || 0) - observer.targets.length);
+              const options = observer.options?.[optionOffset + index] || {};
               const observesNode = target === node || (options.subtree && target.contains(node));
               const observesAttribute = !options.attributeFilter || options.attributeFilter.includes(attributeName);
               return options.attributes && observesNode && observesAttribute;
@@ -743,7 +923,15 @@ final class AdapterFixtureTests: XCTestCase {
         XCTAssertFalse(try harness.bool("window.__resizeObservers.some((observer) => observer.observed.includes(window.__wideLayoutLatentRailBody))"))
         XCTAssertFalse(try harness.bool("window.__resizeObservers.some((observer) => observer.observed.some((node) => node.getAttribute?.('role') === 'menu'))"))
         XCTAssertTrue(try harness.bool("window.__mutationObservers.some((observer) => observer.targets.includes(window.__wideLayoutRail))"))
-        XCTAssertTrue(try harness.bool("window.__mutationObservers.some((observer) => observer.targets.some((target, index) => target === window.__wideLayoutRail && ['data-pip-home-surface', 'data-pip-obstacle'].every((attribute) => observer.options[index].attributeFilter.includes(attribute))))"))
+        XCTAssertTrue(try harness.bool("""
+        window.__mutationObservers.some((observer) => !observer.disconnected && observer.targets.some((target, index) => {
+          const optionOffset = Math.max(0, (observer.options?.length || 0) - observer.targets.length);
+          const options = observer.options?.[optionOffset + index] || {};
+          return target === document.querySelector('[data-app-shell-main-content-layout]') &&
+            options.attributes === true && options.subtree === true &&
+            JSON.stringify(options.attributeFilter) === JSON.stringify(['data-pip-obstacle']);
+        }))
+        """))
         XCTAssertTrue(try harness.bool("window.__mutationObservers.some((observer) => observer.targets.includes(window.__wideLayoutCanonicalOwner))"))
         XCTAssertTrue(try harness.bool("window.__mutationObservers.some((observer) => observer.targets.includes(window.__wideLayoutComposerOwner))"))
         XCTAssertTrue(try harness.bool("window.__mutationObservers.some((observer) => observer.targets.includes(window.__wideLayoutNativeShiftHost))"))
@@ -1102,9 +1290,14 @@ final class AdapterFixtureTests: XCTestCase {
 
         try harness.evaluate("""
         window.__wideLayoutPIPObstacle.removeAttribute('data-pip-home-surface');
-        window.__triggerRailMutation(window.__wideLayoutPIPObstacle, 'data-pip-home-surface');
+        window.__wideLayoutPIPObstacle.setAttribute('data-pip-obstacle', 'renamed-surface');
+        window.__triggerRailMutation(window.__wideLayoutPIPObstacle, 'data-pip-obstacle');
         window.__flushRAF();
         window.__flushTimers();
+        """)
+        XCTAssertEqual(try harness.string("\(scroller).style.getPropertyValue('--thread-content-max-width')"), "1258px")
+
+        try harness.evaluate("""
         window.__wideLayoutPIPObstacle.removeAttribute('data-pip-obstacle');
         window.__wideLayoutInner.getBoundingClientRect = () => ({
           left: 297.41, right: 1905, top: -1000, bottom: 1080, width: 1607.59, height: 2080
@@ -1112,6 +1305,9 @@ final class AdapterFixtureTests: XCTestCase {
         window.__wideLayoutPIPObstacle.getBoundingClientRect = () => ({
           left: 1604, right: 1904, top: 104, bottom: 1068, width: 300, height: 964
         });
+        window.__triggerRailMutation(window.__wideLayoutPIPObstacle, 'data-pip-obstacle');
+        window.__flushRAF();
+        window.__flushTimers();
         """)
         XCTAssertEqual(try harness.string("\(scroller).style.getPropertyValue('--thread-content-max-width')"), "1300px")
         XCTAssertEqual(try harness.string("\(scroller).style.getPropertyValue('--cae-wide-layout-content-offset-x')"), "0px")
@@ -2193,7 +2389,8 @@ final class AdapterFixtureTests: XCTestCase {
         ))
 
         XCTAssertEqual(try harness.int("window.__codexAppExtensionV2.observerCount()"), 2)
-        XCTAssertEqual(try harness.int("window.__mutationObservers.filter((item) => !item.disconnected).length"), 2)
+        XCTAssertEqual(try harness.int("window.__mutationObservers.filter((item) => !item.disconnected).length"), 3)
+        try assertSingleObstacleDiscoveryObserver(in: harness)
         XCTAssertEqual(try harness.int("window.__mutationObservers.find((item) => !item.disconnected && item.targets.includes(document.documentElement)).targets.length"), 4)
         XCTAssertEqual(try harness.string("window.__mutationObservers.find((item) => !item.disconnected && item.targets.includes(document.documentElement)).targets.map((node) => node.name).join(',')"), "documentElement,layout,scroller,editor")
         try harness.evaluate("window.__flushRAF(); window.__flushTimers();")
@@ -2342,7 +2539,8 @@ final class AdapterFixtureTests: XCTestCase {
 
         XCTAssertTrue(try harness.bool("window.__codexAppExtensionV2.surface().qualified"))
         XCTAssertEqual(try harness.int("window.__codexAppExtensionV2.observerCount()"), 4)
-        XCTAssertEqual(try harness.int("window.__mutationObservers.filter((item) => !item.disconnected).length"), 2)
+        XCTAssertEqual(try harness.int("window.__mutationObservers.filter((item) => !item.disconnected).length"), 3)
+        try assertSingleObstacleDiscoveryObserver(in: harness)
         XCTAssertEqual(try harness.int("window.__mutationObservers.find((item) => !item.disconnected && item.targets.includes(document.documentElement)).targets.length"), 4)
         XCTAssertTrue(try harness.bool("window.__codexAppExtensionV2.performanceSnapshot().observers.every((item) => item.qualified === true)"))
         XCTAssertEqual(try harness.string("document.querySelector('[data-app-shell-main-content-layout]').getAttribute('data-cae-header-offset')"), "true")
@@ -2359,6 +2557,7 @@ final class AdapterFixtureTests: XCTestCase {
         XCTAssertEqual(try harness.int("document.head.children.filter((node) => node.id && node.id.startsWith('cae-')).length"), 3)
 
         if part == "layout" {
+            XCTAssertFalse(try harness.bool("window.__mutationObservers.some((item) => !item.disconnected && item.targets.includes(window.__oldLayout))"))
             XCTAssertEqual(try harness.int("window.__oldEditor.listenerCount('keydown')"), 0)
             XCTAssertTrue(try harness.value("window.__oldLayout.getAttribute('data-cae-header-offset')").isNull)
             XCTAssertTrue(try harness.value("window.__oldScroller.getAttribute('data-cae-wide-layout')").isNull)
@@ -2422,6 +2621,208 @@ final class AdapterFixtureTests: XCTestCase {
                 operation: "uninstall",
                 config: [:]
             ))
+        }
+    }
+
+    private func assertSingleObstacleDiscoveryObserver(in harness: JSRuntimeHarness) throws {
+        XCTAssertEqual(try harness.int("""
+        window.__mutationObservers.filter((observer) => !observer.disconnected &&
+          !observer.targets.includes(document.documentElement) && observer.targets.some((target, index) => {
+            const optionOffset = Math.max(0, (observer.options?.length || 0) - observer.targets.length);
+            const options = observer.options?.[optionOffset + index] || {};
+            return target === document.querySelector('[data-app-shell-main-content-layout]') &&
+              options.attributes === true && options.subtree === true &&
+              JSON.stringify(options.attributeFilter) === JSON.stringify(['data-pip-obstacle']);
+          })).length
+        """), 1)
+    }
+
+    @MainActor
+    private func floatingPanelWebKitFixture(panelHTML: String) throws -> WKWebView {
+        let html = """
+        <!doctype html>
+        <html><head><meta charset="utf-8"><style>
+          html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; }
+          #layout { position: absolute; left: 120px; right: 0; top: 0; bottom: 0; }
+          #scroller { position: absolute; inset: 60px 0 0; overflow: auto; }
+          #content-row { width: calc(100% - 40px); margin-inline: 20px; height: 500px; }
+          #composer-row { position: absolute; bottom: 0; width: 100%; height: 120px; }
+          .thread-content-max-width-shell, .thread-composer-max-width-shell { box-sizing: border-box; width: 900px; margin-inline: auto; }
+          #content { height: 440px; }
+          #markdown { width: 100%; height: 400px; }
+          #composer { height: 100px; }
+          #editor { min-height: 80px; }
+          #panel-host { position: absolute; right: 0; top: 60px; bottom: 12px; width: 260px; pointer-events: none; }
+          #panel, #panel-body { position: absolute; left: 0; top: 0; width: 244px; height: 160px; }
+          .painted-panel { background: rgb(24, 24, 27); }
+          .negative-panel { position: fixed; right: 0; top: 80px; width: 300px; height: 160px; }
+        </style></head><body>
+          <main id="layout" data-app-shell-main-content-layout>
+            <section id="scroller" class="thread-scroll-container">
+              <div id="content-row"><div id="content" class="thread-content-max-width-shell">
+                <article id="markdown" data-selected-text-overlay-target><p>Fixture response.</p></article>
+              </div></div>
+              <div id="composer-row"><div id="composer-shift">
+                <div id="composer" class="thread-composer-max-width-shell">
+                  <div id="editor" class="ProseMirror" contenteditable="true" data-codex-composer="true"><p>Fixture input.</p></div>
+                </div>
+              </div></div>
+            </section>
+            \(panelHTML)
+          </main>
+        </body></html>
+        """
+        let webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 1_200, height: 800))
+        let hostWindow = NSWindow(
+            contentRect: webView.frame,
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        hostWindow.title = "Wide layout WebKit regression"
+        hostWindow.level = .floating
+        hostWindow.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        hostWindow.isReleasedWhenClosed = false
+        addTeardownBlock {
+            await MainActor.run {
+                webView.stopLoading()
+                webView.navigationDelegate = nil
+                webView.removeFromSuperview()
+                hostWindow.contentView = nil
+                hostWindow.orderOut(nil)
+                hostWindow.close()
+            }
+        }
+        webView.autoresizingMask = [.width, .height]
+        hostWindow.contentView = webView
+        hostWindow.center()
+        hostWindow.orderFrontRegardless()
+        pumpFloatingPanelWindowEvents()
+        XCTAssertTrue(hostWindow.isVisible)
+        XCTAssertTrue(webView.window === hostWindow)
+        let loaded = expectation(description: "Floating panel WebKit fixture loaded")
+        let navigationDelegate = WebKitFixtureNavigationDelegate(expectation: loaded)
+        webView.navigationDelegate = navigationDelegate
+        webView.loadHTMLString(html, baseURL: nil)
+        wait(for: [loaded], timeout: 10)
+        if let error = navigationDelegate.error { throw error }
+
+        let visibilityDeadline = Date().addingTimeInterval(4)
+        var documentVisible = false
+        repeat {
+            pumpFloatingPanelWindowEvents()
+            let visibility = try evaluateWebKitJSON("JSON.stringify({ visible: document.visibilityState === 'visible' })", in: webView)
+            documentVisible = visibility["visible"] as? Bool == true
+            if documentVisible && hostWindow.occlusionState.contains(.visible) { break }
+        } while Date() < visibilityDeadline
+        XCTAssertTrue(hostWindow.occlusionState.contains(.visible), "WebKit fixture window must be unoccluded")
+        XCTAssertTrue(documentVisible, "WebKit fixture document must be visible before installing the adapter")
+
+        let bundle = Bundle(for: PageRuntimeTests.self)
+        let scripts = try ["bootstrap", "wide-layout"].map { resource in
+            let url = try XCTUnwrap(bundle.url(forResource: resource, withExtension: "js"))
+            return try String(contentsOf: url, encoding: .utf8)
+        }.joined(separator: "\n")
+        let installed = try evaluateWebKitJSON(scripts + """
+        \nJSON.stringify(window.__codexAppExtensionV2.install({
+          runtimeVersion: 2, requestId: 1, adapterId: 'wide-layout', operation: 'install',
+          config: { maximumContentWidth: 1800, minimumSidePadding: 24 }
+        }))
+        """, in: webView)
+        XCTAssertTrue(installed["error"] is NSNull)
+        XCTAssertEqual((installed["result"] as? [String: Any])?["qualified"] as? Bool, true)
+        return webView
+    }
+
+    @MainActor
+    private func pumpFloatingPanelWindowEvents() {
+        // A command-line XCTest runner does not dispatch AppKit window events itself.
+        let application = NSApplication.shared
+        let deadline = Date().addingTimeInterval(0.02)
+        while Date() < deadline,
+              let event = application.nextEvent(matching: .any, until: Date(), inMode: .default, dequeue: true) {
+            application.sendEvent(event)
+        }
+        application.updateWindows()
+        RunLoop.current.run(until: deadline)
+    }
+
+    @MainActor
+    private func mutateFloatingPanelFixture(_ script: String, in webView: WKWebView) throws {
+        _ = try evaluateWebKitJSON("""
+        (() => {
+          \(script)
+          window.__fixtureMutationSettled = false;
+          requestAnimationFrame(() => requestAnimationFrame(() => { window.__fixtureMutationSettled = true; }));
+          return JSON.stringify({});
+        })()
+        """, in: webView)
+        let deadline = Date().addingTimeInterval(4)
+        var settled = false
+        while !settled && Date() < deadline {
+            pumpFloatingPanelWindowEvents()
+            let state = try evaluateWebKitJSON("JSON.stringify({ settled: window.__fixtureMutationSettled })", in: webView)
+            settled = state["settled"] as? Bool == true
+        }
+        XCTAssertTrue(settled, "Real WebKit mutation and animation-frame callbacks must settle")
+    }
+
+    @MainActor
+    private func waitForFloatingPanelGeometry(
+        in webView: WKWebView,
+        width: Double,
+        right: Double,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> [String: Any] {
+        let deadline = Date().addingTimeInterval(4)
+        var geometry: [String: Any] = [:]
+        repeat {
+            pumpFloatingPanelWindowEvents()
+            geometry = try evaluateWebKitJSON("""
+            (() => {
+              const rect = (id) => document.getElementById(id).getBoundingClientRect();
+              const panel = document.getElementById('panel');
+              const panelRect = panel?.getBoundingClientRect();
+              return JSON.stringify({
+                contentLeft: rect('content').left, contentRight: rect('content').right, contentWidth: rect('content').width,
+                markdownLeft: rect('markdown').left, markdownRight: rect('markdown').right,
+                composerLeft: rect('composer').left, composerRight: rect('composer').right, composerWidth: rect('composer').width,
+                surfaceLeft: rect('scroller').left, referenceTop: rect('composer-row').top,
+                panelLeft: panelRect?.left ?? 0, panelBottom: panelRect?.bottom ?? 0, panelHeight: panelRect?.height ?? 0,
+                panelBackground: panel ? getComputedStyle(panel).backgroundColor : null,
+                panelChildren: panel?.children.length ?? 0,
+                hasHomeSurface: document.querySelector('[data-pip-home-surface]') !== null
+              });
+            })()
+            """, in: webView)
+            let contentWidth = try number("contentWidth", in: geometry)
+            let contentRight = try number("contentRight", in: geometry)
+            let composerRight = try number("composerRight", in: geometry)
+            if abs(contentWidth - width) <= 1 && abs(contentRight - right) <= 1 && abs(composerRight - right) <= 1 {
+                return geometry
+            }
+        } while Date() < deadline
+        XCTAssertEqual(try number("contentWidth", in: geometry), width, accuracy: 1, file: file, line: line)
+        XCTAssertEqual(try number("contentRight", in: geometry), right, accuracy: 1, file: file, line: line)
+        XCTAssertEqual(try number("composerRight", in: geometry), right, accuracy: 1, file: file, line: line)
+        return geometry
+    }
+
+    private func assertFloatingPanelClearance(
+        _ geometry: [String: Any],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        for prefix in ["content", "markdown", "composer"] {
+            XCTAssertGreaterThanOrEqual(
+                try number("\(prefix)Left", in: geometry) - number("surfaceLeft", in: geometry),
+                23, file: file, line: line
+            )
+            XCTAssertGreaterThanOrEqual(
+                try number("panelLeft", in: geometry) - number("\(prefix)Right", in: geometry),
+                23, file: file, line: line
+            )
         }
     }
 

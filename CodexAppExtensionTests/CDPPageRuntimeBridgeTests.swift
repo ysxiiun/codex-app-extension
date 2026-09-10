@@ -5,7 +5,7 @@ import XCTest
 
 final class CDPPageRuntimeBridgeTests: XCTestCase {
     func testUndefinedSideEffectResultsContinueThroughHandshakeAndAdapterExecution() async throws {
-        XCTAssertEqual(CDPPageRuntimeBridge.implementationRevision, 15)
+        XCTAssertEqual(CDPPageRuntimeBridge.implementationRevision, 16)
         let cdp = BridgeCDPDouble(sideEffectsReturnUndefined: true)
         let bridge = CDPPageRuntimeBridge(
             client: cdp,

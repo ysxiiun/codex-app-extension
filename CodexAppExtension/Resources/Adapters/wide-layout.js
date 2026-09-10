@@ -19,8 +19,7 @@
     "[class*='thread-floating-content-top-inset'][class*='thread-floating-content-bottom-inset']",
     "[data-codex-app-extension-native-floating-panel='true']"
   ].join(", ");
-  // 新版宿主只在 thread summary rail 展开时同时挂载这两项 PIP 占位属性。
-  const persistentRailPIPSurface = "thread-summary-panel";
+  const semanticRightObstacle = "[data-pip-obstacle]";
   const transientOverlayRoles = new Set(["menu", "listbox", "dialog"]);
   const excludedContentScope = [
     "[data-selected-text-overlay-target]",
@@ -52,10 +51,14 @@
   let styleSnapshot = null;
   let geometryObserver = null;
   let geometryMutationObserver = null;
+  let obstacleDiscoveryObserver = null;
+  let observedDiscoveryRoot = null;
+  let observedObstacleCandidates = [];
   let observedGeometryNodes = [];
   let observedWidthOwners = [];
   let observedPendingWidthOwnerNodes = [];
   let observedRailShells = [];
+  let observedRailDependencyNodes = [];
   let observedNativeShiftNodes = [];
   let observedMotionNodes = [];
   let ownerPropertySnapshots = new Map();
@@ -200,14 +203,10 @@
       borderWidth > 0;
   }
 
-  function isActivePersistentRailObstacle(element) {
-    return element.getAttribute?.("data-pip-home-surface") === persistentRailPIPSurface &&
-      element.getAttribute?.("data-pip-obstacle") === persistentRailPIPSurface;
-  }
-
-  function isWithinTransientRailSubtree(element, railShell) {
-    for (let current = element; current && current !== railShell; current = current.parentElement) {
+  function isWithinTransientRailSubtree(element, boundary) {
+    for (let current = element; current; current = current.parentElement) {
       if (transientOverlayRoles.has(current.getAttribute?.("role"))) return true;
+      if (current === boundary) break;
     }
     return false;
   }
@@ -217,35 +216,33 @@
     return descendants.filter((candidate) => !isWithinTransientRailSubtree(candidate, element));
   }
 
-  function hasVisibleRenderChain(component, railShell) {
-    for (let current = component; current && current !== railShell; current = current.parentElement) {
+  function hasVisibleRenderChain(component, layoutRoot) {
+    for (let current = component; current; current = current.parentElement) {
       const style = typeof getComputedStyle === "function" ? getComputedStyle(current) : null;
-      if (style?.display === "none" || style?.visibility === "hidden" || Number(style?.opacity ?? 1) <= 0) {
+      if (current.hasAttribute?.("hidden") || style?.display === "none" ||
+          style?.visibility === "hidden" || style?.visibility === "collapse" ||
+          Number(style?.opacity ?? 1) <= 0) {
         return false;
       }
-      if (!current.parentElement) return false;
+      if (current === layoutRoot) return true;
     }
-    return component !== railShell && railShell?.contains?.(component) === true;
+    return false;
   }
 
-  function renderedPanelBodyIntersectsRail(renderedComponents, railShell, railRect, referenceRect) {
+  function renderedPanelBodyIntersectsRail(renderedComponents, layoutRoot, railRect, referenceRect, visibleRect) {
     return renderedComponents.some((component) => {
       const rect = elementRect(component);
       // A native rail can legitimately render a compact empty-state card. Its
       // occupied width is the useful signal; requiring a tall body couples the
       // layout to whichever information rows happen to be present.
       if (!rect || rect.width < 80 || rect.height < 24) return false;
-      if (!hasVisibleRenderChain(component, railShell)) return false;
+      if (!hasVisibleRenderChain(component, layoutRoot)) return false;
       const horizontalOverlap = Math.min(rect.right, railRect.right, referenceRect.right) -
         Math.max(rect.left, railRect.left, referenceRect.left);
       if (horizontalOverlap < Math.min(80, rect.width / 2)) return false;
-      // The host can select a full-width composer row as the layout reference
-      // while the explicit PIP obstacle occupies the top of the same rail.
-      // The dual PIP contract reserves the stable shell, so only its own
-      // vertical intersection with that shell is relevant.
-      const verticalReference = isActivePersistentRailObstacle(component) ? railRect : referenceRect;
-      const verticalOverlap = Math.min(rect.bottom, railRect.bottom, verticalReference.bottom) -
-        Math.max(rect.top, railRect.top, verticalReference.top);
+      // 横向参考可能选中底部输入行；浮窗是否遮挡应取整个可见会话区域的纵向交集。
+      const verticalOverlap = Math.min(rect.bottom, railRect.bottom, visibleRect.bottom) -
+        Math.max(rect.top, railRect.top, visibleRect.top);
       return verticalOverlap >= Math.min(24, rect.height / 2);
     });
   }
@@ -262,18 +259,52 @@
     return nativeRail || (nativeRailShell && style?.pointerEvents === "none");
   }
 
-  function persistentRailCandidates() {
-    if (!document.body) return [];
-    return Array.from(document.querySelectorAll(persistentRightRail));
+  function isInObstacleScope(element, currentSurface) {
+    const layoutRoot = currentSurface.layoutRoot;
+    if (element === layoutRoot || element.contains?.(currentSurface.threadScroller) ||
+        element.contains?.(currentSurface.editor)) return false;
+    for (let current = element; current; current = current.parentElement) {
+      if (current === layoutRoot) return true;
+      const className = current.getAttribute?.("class") ?? "";
+      const editable = current.getAttribute?.("contenteditable");
+      const role = current.getAttribute?.("role");
+      if (current === currentSurface.threadScroller || current === currentSurface.editor ||
+          current.hasAttribute?.("data-selected-text-overlay-target") ||
+          className.includes("markdown-wide-block-max-width") || isWidthOwnerNode(current) ||
+          (className.includes("ProseMirror") && (editable === "true" || editable === "plaintext-only")) ||
+          role === "banner" || current.tagName?.toLowerCase() === "header") {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  function persistentRailCandidates(currentSurface) {
+    if (currentSurface.layoutRootCount !== 1 || !currentSurface.layoutRoot) return [];
+    // 瞬态角色影响占位资格，不移除已发现的语义节点；角色撤销后仍需自动恢复。
+    return uniqueNodes([
+      ...Array.from(document.querySelectorAll(persistentRightRail)),
+      ...Array.from(currentSurface.layoutRoot.querySelectorAll?.(semanticRightObstacle) ?? [])
+    ]).filter((element) => isInObstacleScope(element, currentSurface));
   }
 
   function persistentRailRecords(candidates) {
-    return candidates.filter(isPersistentRailShell).map((element) => {
-      const bodies = panelBodyCandidates(element);
+    return candidates.filter((element) =>
+      element.hasAttribute?.("data-pip-obstacle") || isPersistentRailShell(element)).map((element) => {
+      const semantic = element.hasAttribute?.("data-pip-obstacle");
+      const requiresPaintedEvidence = !semantic ||
+        Array.from(element.querySelectorAll?.("[role='menu'], [role='listbox'], [role='dialog']") ?? []).length > 0;
+      const renderedComponents = requiresPaintedEvidence
+        ? panelBodyCandidates(element).filter(hasPaintedPanelAppearance)
+        : [];
+      // 透明的无子节点占位本身有效；仅包裹临时菜单的节点则不能冒充持久面板。
+      // 已绘制的面板即使展开内部菜单，也继续保留自身的占位证据。
+      if (semantic && requiresPaintedEvidence && hasPaintedPanelAppearance(element)) renderedComponents.unshift(element);
       return {
         element,
-        renderedComponents: bodies.filter((body) =>
-          hasPaintedPanelAppearance(body) || isActivePersistentRailObstacle(body))
+        semantic,
+        requiresPaintedEvidence,
+        renderedComponents
       };
     });
   }
@@ -424,24 +455,40 @@
     }, ownerTransformOffset);
   }
 
-  function findPersistentRightRail(referenceRect, railRecords) {
+  function findPersistentRightRail(referenceRect, railRecords, currentSurface, scope) {
     if (!referenceRect) return null;
+    const surfaceRect = elementRect(scope);
+    const layoutRect = scope === currentSurface.layoutRoot ? surfaceRect : elementRect(currentSurface.layoutRoot);
+    const visibleRect = {
+      top: Math.max(0, surfaceRect?.top ?? 0, layoutRect?.top ?? 0),
+      bottom: Math.min(window.innerHeight || Infinity, surfaceRect?.bottom ?? Infinity, layoutRect?.bottom ?? Infinity)
+    };
+    if (visibleRect.bottom <= visibleRect.top) return null;
     const viewportRight = window.innerWidth || referenceRect.right;
     const minimumHeight = Math.min(160, Math.max(96, (window.innerHeight || 0) * 0.10));
     const candidates = railRecords
+      .filter(({ element }) => !isWithinTransientRailSubtree(element, currentSurface.layoutRoot))
       .map((record) => ({ ...record, rect: elementRect(record.element) }))
-      .filter(({ element, renderedComponents, rect }) => {
-        if (!rect || rect.width < 80 || rect.height < minimumHeight) return false;
-        const style = typeof getComputedStyle === "function" ? getComputedStyle(element) : null;
-        return renderedPanelBodyIntersectsRail(renderedComponents, element, rect, referenceRect) &&
+      .filter(({ element, semantic, requiresPaintedEvidence, renderedComponents, rect }) => {
+        if (!rect || rect.width < 80 || rect.height < (semantic ? 24 : minimumHeight)) return false;
+        if (!hasVisibleRenderChain(element, currentSurface.layoutRoot)) return false;
+        if (semantic) {
+          // 属性存在即表示宿主的占位协议；实际位置仍需属于浮动分支，不能把普通页头当作侧栏。
+          let positioned = false;
+          for (let current = element; current && current !== currentSurface.layoutRoot; current = current.parentElement) {
+            const style = typeof getComputedStyle === "function" ? getComputedStyle(current) : null;
+            if (style?.position === "absolute" || style?.position === "fixed") positioned = true;
+          }
+          if (!positioned) return false;
+        }
+        if (requiresPaintedEvidence && !renderedPanelBodyIntersectsRail(
+          renderedComponents, currentSurface.layoutRoot, rect, referenceRect, visibleRect
+        )) return false;
+        const verticalOverlap = Math.min(rect.bottom, visibleRect.bottom) - Math.max(rect.top, visibleRect.top);
+        return verticalOverlap >= Math.min(24, rect.height / 2) &&
           rect.left > referenceRect.left + 120 &&
           rect.left < referenceRect.right - 40 &&
-          (rect.right >= referenceRect.right - 80 || rect.right >= viewportRight - 80) &&
-          rect.bottom > referenceRect.top + 80 &&
-          rect.top < referenceRect.bottom - 80 &&
-          style?.display !== "none" &&
-          style?.visibility !== "hidden" &&
-          Number(style?.opacity ?? 1) > 0;
+          (rect.right >= referenceRect.right - 80 || rect.right >= viewportRight - 80);
       })
       .sort((left, right) => left.rect.left - right.rect.left);
     return candidates[0] ?? null;
@@ -473,7 +520,9 @@
       style: node.getAttribute?.("style") ?? null,
       hidden: node.getAttribute?.("hidden") ?? null,
       ariaHidden: node.getAttribute?.("aria-hidden") ?? null,
-      state: node.getAttribute?.("data-state") ?? null
+      state: node.getAttribute?.("data-state") ?? null,
+      role: node.getAttribute?.("role") ?? null,
+      obstacle: node.hasAttribute?.("data-pip-obstacle") === true
     };
   }
 
@@ -485,7 +534,9 @@
         signal.style === other.style &&
         signal.hidden === other.hidden &&
         signal.ariaHidden === other.ariaHidden &&
-        signal.state === other.state;
+        signal.state === other.state &&
+        signal.role === other.role &&
+        signal.obstacle === other.obstacle;
     });
   }
 
@@ -493,7 +544,7 @@
     const ownerHosts = uniqueNodes(owners.flatMap((owner) =>
       nativeShiftNodes(scope, owner)));
     const railHosts = uniqueNodes(railCandidates.flatMap((rail) =>
-      [rail, ...ancestorPath(rail, currentSurface.layoutRoot)]));
+      [rail, ...ancestorPath(rail, currentSurface.layoutRoot), currentSurface.layoutRoot]));
     return {
       surfaceRevision: currentSurface.revision,
       layoutRoot: currentSurface.layoutRoot,
@@ -559,8 +610,12 @@
   }
 
   function geometryObservationState(currentSurface, scope, owners, railRecords) {
-    if (!scope) return { nodes: [], widthOwners: [], pendingWidthOwnerNodes: [], railShells: [], nativeShiftNodes: [], motionNodes: [] };
-    const railShells = railRecords.map((record) => record.element);
+    const discoveryRoot = currentSurface.layoutRootCount === 1 ? currentSurface.layoutRoot : null;
+    const obstacleCandidates = railRecords.filter((record) => record.semantic).map((record) => record.element);
+    const railShells = railRecords.filter((record) => record.requiresPaintedEvidence).map((record) => record.element);
+    const railDependencyNodes = uniqueNodes(railRecords.flatMap(({ element, renderedComponents }) =>
+      [element, ...renderedComponents].flatMap((node) =>
+        [node, ...ancestorPath(node, currentSurface.layoutRoot), currentSurface.layoutRoot])));
     const pendingOwners = pendingWidthOwnerNodes(currentSurface, scope, owners);
     const currentNativeShiftNodes = [];
     for (const owner of owners) {
@@ -577,22 +632,21 @@
     addNode(scope);
     if (scope !== currentSurface.threadScroller) addNode(currentSurface.editor);
     owners.forEach(addNode);
-    for (const { element: railShell, renderedComponents } of railRecords) {
-      addNode(railShell);
-      motionNodes.push(railShell);
-      for (const panelBody of renderedComponents) {
-        addNode(panelBody);
-        if (!motionNodes.includes(panelBody)) motionNodes.push(panelBody);
-      }
+    for (const node of railDependencyNodes) {
+      addNode(node);
+      motionNodes.push(node);
     }
     for (const node of currentNativeShiftNodes) {
       if (!motionNodes.includes(node)) motionNodes.push(node);
     }
     return {
+      discoveryRoot,
+      obstacleCandidates,
       nodes,
       widthOwners: owners.slice(),
       pendingWidthOwnerNodes: pendingOwners,
       railShells,
+      railDependencyNodes,
       nativeShiftNodes: currentNativeShiftNodes,
       motionNodes
     };
@@ -642,8 +696,11 @@
   }
 
   function handleGeometryMutations(records) {
-    if (records.some((record) => observedRailShells.some((railShell) =>
-        record?.target === railShell || railShell.contains?.(record?.target)))) {
+    if (records.some((record) => record?.attributeName === "data-pip-obstacle" ||
+        observedRailDependencyNodes.includes(record?.target) ||
+        observedObstacleCandidates.some((candidate) => candidate.contains?.(record?.target)) ||
+        observedRailShells.some((railShell) =>
+          record?.target === railShell || railShell.contains?.(record?.target)))) {
       railGeometryDirty = true;
     }
     if (records.some((record) => record?.type === "attributes" &&
@@ -664,7 +721,7 @@
       observedRailShells.includes(event.currentTarget) &&
       panelBodyCandidates(event.currentTarget).includes(event.target);
     if (event.target !== event.currentTarget && !delegatedRailMotion) return;
-    if (observedRailShells.some((railShell) =>
+    if (observedRailDependencyNodes.includes(event.currentTarget) || observedRailShells.some((railShell) =>
         railShell === event.currentTarget || railShell.contains?.(event.currentTarget))) {
       railGeometryDirty = true;
     }
@@ -699,21 +756,31 @@
   }
 
   function bindGeometryObservers(currentSurface, scope, owners, railRecords) {
+    if (!scope) {
+      stopGeometryObservers();
+      return;
+    }
     if (!windowResizeBound && typeof window.addEventListener === "function") {
       window.addEventListener("resize", scheduleGeometryReconcile);
       windowResizeBound = true;
     }
     const observationState = geometryObservationState(currentSurface, scope, owners, railRecords);
-    if (sameNodes(observationState.nodes, observedGeometryNodes) &&
+    const discoveryChanged = observationState.discoveryRoot !== observedDiscoveryRoot ||
+      !sameNodes(observationState.obstacleCandidates, observedObstacleCandidates);
+    if (!discoveryChanged &&
+        sameNodes(observationState.nodes, observedGeometryNodes) &&
         sameNodes(observationState.widthOwners, observedWidthOwners) &&
         sameNodes(observationState.pendingWidthOwnerNodes, observedPendingWidthOwnerNodes) &&
         sameNodes(observationState.railShells, observedRailShells) &&
+        sameNodes(observationState.railDependencyNodes, observedRailDependencyNodes) &&
         sameNodes(observationState.nativeShiftNodes, observedNativeShiftNodes) &&
         sameNodes(observationState.motionNodes, observedMotionNodes)) return;
     observedGeometryNodes = observationState.nodes;
     observedWidthOwners = observationState.widthOwners;
     observedPendingWidthOwnerNodes = observationState.pendingWidthOwnerNodes;
+    observedObstacleCandidates = observationState.obstacleCandidates;
     observedRailShells = observationState.railShells;
+    observedRailDependencyNodes = observationState.railDependencyNodes;
     observedNativeShiftNodes = observationState.nativeShiftNodes;
     rebindMotionListeners(observationState.motionNodes);
     geometryObserver?.disconnect();
@@ -724,31 +791,48 @@
     geometryMutationObserver?.disconnect();
     if (typeof window.MutationObserver === "function" &&
         (observedWidthOwners.length > 0 || observedPendingWidthOwnerNodes.length > 0 ||
-         observedRailShells.length > 0 || observedNativeShiftNodes.length > 0)) {
+         observedRailDependencyNodes.length > 0 || observedNativeShiftNodes.length > 0)) {
       geometryMutationObserver ??= new window.MutationObserver(handleGeometryMutations);
-      observedWidthOwners.forEach((owner) => geometryMutationObserver.observe(owner, {
-        attributes: true,
-        attributeFilter: ["class", "style", "hidden", "aria-hidden", "data-state"]
-      }));
+      const targets = new Map();
+      const hostAttributes = ["class", "style", "hidden", "aria-hidden", "data-state"];
+      const observeAttributes = (node, attributes, subtree = false) => {
+        const previous = targets.get(node);
+        targets.set(node, {
+          attributes: true,
+          childList: subtree || previous?.childList || false,
+          subtree: subtree || previous?.subtree || false,
+          attributeFilter: [...new Set([...(previous?.attributeFilter ?? []), ...attributes])]
+        });
+      };
+      observedWidthOwners.forEach((owner) => observeAttributes(owner, hostAttributes));
       // 新任务页会复用已挂载的祖先节点，再原地补上 width-owner class。
       // 等待态只观察唯一 editor 到当前 surface scope 的有限祖先链，避免全子树属性噪声。
-      observedPendingWidthOwnerNodes.forEach((node) => geometryMutationObserver.observe(node, {
-        attributes: true,
-        attributeFilter: ["class"]
-      }));
-      observedRailShells.forEach((railShell) => geometryMutationObserver.observe(railShell, {
-        attributes: true,
-        childList: true,
-        subtree: true,
-        attributeFilter: [
-          "class", "style", "hidden", "aria-hidden", "data-state",
-          "data-pip-home-surface", "data-pip-obstacle"
-        ]
-      }));
-      observedNativeShiftNodes.forEach((node) => geometryMutationObserver.observe(node, {
-        attributes: true,
-        attributeFilter: ["class", "style", "hidden", "aria-hidden", "data-state"]
-      }));
+      observedPendingWidthOwnerNodes.forEach((node) => observeAttributes(node, ["class"]));
+      observedRailDependencyNodes.forEach((node) => observeAttributes(node, [...hostAttributes, "role"]));
+      observedRailShells.forEach((railShell) => observeAttributes(railShell, [...hostAttributes, "data-pip-obstacle"], true));
+      observedNativeShiftNodes.forEach((node) => observeAttributes(node, hostAttributes));
+      targets.forEach((options, node) => geometryMutationObserver.observe(node, options));
+    }
+    if (discoveryChanged) {
+      obstacleDiscoveryObserver?.disconnect();
+      observedDiscoveryRoot = observationState.discoveryRoot;
+      if (observedDiscoveryRoot && typeof window.MutationObserver === "function") {
+        // 同一 observer 对根再次 observe 会覆盖选项，因此独立监听语义标记；
+        // 根的 class/style 仍只在几何 observer 上按单节点观察，不扩散到正文子树。
+        obstacleDiscoveryObserver ??= new window.MutationObserver(handleGeometryMutations);
+        obstacleDiscoveryObserver.observe(observedDiscoveryRoot, {
+          attributes: true,
+          subtree: true,
+          attributeFilter: ["data-pip-obstacle"]
+        });
+        // 只在候选局部发现瞬态子树增删及角色变化，不订阅正文的属性噪声。
+        observedObstacleCandidates.forEach((candidate) => obstacleDiscoveryObserver.observe(candidate, {
+          attributes: true,
+          childList: true,
+          subtree: true,
+          attributeFilter: ["role"]
+        }));
+      }
     }
   }
 
@@ -757,12 +841,17 @@
     geometryObserver = null;
     geometryMutationObserver?.disconnect();
     geometryMutationObserver = null;
+    obstacleDiscoveryObserver?.disconnect();
+    obstacleDiscoveryObserver = null;
+    observedDiscoveryRoot = null;
+    observedObstacleCandidates = [];
     observedGeometryNodes = [];
     observedWidthOwners = [];
     observedPendingWidthOwnerNodes = [];
     ownerClassSyncPending = false;
     railGeometryDirty = false;
     observedRailShells = [];
+    observedRailDependencyNodes = [];
     observedNativeShiftNodes = [];
     rebindMotionListeners([]);
     if (windowResizeBound && typeof window.removeEventListener === "function") {
@@ -775,7 +864,7 @@
     }
   }
 
-  function layoutState(scroller, owners, railRecords) {
+  function layoutState(scroller, owners, railRecords, currentSurface) {
     const maximumWidth = Math.max(1, Number(activeConfig.maximumContentWidth) || 1);
     const minimumSidePadding = Math.max(0, Number(activeConfig.minimumSidePadding) || 0);
     const referenceRect = layoutReferenceRect(scroller);
@@ -792,7 +881,7 @@
       };
     }
 
-    const rail = findPersistentRightRail(referenceRect, railRecords);
+    const rail = findPersistentRightRail(referenceRect, railRecords, currentSurface, scroller);
     const rightBoundary = rail ? Math.min(referenceRect.right, rail.rect.left) : referenceRect.right;
     const availableWidth = Math.max(1, Math.floor(rightBoundary - referenceRect.left));
     const usableWidth = Math.max(1, availableWidth - minimumSidePadding * 2);
@@ -933,7 +1022,7 @@
     const wideSurface = wideSurfaceState(currentSurface);
     const scope = wideSurface.scope;
     const owners = wideSurface.owners;
-    const railCandidates = persistentRailCandidates();
+    const railCandidates = persistentRailCandidates(currentSurface);
     const identity = ordinaryIdentity(currentSurface, scope, owners, railCandidates);
     const ordinaryRefresh = reason === "animation-frame" || reason === "settled";
     if (ordinaryRefresh && !railGeometryDirty && activeConfig && wideSurface.qualified &&
@@ -968,7 +1057,7 @@
     changed = bindEmptyEditor(wideSurface.emptyTask ? currentSurface.editor : null) || changed;
     changed = ensureStyle() || changed;
     changed = writeAttribute(target, marker, "true") || changed;
-    const state = layoutState(target, owners, railRecords);
+    const state = layoutState(target, owners, railRecords, currentSurface);
     changed = applyOwnerOffsets(state.ownerOffsets) || changed;
     changed = writeProperty(target, "--thread-composer-max-width", state.effectiveWidth) || changed;
     if (!wideSurface.emptyTask) {
@@ -1017,8 +1106,8 @@
       return { qualified: false, reason: "adapter-style-missing" };
     }
     const owners = wideSurface.owners;
-    const railRecords = persistentRailRecords(persistentRailCandidates());
-    const state = layoutState(target, owners, railRecords);
+    const railRecords = persistentRailRecords(persistentRailCandidates(surface));
+    const state = layoutState(target, owners, railRecords, surface);
     const ownerPropertiesMatch = state.ownerOffsets.every(({ owner, residualOffset }) =>
       owner.style.getPropertyValue(ownerOffsetProperty) === (residualOffset === 0 ? "0px" : `${residualOffset}px`));
     const propertiesMatch = (wideSurface.emptyTask

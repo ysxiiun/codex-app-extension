@@ -1,0 +1,138 @@
+{
+  "type": "bugfix",
+  "title": "修复右上角浮窗遮挡并建立通用宽屏避让机制",
+  "status": "COMPLETE",
+  "created_at": "2026-09-09T07:43:17.598662+00:00",
+  "created_by": "codex",
+  "last_agent": "codex",
+  "stage_history": [
+    {
+      "stage": "INIT",
+      "agent": "codex",
+      "entered_at": "2026-09-09T07:43:17.598662+00:00"
+    },
+    {
+      "stage": "ANALYSIS",
+      "agent": "codex",
+      "entered_at": "2026-09-09T07:43:18.079806+00:00"
+    },
+    {
+      "stage": "IMPLEMENT",
+      "agent": "codex",
+      "entered_at": "2026-09-09T09:41:39.052341+00:00"
+    },
+    {
+      "stage": "QUALITY",
+      "agent": "codex",
+      "entered_at": "2026-09-09T09:52:54.699640+00:00"
+    },
+    {
+      "stage": "IMPLEMENT",
+      "agent": "codex",
+      "entered_at": "2026-09-09T10:00:35.718740+00:00"
+    },
+    {
+      "stage": "QUALITY",
+      "agent": "codex",
+      "entered_at": "2026-09-09T10:04:01.388796+00:00"
+    },
+    {
+      "stage": "IMPLEMENT",
+      "agent": "codex",
+      "entered_at": "2026-09-10T02:25:10.693796+00:00"
+    },
+    {
+      "stage": "QUALITY",
+      "agent": "codex",
+      "entered_at": "2026-09-10T02:26:45.021667+00:00"
+    },
+    {
+      "stage": "IMPLEMENT",
+      "agent": "codex",
+      "entered_at": "2026-09-10T02:35:31.685717+00:00"
+    },
+    {
+      "stage": "QUALITY",
+      "agent": "codex",
+      "entered_at": "2026-09-10T02:36:28.626715+00:00"
+    },
+    {
+      "stage": "MEMORY",
+      "agent": "codex",
+      "entered_at": "2026-09-10T04:07:16.475308+00:00"
+    },
+    {
+      "stage": "COMPLETE",
+      "agent": "codex",
+      "entered_at": "2026-09-10T04:08:49.745147+00:00"
+    }
+  ],
+  "context": {},
+  "spawned_from": null,
+  "spawned_tasks": [],
+  "closed_reason": null,
+  "repos": [],
+  "workflow_mode_proposal": {
+    "configured_mode": "adaptive",
+    "selected_mode": "standard",
+    "minimum_mode": "fast",
+    "source": "adaptive",
+    "reasons": [
+      "重复出现的宿主兼容故障，需要真实DOM结构变化与动态观察回归、完整Core及安装后的live几何验收"
+    ],
+    "proposed_at": "2026-09-09T07:51:55.680286+00:00",
+    "proposed_by": "codex"
+  },
+  "workflow_mode": "standard",
+  "workflow_mode_confirmed_at": "2026-09-09T09:41:39.052303+00:00",
+  "workflow_mode_confirmed_by": "codex",
+  "tdd_enabled": false,
+  "tdd_coverage_threshold": 90,
+  "tdd_confirmed_at": "2026-09-09T09:41:39.052338+00:00",
+  "tdd_confirmed_by": "codex",
+  "quality_consumed_attempt": 3,
+  "memory_progress": {
+    "short_memory_written": true,
+    "short_memory_file": ".easy-coding/memory/short/SM-01a0897f-9bab-792a-9859-6dcd151c15b7_20260910_通用浮窗避让与真实WebKit回归.md",
+    "short_memory_sha256": "59c27de9c3b34b0244ba58df6e8372b4748b65fd9715a1b76e968a7b0bc949d5",
+    "updated_at": "2026-09-10T04:08:49.624311+00:00",
+    "instruction": {
+      "short_count": 8,
+      "short_term_max": 10,
+      "short_term_keep": 5,
+      "action": "no-op",
+      "trim_count": 0,
+      "candidate_files": [],
+      "kept_files": [
+        ".easy-coding/memory/short/SM-019fcfe3-0cfa-7d6b-987c-0edda8fb811c_20260805_Release幂等安装与动态宽屏布局稳定修复.md",
+        ".easy-coding/memory/short/SM-019fd53f-8d9a-7886-be56-6aa8478898ca_20260806_外观重设计与Tab功能彻底移除.md",
+        ".easy-coding/memory/short/SM-019fda0c-9017-72d5-a414-01a80b272a95_20260807_新建任务宽屏与动态右栏连续收敛.md",
+        ".easy-coding/memory/short/SM-019fda3e-d44a-78cc-8ef4-a3d545953de9_20260807_Markdown表格组件内水平滚动.md",
+        ".easy-coding/memory/short/SM-019feee0-c0e1-7ebe-a85e-ddd4f909e151_20260811_新建会话增强捕获与运行时恢复.md",
+        ".easy-coding/memory/short/SM-01a013c0-83be-729c-a865-77107f0abe89_20260818_菜单重启确认与CDP恢复修复.md",
+        ".easy-coding/memory/short/SM-01a022f5-7f3b-748b-9ad7-5294f74ea63e_20260821_新版环境信息PIP右栏避让修复.md",
+        ".easy-coding/memory/short/SM-01a0897f-9bab-792a-9859-6dcd151c15b7_20260910_通用浮窗避让与真实WebKit回归.md"
+      ],
+      "checkpoint_disposition": "kept",
+      "architecture_assessment": {
+        "required": false,
+        "trigger": "none",
+        "allowed_actions": [],
+        "abstract": {
+          "path": ".easy-coding/ABSTRACT.md",
+          "exists": true,
+          "non_empty": true,
+          "sha256": "a65fd9db7e59a9213f245c3d861ddd4f36598a37bac64058ba88c2b4cdcdfee3"
+        },
+        "changelog": {
+          "path": ".easy-coding/CHANGELOG.md",
+          "exists": false,
+          "non_empty": false,
+          "sha256": null
+        }
+      }
+    },
+    "long_memory_action": "no-op",
+    "completed": true
+  }
+}
