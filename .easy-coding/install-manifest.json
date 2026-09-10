@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "harness_version": "1.0.0-beta.0",
-  "generated_at": "2026-08-21T03:59:31.198Z",
+  "harness_version": "1.0.0",
+  "generated_at": "2026-09-09T07:16:38.509Z",
   "agents": [
     "claude-code",
     "codex",
@@ -12,7 +12,7 @@
       "path": ".agents/skills/ec-analysis/SKILL.md",
       "kind": "skill",
       "platform": "codex",
-      "sha256": "b7f4dd56d158f15cbaabf2ae51d67f69f5f41a50e34458c6145306c1bf699d09"
+      "sha256": "ea35dde7fbc1e48e9fab8490f5106f61c4d326b7a4919490687954b7bf4ca965"
     },
     {
       "path": ".agents/skills/ec-brainstorming/SKILL.md",
@@ -36,7 +36,7 @@
       "path": ".agents/skills/ec-implementing/SKILL.md",
       "kind": "skill",
       "platform": "codex",
-      "sha256": "9e0bf3712d072fea1cabded0eba0b7d13b5cd50965aa3a215cad67e8e0cf9a06"
+      "sha256": "4466a0d0d2f7b374cf04d1a0d3eeb51fe443bcf6ee6a7f252a173285a53a8e54"
     },
     {
       "path": ".agents/skills/ec-init/references/memory-migration.md",
@@ -48,13 +48,13 @@
       "path": ".agents/skills/ec-init/SKILL.md",
       "kind": "skill",
       "platform": "codex",
-      "sha256": "8a7bca724f51ba266abf550b818940112bbca8f0bc9a08aeedadf1008026a94c"
+      "sha256": "eebf2d9c08b3a258ce8830d4e065c45573f1f07ae6318ba53e178bca733fe9c5"
     },
     {
       "path": ".agents/skills/ec-lite/SKILL.md",
       "kind": "skill",
       "platform": "codex",
-      "sha256": "1214de3063bef8c5e4b05d382fddbe5a6a5c2480a8f507ef459322b0d5cc5a14"
+      "sha256": "df3695617219aa89023a1b34d98be2d7c1117406d7cb15d50ced81c1379e4e19"
     },
     {
       "path": ".agents/skills/ec-memory/SKILL.md",
@@ -96,7 +96,7 @@
       "path": ".agents/skills/ec-quality/SKILL.md",
       "kind": "skill",
       "platform": "codex",
-      "sha256": "43214314c4b17444e6d42d6ec176bb36b4198a2db45ed46f9752c4fe53f2d822"
+      "sha256": "1ea6772fa1f8706e482d19e8365aee777d68e59c5edd24c098239e369606a8bc"
     },
     {
       "path": ".agents/skills/ec-task-close/SKILL.md",
@@ -120,19 +120,19 @@
       "path": ".agents/skills/ec-workflow/SKILL.md",
       "kind": "skill",
       "platform": "codex",
-      "sha256": "5c6b4ddf18098f5a0c86bb75cbf2ac3cc9021435dcecfdeca3ee45a907321338"
+      "sha256": "8963101708bba3c35c30ea24ef90dc61239a90f3304610b655cc2199f310a47e"
     },
     {
       "path": ".claude/agents/ec-implementer.md",
       "kind": "agent",
       "platform": "claude-code",
-      "sha256": "c57ff94927eba5817caeb45abe7b34c09999033939d71cdc9d1dbc09e12e5f21"
+      "sha256": "523ea2034c62002535a22d50e2a72533388e3f1aafa265e841d7446260d0bddb"
     },
     {
       "path": ".claude/agents/ec-reviewer.md",
       "kind": "agent",
       "platform": "claude-code",
-      "sha256": "0afc597d34061caf3e2cd48272c34869cc90b56b73fa95d044134d8f55fec7ab"
+      "sha256": "d5adf52f83f3b30e707388af7b926a8c38d35b122ebb5a0d47a844068fde27d8"
     },
     {
       "path": ".claude/agents/ec-verifier.md",
@@ -192,7 +192,7 @@
       "path": ".claude/skills/ec-analysis/SKILL.md",
       "kind": "skill",
       "platform": "claude-code",
-      "sha256": "68947a2f70013ece5dbf0baf05e1a0f69f4c1a01cbcca806efd9dc13fe49719c"
+      "sha256": "8b4da2316aa6c2b0333e40275e7c6504ffa86fa74790d8939f61bc3a94fbb60b"
     },
     {
       "path": ".claude/skills/ec-brainstorming/SKILL.md",
@@ -216,7 +216,7 @@
       "path": ".claude/skills/ec-implementing/SKILL.md",
       "kind": "skill",
       "platform": "claude-code",
-      "sha256": "9194cfbe542e089b246493e4606fa9b8933d59ad2b94c4c0ed72bb9c3fe0d6c2"
+      "sha256": "0c6802e5d0bddd09a8b6f37a563eb077fcc5ba99c2f0a2d1b399887056673e1a"
     },
     {
       "path": ".claude/skills/ec-init/references/memory-migration.md",
@@ -228,13 +228,13 @@
       "path": ".claude/skills/ec-init/SKILL.md",
       "kind": "skill",
       "platform": "claude-code",
-      "sha256": "8bf19aa5a3eb1b495b3d0d9aefd458d3776224bbd0fed15b3b3ab525e6c2f360"
+      "sha256": "2ece70f73f4b59743a5185ec9a217521f77fbbd614378f8d04d343a444cd46a8"
     },
     {
       "path": ".claude/skills/ec-lite/SKILL.md",
       "kind": "skill",
       "platform": "claude-code",
-      "sha256": "453a0ac1f74f8cbd395d8dd2d1dd9c0d92e1220321bd2b3a573854453258a469"
+      "sha256": "3447fbf9fbc08e0d28d655b9532e9c9a853e609368479ede1e68a3bec71611d7"
     },
     {
       "path": ".claude/skills/ec-memory/SKILL.md",
@@ -276,7 +276,7 @@
       "path": ".claude/skills/ec-quality/SKILL.md",
       "kind": "skill",
       "platform": "claude-code",
-      "sha256": "1919335b79f0ea7c29199610ac1031c7e28262ac32bde6bad965b4411061044b"
+      "sha256": "2ae62ef11200cad789b3c0aacc8bee1954fd4c25b40a0a5d54ac2116b1a1f086"
     },
     {
       "path": ".claude/skills/ec-task-close/SKILL.md",
@@ -300,19 +300,19 @@
       "path": ".claude/skills/ec-workflow/SKILL.md",
       "kind": "skill",
       "platform": "claude-code",
-      "sha256": "5d0f2b24cc1386af2d7c2129dc760aca4fa4c19983ef7fb64bea3892ab49ad62"
+      "sha256": "da6741e08e7b7ed76eca138fc0abbb5aa6b8941ea42099e38cb70cd4ad1940f4"
     },
     {
       "path": ".codex/agents/ec-implementer.toml",
       "kind": "agent",
       "platform": "codex",
-      "sha256": "2a783dcbfea5a2d02fe24a6f9a5cc8c4c5469b97d83b63ba7817ea86466aef17"
+      "sha256": "b595ca8697d3e6e196400c8123210ebb0284fd1ef5cec84b106595b979620da8"
     },
     {
       "path": ".codex/agents/ec-reviewer.toml",
       "kind": "agent",
       "platform": "codex",
-      "sha256": "ac1e3235a09c6c11ac7a5ee1704e524f6d751844d11c8503acb50ea4cb524369"
+      "sha256": "daac16e979b36c56ccc93e0691f34d6afcc27c6b8c259b5f3af115a8abb50006"
     },
     {
       "path": ".codex/agents/ec-verifier.toml",
@@ -372,13 +372,13 @@
       "path": ".qoder/agents/ec-implementer.md",
       "kind": "agent",
       "platform": "qoder",
-      "sha256": "2c23975709c22bb1da074956565eb2665d1db9494c2fbfdf2515142218b80345"
+      "sha256": "fd8f95bbf0b7d98559bebb73ad44794869eb6b13cfcfa8725e7bbdbf6859369a"
     },
     {
       "path": ".qoder/agents/ec-reviewer.md",
       "kind": "agent",
       "platform": "qoder",
-      "sha256": "157d79413c2f40af2d3c1a2f290bc1b0bce93ad6acbca4616b84f44076510a0c"
+      "sha256": "aa3c2586a9bb330a4d560a887a8235af80f4fd18788cfb617213c074a50d555b"
     },
     {
       "path": ".qoder/agents/ec-verifier.md",
