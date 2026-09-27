@@ -12,9 +12,9 @@ Start every work reply with the single Markdown blockquote status line injected 
 then a blank line. Do not render the machine breadcrumbs to the user.
 
 `{approval-mode}` is the effective approval mode and `{workflow-mode}` is the configured or
-task-frozen execution mode; session overrides take precedence over project settings.
-When effective/frozen TDD is enabled, insert `· **TDD**` immediately after Workflow. When it is
-disabled, omit the TDD segment entirely and preserve the existing status-line format.
+task-frozen execution mode; behavior settings resolve per field: session > optional local ~/.easy-coding/config.yaml > project > defaults.
+When effective/frozen unit_test_mode is `ut` or `tdd`, insert `· **UT**` or `· **TDD**`
+immediately after Workflow. For `none`, omit this segment and preserve the status-line format.
 
 - Ready: > **Easy Coding** · **Approval: {approval-mode}** · **Workflow: {workflow-mode}** · Ready · Use `ec-workflow` to start or resume a task, `ec-brainstorming` to brainstorm, `ec-task-management` to manage tasks, or `ec-config` to inspect or change modes
 - Waiting init: > **Easy Coding** · **Approval: {approval-mode}** · **Workflow: {workflow-mode}** · Waiting init · Use `ec-init` to initialize
@@ -34,7 +34,7 @@ Trigger Easy Coding skills with your platform prefix — Codex: `$ec-*`, Qoder: 
 - `ec-brainstorming` — design exploration before building (hard design gate)
 - `ec-analysis` `ec-implementing` `ec-quality` — workflow stages
 - `ec-memory` — short/long memory archive
-- `ec-task-management` — task lifecycle panel · `ec-config` — Approval/Workflow/TDD settings · `ec-tdd-init` — Java changed-line gate initialization · `ec-task-close` — interrupt a task
+- `ec-task-management` — task lifecycle panel · `ec-config` — Approval/Workflow/unit-test settings · `ec-tdd-init` — Java changed-line gate initialization · `ec-task-close` — interrupt a task
 - `ec-no-harness` — bypass only Easy Coding for the current session
 - `ec-lite` — user-controlled direct mode with one proposal confirmation and no task/QUALITY/MEMORY
 - `ec-git` — git discipline · `ec-meta` — understand/customize the harness
@@ -43,23 +43,27 @@ First run `ec-init`; daily work goes through `ec-workflow`.
 
 ## Workflow discipline
 
-- Approval mode is session override > project `behavior.approval_mode` > `guard`; workflow mode
-  is session override > project `behavior.workflow_mode` > `adaptive`. Approval controls waiting;
-  workflow controls execution depth. ANALYSIS shows and freezes adaptive to fast/standard/strict.
+- Approval mode is session override > local ~/.easy-coding/config.yaml > project `behavior.approval_mode` > `guard`; workflow mode
+  is the mechanical minimum for the current actual change. Approval controls waiting;
+  workflow controls execution depth. Do not recommend or inflate the calculated mode.
   Confirm approval waits only at ANALYSIS -> IMPLEMENT, then advances green later stages
-  automatically; Auto advances all legal green edges. A new code diff after the QUALITY
-  checkpoint is the only exceptional pause across all modes: show the exact diff, bind acceptance
+  automatically; Auto advances all legal green edges. Dispatch retains the explicit scope/executor
+  decision, merged with any required approval. A new code diff after the QUALITY
+  checkpoint also pauses across all modes: show the exact diff, bind acceptance
   to its digest, and continue without rereview when the user accepts.
   Every mutation task runs QUALITY; no mode changes scope, delivery form, or evidence gates.
-- TDD is session override > project `behavior.tdd_enabled` > `false`; its changed-line threshold
-  is session override > project `behavior.tdd_coverage_threshold` > `90`. ANALYSIS -> IMPLEMENT
-  freezes both. TDD may be enabled only after `ec-tdd-init` records valid infrastructure readiness;
-  there is no enable-now/init-later state. The dedicated `tdd-init` task always freezes TDD off and
-  initializes only changed-line coverage infrastructure, never historical business-test coverage.
-  Disabled TDD adds no CI scan, JaCoCo work, commands, artifacts, or stronger gates. Enabled TDD
-  applies only to Java code tasks and requires lifecycle, review, passed local unit tests, and
-  local coverage for production lines changed since the task baseline. `ec-tdd-init` still
-  generates GitLab TEST-stage automation, but remote CI status is not Harness acceptance evidence.
+- Unit test strategy is session override > local ~/.easy-coding/config.yaml > project `behavior.unit_test_mode` > `none`.
+  Values are `none`, `ut`, and `tdd`; both enabled strategies share `ut_coverage_threshold`
+  (session > local > project > 90, integer 1..100). ANALYSIS -> IMPLEMENT freezes strategy, threshold,
+  and repository baselines. `none` adds no coverage work and retains ordinary task verification.
+  UT requires passed local unit tests and changed-production-line coverage, without test-first
+  ordering, RED/GREEN artifacts, or a separate TDD review. TDD additionally requires its lifecycle
+  and review dimension. Assertions remain part of ordinary review in UT.
+  Both currently support Java and reuse `ec-tdd-init` readiness, JaCoCo, and existing evidence
+  reuse. One test execution supplies tests plus coverage. No new stages or workflow escalation.
+  The dedicated `tdd-init` task freezes strategy `none`; readiness failure reports repair rather
+  than resetting configuration. CLI upgrades migrate old fields and preserve frozen task progress.
+  GitLab automation is infrastructure, not remote acceptance evidence.
 - Confirmation-required edges use `pending_transition`; automatic edges use the restricted
   `auto-transition` API. Pure read-only conversation stays Ready and creates no task. Any
   repository write, including documentation or configuration, uses the full state machine.
@@ -108,7 +112,11 @@ First run `ec-init`; daily work goes through `ec-workflow`.
   `document_sha256` and `execution_revision` may advance through shared writer commands. Project-
   external explicit Spec paths are allowed and may be repaired only with identity-checked rebind.
   Runtime progress must use the shared writer with CAS/idempotency and reconciliation; static
-  design changes require revision + READY + `sync-spec-design`. Never hand-edit `EDS:EXECUTION`.
+  confirmed design changes first use `begin-spec-change`, then revision + READY + `sync-spec-design`.
+  Creation/claim returns selected source context; session resume and design sync require
+  `resume-spec-context` only when current-session context is missing or design changed; otherwise reuse it. Pending changes block implementation/acceptance across agents.
+  Preserve the original writer actor while retaining the current owner during reconciliation.
+  Never hand-edit `EDS:EXECUTION`.
   Selected source tasks remain `implemented` through local QUALITY and become `verified`
   only when the accepted QUALITY -> MEMORY boundary is actually applied.
 - Canonical routing is two-pass: first use manifest-only discovery for the current worktree, then
@@ -117,8 +125,9 @@ First run `ec-init`; daily work goes through `ec-workflow`.
   ANALYSIS reads the selected consumption closure once and treats exact/scope-unchanged as a fast
   projection, while shared execution is the dependency fact source.
 - MEMORY combines short-memory creation and the conditional long-memory gate. Entry follows the
-  effective confirmation mode; its checkpoint records any accepted post-quality diff digest
-  and decision. Once memory processing completes, COMPLETE is automatic.
+  effective confirmation mode. Record reusable development knowledge and source references;
+  acceptance digests and process evidence stay in task records. Do not add reports or repeated
+  checks for memory. Once memory processing completes, COMPLETE is automatic.
 - NO CODE-TASK COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE.
 - All cross-platform modules (skills, hooks, references) must use universal agent protocols.
   Do not rely on any specific agent's proprietary conventions unless the module is explicitly
@@ -146,6 +155,12 @@ First run `ec-init`; daily work goes through `ec-workflow`.
 - Shared Canonical writeback is a stage gate but not proof of Git commit/push, and Git delivery is
   not proof of writeback. Keep those facts and scopes separate.
 
+
+
+Execution efficiency: use begin-correction for confirmed bounded repairs; preserve unrelated
+Units and reuse input-bound checks through prepare-check/record-check. Stage or Spec revision
+changes alone do not invalidate tests. No execution budget. No repeated internal validation,
+speculative fallback/retry/compatibility logic, or defensive copying.
 
 <!-- ═══ end easy-coding-harness generated ═══ -->
 

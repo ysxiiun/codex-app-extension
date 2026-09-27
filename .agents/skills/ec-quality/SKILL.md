@@ -6,26 +6,52 @@ description: QUALITY-stage skill. Freezes one candidate, runs independent Review
 # ec-quality — one candidate, two read-only gates
 
 Use only while the current task is in `QUALITY`. Communicate in the user's language. QUALITY
-does not modify source, tests, configuration, plans, or task scope.
+keeps Review and Verification read-only while permitting approved bounded repairs between checks.
+Ordinary fixes stay in QUALITY; changed requirements/contracts or a replaced implementation plan
+return to ANALYSIS/IMPLEMENT. Bug severity or line count alone does not decide the route.
 
 ## Candidate freeze
 
-Call `evidence-fingerprints` once and use the returned implementation/config fingerprints for
-the whole attempt. It also returns the runtime-owned `quality_attempt` number, start time, evidence
-boundary, and repair count. Every Review and Verification record in this attempt must carry that
-same candidate fingerprint and `quality_attempt` number. If the candidate changes, return to
-IMPLEMENT; the state API finalizes the old attempt as `cancelled` before the transition. Never mix
-evidence from two candidates.
+For Canonical-backed tasks, load the current session's bound selection through `resume-spec-context`
+only when the current session lacks that context or the design changed. Pass that original consumption closure to both gates and compare selected contracts,
+changes, Steps and Tests against the candidate. Pending `spec_change` blocks QUALITY acceptance
+until the source revision is synchronized. Bounded corrections refresh only their affected Unit
+mappings and retain the current stage; substantive expansion returns to ANALYSIS.
 
-`execution.jsonl` is append-only. Do not write `type:"quality"` yourself. The state API appends
-exactly one fingerprint-bound finalized record when QUALITY passes, leaves for repair/replan, or is
-cancelled by candidate drift, rework, or task closure. Retries reuse that record instead of
-duplicating it. An incomplete, duplicate, or out-of-sequence quality record blocks the transition.
+Call `evidence-fingerprints` once to obtain the runtime-owned attempt and candidate. The runtime
+owns signatures and prior-evidence references. Never calculate historical fingerprints, import
+runtime internals to reconstruct old candidates, or ask a reviewer to audit workflow bookkeeping.
 
-Review Gate and Verification Gate are independent and may run in parallel. Review never executes
-commands. Verification never edits files. If a hard blocker makes remaining work meaningless,
-cancel the other checks explicitly and record the cancellation; do not start repair while a gate
-is still running or unacknowledged.
+Prepare independent checks for the same unchanged candidate in one batch before executing them:
+
+```bash
+python3 .codex/hooks/easy_coding_state.py prepare-check \
+  --record '[<review/verify JSON with unit_id, dimension or check/check_type/command>, ...]' \
+  --agent <agent-id> --session-file <P>
+```
+
+For each returned item with `reusable:true`, use its evidence index and skip that check. Run the
+remaining checks once, then register their real results in one batch:
+
+```bash
+python3 .codex/hooks/easy_coding_state.py record-check \
+  --result '[{"prepared_id":"<returned-id>","result":<JSON with passed, exit_code for verification, findings/reviewer for review>}, ...]' \
+  --agent <agent-id> --session-file <P>
+```
+
+Preparation binds code/test inputs, module dependencies, build files and the actual command.
+Batching preserves each check's result and evidence identity. A single check may still use
+`--prepared-id` with one result object. Start a new preparation batch after a code change;
+never reuse a pre-edit input snapshot for post-edit checks.
+Use the analyzed Unit `input_files` closure for additional helpers/fixtures/configuration, and record intentional
+environment overrides in the check descriptor. Production-only reviews may declare
+`review_scope:"production"`; test review still covers changed test behavior. A result is accepted
+only if its inputs remained unchanged. One grouped Maven `-Dtest=A,B` execution covers both source
+commands when all other arguments agree. Do not run individual commands and then repeat a combined
+clean run. IMPLEMENT results and prior attempts use the same reuse mechanism.
+
+Record failed checks with failure_classes. Review and Verification remain independent; cancel a
+meaningless remaining check when a concrete blocker is found. Aggregate the repair once.
 
 ## Workflow depth
 
@@ -38,7 +64,8 @@ is still running or unacknowledged.
 
 ### Standard
 
-- Dispatch one independent reviewer.
+- Use one independent reviewer. A coordinator who did not author the candidate can provide this
+  review after another Agent implemented it; do not launch a duplicate reviewer merely for form.
 - Run affected lint/typecheck/test plus every must-test command from `test-strategy.md`.
 - Run Review and Verification in parallel when their inputs are already frozen.
 
@@ -48,10 +75,15 @@ is still running or unacknowledged.
 - For each actually modified repository, run all applicable lint, typecheck, test, and build
   checks. A repository merely mentioned by a Spec, dependency, supermodule, or path map is not in
   scope.
-- When frozen TDD is enabled, include the required TDD review dimension, local unit test, and
-  changed-production-line coverage. Record one coverage result with `coverage_scope:"local"`;
-  GitLab coverage is informative, not a task acceptance gate. Reuse current-fingerprint GREEN
-  evidence from IMPLEMENT instead of rerunning an identical command.
+
+### Unit test strategy (all depths)
+
+For frozen `unit_test_mode=ut|tdd` at any workflow depth, require passed local unit tests and
+changed-production-line coverage at `ut_coverage_threshold`. Run the related tests with coverage
+collection once and record both results from that execution (`coverage_scope:"local"`). Reuse
+unchanged input-bound evidence from IMPLEMENT or earlier attempts. Only `tdd` adds the TDD review
+dimension and lifecycle contract. UT reviews assertions within ordinary review and does not add a
+separate review. `none` adds no coverage gate. GitLab results are informative, not acceptance gates.
 
 ## Review Gate
 
@@ -82,7 +114,7 @@ blocking record also carries a `failure_classes` array; do not defer classificat
 
 ## Verification Gate
 
-Run only the commands selected by the mode and `test-strategy.md`. Record real exit status and
+Run only commands selected by the mode and the existing plan/test strategy. Record real exit status and
 current implementation/config fingerprints plus the active `quality_attempt` using the existing
 `type:"verify"` contract. Do not run a command inside Review Gate, and do not fix a failure inside
 Verification Gate. A failed applicable check also carries its structured `failure_classes` array.
@@ -103,7 +135,7 @@ Wait for both gates, then aggregate all blocking results once. Classify each ite
 
 If code or tests need edits, create one concise Repair Bundle containing every in-scope blocking
 item, affected files, required verification, and evidence that may be reused. After both Gates are
-terminal, finalize the decision before transitioning once to IMPLEMENT:
+terminal, finalize the decision, then prepare the bounded repair while remaining in QUALITY:
 
 ```bash
 python3 .codex/hooks/easy_coding_state.py finalize-quality \
@@ -126,10 +158,47 @@ review/verify record first, then write each affected source task `blocked` throu
 use the exact idempotency key `<H>:<S>:<F>:quality-<A>:blocked`. Add one failed evidence object for
 each affected Gate kind with ref
 `execution.jsonl#quality-attempt=<A>;implementation=<F>;source-task=<S>;kind=review|verify`.
-Only after every blocked writeback is acknowledged may the task return to IMPLEMENT; the state API
-rejects a writeback from another run, attempt, fingerprint, or evidence window. Entering IMPLEMENT
-reopens only those blocked source tasks as a new `in_progress` attempt, while unaffected implemented
-tasks keep their shared conclusion.
+After blocked writeback is acknowledged, start the approved repair. The runtime reopens only those
+source tasks with a repair-specific idempotency key, keeping local status QUALITY and unaffected
+source progress. Record affected Step/result completion and source `implemented` before completing
+the repair. Reuse the existing writer and ledger, never copy a second implementation plan.
+
+Use `begin-correction --file <existing-unit-file> --summary <bundle>` to prepare one `quality_repair`.
+In dispatch mode, present this complete bundle once with choices: current Agent, another Agent,
+or defer/revise. This human dispatch decision remains under every approval mode; Approve shares
+the same decision. The user may explicitly authorize current-Agent execution. Default mode uses
+its existing approval policy for local repair, with no handoff inside the stage.
+
+```bash
+python3 .codex/hooks/easy_coding_state.py start-quality-repair \
+  --repair-id <id> --executor current|other [--confirmed] --agent <agent-id> --session-file <P>
+```
+
+Pass `--confirmed` only for a real user decision on this bundle. For other-Agent execution the call
+also writes the handoff. After it succeeds, localize the returned `handoff_prompt` into the user's
+language and show it in a standalone copyable code block while preserving `ec-workflow`, the exact
+absolute project path, and task ID, then stop the coordinator's repair work. Do not show a success
+prompt after cancellation or failure. The recipient claims the task and directly repairs the
+approved files; it must not ask again or return to IMPLEMENT. Bounded code and necessary tests
+follow the existing unit test strategy, including TDD lifecycle checks only when TDD is frozen. The
+recipient finishes:
+
+```bash
+python3 .codex/hooks/easy_coding_state.py complete-quality-repair \
+  --repair-id <id> --agent <agent-id> --session-file <P>
+```
+
+When this returns an other-Agent repair with `next_action:quality`, display its localized
+`handoff_prompt` in the same copyable form, tell the user to copy it to the original main Agent,
+and stop the executor. Persist important details in the existing repair handoff summary; either
+prompt may append at most one short reminder from that summary and never carries scope, approval,
+progress, or evidence by itself. No quality gate may pass while the repair is pending.
+Scope/contract changes must be resolved rather than silently included in the accepted bundle.
+Repeated starts/completions reuse the existing repair ID.
+
+Use the same batch prepare/record flow for repair checks. Consume returned state and next-action
+fields directly; do not follow a successful state operation with an unchanged `snapshot` or
+Spec inspection merely to retrieve fields already returned.
 
 After repair, choose the minimum honest evidence refresh:
 
@@ -138,12 +207,12 @@ After repair, choose the minimum honest evidence refresh:
 - localized business code: delta review plus impacted tests;
 - contract/config/plan/shared behavior: rerun all applicable gates for the affected scope.
 
-When uncertain, rerun rather than infer. On the next attempt, the state API emits an append-only
-`quality-carry-forward` record only for Canonical repositories whose plan and repository content
-fingerprints are unchanged and whose sources are not hard/contract downstream of a changed source;
-it references the exact passed evidence indices from the consumed repair attempt. Never copy or
-relabel old evidence yourself. Strict may consume that state-owned record for independent,
-unaffected repositories, but must rerun every affected or dependency-invalidated repository gate.
+Use the runtime's reusable/changed-input result to decide what remains. Changes to a plan
+narrative, stage, approval mode or Spec revision alone do not require test execution. Refresh only
+affected evidence, including actual shared dependencies; never restart all Units in the repository.
+Passed checks are terminal until their inputs change or a concrete new defect invalidates them.
+Suggestions never trigger another review round. No reviewer may demand new defensive checks
+without a concrete triggering input and demonstrated failure. Preserve the original error strategy.
 
 ## Acceptance boundary
 

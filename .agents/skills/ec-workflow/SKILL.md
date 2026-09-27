@@ -12,8 +12,9 @@ user's language.
 
 ```text
 INIT --auto--> ANALYSIS -> IMPLEMENT -> QUALITY -> MEMORY --auto--> COMPLETE
-                    ^           ^          |
-                    +--replan---+          +---repair-----+
+                    ^                      |
+                    +---- scope/contract replan -----+
+                                  QUALITY -- bounded repair --> QUALITY
 
 any active stage --explicit user abort--> CLOSED
 ```
@@ -27,23 +28,24 @@ Pure conversation, explanation, analysis, and read-only review stay Ready and cr
 - `approval_mode = approve|guard|confirm|auto` controls whether a legal transition waits for a
   user. `confirm` waits only at ANALYSIS -> IMPLEMENT; after that, green QUALITY, MEMORY, and
   COMPLETE transitions advance automatically. `auto` advances every legal green
-  edge. The only additional pause is an exceptional code diff detected after the frozen
+  edge. Dispatch keeps its explicit scope/executor decision; another pause is an exceptional code diff detected after the frozen
   QUALITY acceptance checkpoint; accepting that exact diff does not change the mode.
 - `workflow_mode = adaptive|fast|standard|strict` controls execution cost and assurance depth.
-- `tdd_enabled` independently activates Java TDD and changed-line coverage. It defaults off;
-  `tdd_coverage_threshold` defaults to 90 and accepts integers from 1 to 100.
+- `unit_test_mode` independently selects `none`, `ut`, or `tdd`. It defaults to `none`;
+  `ut_coverage_threshold` defaults to 90 and accepts integers from 1 to 100.
 
-Resolution order for each configured value is session override, then project config, then
-defaults (`guard`, `adaptive`). ANALYSIS resolves `adaptive` to a concrete mode, presents the
-selection and reasons, allows the user to change it within the risk floor, and freezes it when
-ANALYSIS -> IMPLEMENT is applied.
+Approval, cooperation and unit test settings use session > local > project > defaults, per field.
+Local preferences live in optional `~/.easy-coding/config.yaml`; reads never create it. Execution depth is always the
+mechanically calculated minimum for the current change. Do not recommend, select a higher mode,
+or inherit an old task mode. Persist it once with `propose-workflow-mode --agent <agent-id>
+--session-file <P>`; the runtime calculates and freezes the value.
 
-TDD resolves with the same session-over-project precedence and freezes its enabled flag and
-threshold on ANALYSIS -> IMPLEMENT. It may be enabled only after `ec-tdd-init` readiness passes;
-there is no enabled-but-pending-initialization state. A dedicated `tdd-init` task always freezes
-TDD off so it can create or repair the required infrastructure without circular gating. When off,
-ordinary tasks add no CI scan, artifacts, commands, coverage work, or stronger acceptance. Use
-`ec-config` for all mode configuration.
+Unit test strategy uses the same three-scope precedence and freezes its mode and
+`ut_coverage_threshold` on ANALYSIS -> IMPLEMENT. UT and TDD share passed local unit tests and
+changed-line coverage, and reuse `ec-tdd-init` readiness. Only TDD requires test-first lifecycle
+and its review dimension. UT keeps ordinary review and compact Fast planning. The `tdd-init`
+task itself freezes strategy `none`; `none` adds no infrastructure scan or coverage gate.
+Both strategies reuse input-bound results and do not raise workflow depth.
 
 `confirm` and `auto` do not hide the proposal: show it in the plan. Confirm waits for that one
 plan decision; Auto continues immediately. Both remove later waiting, not quality gates.
@@ -54,6 +56,9 @@ Throughout this skill, `<agent-id>` is the canonical workflow owner ID: `claude-
 or `qoder`. Never use a display or source-author attribution such as `Codex with Easy Coding`.
 
 1. Read the injected state breadcrumbs or call:
+
+   Prefer the injected or most recent operation's state. Call `snapshot` only when that context
+   is missing or stale; do not repeat it after a successful operation that already returns state.
 
    ```bash
    python3 .codex/hooks/easy_coding_state.py snapshot --agent <agent-id> --session-file <P>
@@ -82,8 +87,8 @@ or `qoder`. Never use a display or source-author attribution such as `Codex with
    failure: never copy, mirror, or rewrite the source Spec because of it.
 
    Then call `create-task-from-spec` once for the complete selection. Do not call
-   `select-dev-spec-scope` during routing; `ec-analysis` owns the single consumption-closure read
-   after task creation. A document without a Canonical manifest remains a legacy ANALYSIS input
+   `select-dev-spec-scope` during discovery; creation returns the selected consumption closure
+   for `ec-analysis` to use directly. A document without a Canonical manifest remains a legacy ANALYSIS input
    for an ordinary task. A malformed, DRAFT, or otherwise non-READY Canonical Spec stays blocked
    and must never be downgraded to the legacy route. A READY Canonical Spec without shared
    execution remains readable, but run `initialize-spec-execution` before selection can become an
@@ -118,13 +123,15 @@ or `qoder`. Never use a display or source-author attribution such as `Codex with
    `<source-task-id>-><dependency-task-id>=<evidence>`.
    Explicit project-external Spec files are supported and stored as absolute locators. If that
    locator moves, use `rebind-spec-source`; never guess by basename. Shared execution progress is
-   written only through state API writer commands. Static design edits require revision + READY +
+   written only through state API writer commands. Confirmed static design edits first require
+   `begin-spec-change --affected-task <id> --summary <confirmed-change> --agent <agent-id>
+   --session-file <P>`, then revision + READY +
    `sync-spec-design`; never hand-edit the `EDS:EXECUTION` region.
 4. When the user explicitly invokes `ec-tdd-init`, let that skill own preflight and create a
    `type=tdd-init` code task only after scope confirmation. Do not reinterpret it as an ordinary
    TDD-enabled feature task and do not require readiness before creating it.
 5. Match the user's intent against `current_task` and the active task list before resuming.
-   If the user names or clearly matches another task, confirm the switch and call
+   If the user explicitly selects another task, that selection authorizes the switch; call
    `claim-task --task-id <id> --agent <agent-id> --session-file <P>`. Do not execute task A
    under task B's request.
    - With no explicit repository-mutation request, stay Ready and answer normally. Ambiguous
@@ -137,7 +144,29 @@ or `qoder`. Never use a display or source-author attribution such as `Codex with
 6. Resume the matched/current task, then load only state-relevant assets. Do not read five full
    memories at every startup; ANALYSIS searches memory metadata and opens relevant entries on
    demand.
-7. If another Agent last owned the task, summarize the stored handoff before continuing.
+7. Honor the returned `continuation` before generic stage dispatch. Summarize the existing handoff,
+   consume its approved scope and references, and stop at `stop_after`. Never create a new task,
+   replan, or ask again to approve already accepted work merely because the Agent changed.
+   `cooperation.coordinator` stays the main Agent/session while `last_agent` tracks the executor.
+   A repeated claim of the same active task does not require another claim record.
+
+## Manual dispatch
+
+`cooperate_mode=default` preserves handoff at stage boundaries. `dispatch` also supports handing
+a QUALITY repair to another Agent without changing stage. The user manually switches Agents.
+At an implementation decision, offer current-Agent execution, handoff, or defer/change once.
+"Confirm and hand off" consumes the existing pending stage approval before writing a handoff;
+"handoff for analysis" alone does not approve implementation. Do not ask again on claim.
+Use `handoff-task --continuation` with `next_action`, existing `unit_ids`, optional `evidence_refs`,
+and `stop_after`. Implement-only handoff uses `next_action:implement, stop_after:IMPLEMENT`;
+on completion return `next_action:quality` to the coordinator. QUALITY repairs follow ec-quality.
+After a successful handoff, localize the returned `handoff_prompt` into the user's language and
+show it in a standalone copyable code block while preserving `ec-workflow`, the exact absolute
+project path, and task ID. Persist any necessary extra context in the handoff summary first, then
+append at most one short reminder derived from it. Scope, approval, progress, and evidence remain
+in the task records; the prompt is only navigation. Do not show a success prompt for a cancelled
+or failed handoff, and stop the sending Agent after displaying it.
+The user can authorize the coordinator to fix a small change directly in either mode.
 
 ## Stage dispatch
 
@@ -154,6 +183,14 @@ For a Canonical-backed task whose snapshot reports pending writeback, call
 writeback remains pending or conflicted. A deterministic writer rejection reports `error` and
 clears the pending action so the corrected action can proceed; never overwrite a different
 pending action.
+
+Creation and claim return `spec_context.consumption` for the stored selection. Consume it before
+dispatching a stage. Reuse a matching current-session receipt (`spec_context.reused:true`) and context already loaded.
+If context was lost, the session is new, or design changed, call `resume-spec-context --agent
+<agent-id> --session-file <P>` and consume its returned closure. A blocked context requires
+source repair or design sync; never continue from a handoff summary alone. If `spec_change` is
+pending, resume that confirmed change on the bound original file before implementation/QUALITY.
+Recovery preserves the original event author/idempotency key and the current task owner separately.
 
 ## Boundary handling
 
@@ -197,19 +234,22 @@ passed current-fingerprint targeted check first. If the digest changes, inspect 
 new diff. Config, plan, workflow, Canonical-design, or nested-repository drift is not an
 acceptance-diff choice and returns to the stage required by the state API.
 
-## Mode escalation
+## Current-change routing
 
-When implementation reveals a higher risk, call:
+For an explicitly confirmed rollback, scope reduction, or bounded correction of an active task,
+call `begin-correction --file <existing-task-file> ... --summary <confirmed-change>
+[--risk <actual-new-risk>] --agent <agent-id> --session-file <P>`. The runtime preserves the plan,
+unaffected Units and evidence. In QUALITY it prepares an in-stage repair bundle; use
+`start-quality-repair` and `complete-quality-repair` without a stage transition. Other active stages
+use IMPLEMENT at the mechanical minimum for these files. Do not reconstruct the original task or its documents. Synchronize only
+conflicting source Spec clauses once when needed; then continue the correction. Never restore an
+entire file over unrelated user edits. A new feature or expanded contract still needs ANALYSIS.
 
-```bash
-python3 .codex/hooks/easy_coding_state.py raise-workflow-mode \
-  --mode standard|strict --reason "<new risk>" \
-  --agent <agent-id> --session-file <P>
-```
+## Recalculate actual risk
 
-Only upward changes are legal after ANALYSIS. During QUALITY, return to IMPLEMENT before
-raising the mode so the task re-enters QUALITY with fresh evidence. Scope or design changes return
-to ANALYSIS.
+Only an actual change in the current scope or risk changes execution depth. The runtime
+recalculates the minimum; old configuration, task size, and unrelated risks never raise it.
+There is no time, token, tool-count, or execution-budget gate.
 
 ## Handoff and closure
 

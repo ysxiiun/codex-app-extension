@@ -16,6 +16,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 import sys
 
+from easy_coding_inputs import (
+    evidence_operation, memo, cached_memo, invalidate_memo, digest, input_spec, capture, changed_inputs,
+    command_covers, command_identity,
+)
+
 from easy_dev_spec import (
     EasyDevSpecError,
     inspect_manifest,
@@ -36,51 +41,119 @@ from easy_dev_spec_execution import (
 )
 from easy_dev_spec_protocol import split_execution_region
 
-
-TERMINAL_STATUSES = {"COMPLETE", "CLOSED"}
-HELP_SUFFIX = (
-    "Use `ec-workflow` to start or resume a task, "
-    "`ec-brainstorming` to brainstorm, `ec-task-management` to manage tasks, "
-    "or `ec-config` to inspect or change modes"
+from easy_coding_store import (
+    ALWAYS_AUTO_TRANSITIONS,
+    ANALYSIS_CONFIRM_TRANSITION,
+    APPROVAL_MODES,
+    CODEX_AGENT_PATH_PATTERN,
+    CONFIGURED_WORKFLOW_MODES,
+    COVERAGE_TOOL_PATH,
+    CRITICAL_CONFIRM_TRANSITIONS,
+    DEFAULT_APPROVAL_MODE,
+    DEFAULT_UNIT_TEST_MODE,
+    DEFAULT_UT_COVERAGE_THRESHOLD,
+    DEFAULT_WORKFLOW_MODE,
+    GITLAB_CI_ENTRY_FILES,
+    HELP_SUFFIX,
+    INSTALLED_WORKFLOW_AGENT,
+    JAVA_BUILD_FILE_NAMES,
+    LEGACY_DISPLAY_AGENT_IDENTITIES,
+    LEGACY_STAGE_MAP,
+    LEGACY_STATE_LOCK_POLL_SECONDS,
+    LEGACY_STATE_LOCK_STALE_SECONDS,
+    LEGACY_STATE_LOCK_TIMEOUT_SECONDS,
+    MANDATORY_DEV_SPEC_HEADERS,
+    MAX_SESSION_FILES,
+    READY_LINE,
+    SESSION_AGENT_NAMESPACES,
+    SESSION_ATTACHED_RETENTION_HOURS,
+    SESSION_COMMAND_LOCK_POLL_SECONDS,
+    SESSION_COMMAND_LOCK_STALE_SECONDS,
+    SESSION_COMMAND_LOCK_TIMEOUT_SECONDS,
+    SESSION_COMPONENT_PATTERN,
+    SESSION_IDLE_RETENTION_HOURS,
+    StateError,
+    TDD_BASE_VARIABLE,
+    TDD_INIT_TASK_TYPE,
+    TDD_READINESS_PATH,
+    TDD_READINESS_SCHEMA,
+    TDD_READINESS_SCOPE,
+    TDD_THRESHOLD_VARIABLE,
+    TERMINAL_STATUSES,
+    VALID_TRANSITIONS,
+    WAITING_INIT_LINE,
+    WORKFLOW_AGENT_IDENTITIES,
+    _execution_records,
+    _read_behavior_file,
+    acquire_legacy_state_lock,
+    acquire_session_command_lock,
+    agents_equivalent,
+    apply_hook_session_identity,
+    assert_safe_task_id,
+    behavior_layers,
+    canonical_agent_identity,
+    clean_orphan_acceptance_snapshots,
+    clean_session_runtime,
+    clean_stale_sessions,
+    clear_session_pointer,
+    default_session,
+    detect_runtime_agent,
+    display_path,
+    ensure_hook_session,
+    ensure_hook_session_unlocked,
+    ensure_session,
+    execution_log_path,
+    execution_records,
+    hook_session_identity,
+    is_automatic_transition,
+    is_non_empty_string,
+    load_json,
+    load_session,
+    load_task,
+    merge_legacy_session,
+    migrate_legacy_pid_session,
+    migrate_legacy_state,
+    migrate_unit_test_settings,
+    normalize_agent_identity,
+    normalize_legacy_stage,
+    normalize_legacy_task,
+    normalize_session_agent,
+    normalize_session_component,
+    now_iso,
+    parse_unit_test_mode,
+    parse_ut_threshold,
+    read_behavior_file,
+    read_project_behavior,
+    release_legacy_state_lock,
+    release_session_command_lock,
+    resolve_behavior,
+    resolve_hook_session_path,
+    resolve_session_path,
+    safe_tdd_report_pattern,
+    session_command_lock_path,
+    task_json_path,
+    tdd_ci_contract_reasons,
+    tdd_gate_uses_task_variables,
+    tdd_readiness,
+    transition_requires_confirmation,
+    unlink_session_if_unchanged,
+    validate_transition,
+    write_json,
+    write_session,
 )
-READY_LINE = f"Ready · {HELP_SUFFIX}"
-WAITING_INIT_LINE = "Waiting init · Use `ec-init` to initialize"
+from easy_coding_status import (
+    build_machine_breadcrumbs,
+    build_status_context,
+    build_status_line,
+    get_pending_init_version,
+    is_project_init_required,
+    pending_handoff_record,
+    record_seen_stage,
+    snapshot_state,
+    spec_task_summary,
+)
 
-MANDATORY_DEV_SPEC_HEADERS: list[str] = [
-    "## 技术方案",
-    "### 项目模式",
-    "### 任务类型",
-    "### 需求解析",
-    "### 现状",
-    "### 冲突摘要",
-    "### 决策闭环",
-    "### 影响面分析",
-    "### 改动范围",
-    "### 修改方案",
-    "### 实施拆解",
-    "### 测试策略",
-    "### Workflow Mode",
-    "### 风险与注意事项",
-]
 
-VALID_TRANSITIONS: dict[str, set[str]] = {
-    "idle": {"INIT"},
-    "INIT": {"ANALYSIS", "CLOSED"},
-    "ANALYSIS": {"IMPLEMENT", "CLOSED"},
-    "IMPLEMENT": {"QUALITY", "ANALYSIS", "CLOSED"},
-    "QUALITY": {"MEMORY", "IMPLEMENT", "ANALYSIS", "CLOSED"},
-    "MEMORY": {"COMPLETE", "CLOSED"},
-    "COMPLETE": set(),
-    "CLOSED": set(),
-}
-
-ALWAYS_AUTO_TRANSITIONS = {
-    ("INIT", "ANALYSIS"),
-    ("MEMORY", "COMPLETE"),
-}
-TDD_INIT_TASK_TYPE = "tdd-init"
-APPROVAL_MODES = {"approve", "guard", "confirm", "auto"}
-CONFIGURED_WORKFLOW_MODES = {"adaptive", "fast", "standard", "strict"}
 WORKFLOW_MODES = {"fast", "standard", "strict"}
 WORKFLOW_MODE_RANK = {"fast": 0, "standard": 1, "strict": 2}
 STRICT_VERIFICATION_CHECK_TYPES = {"lint", "typecheck", "test", "build"}
@@ -119,31 +192,7 @@ WIDE_WORKFLOW_CONTRACT_PATTERN = re.compile(
     r"(cross[-_ ]?repo|public[-_ ]?(api|contract)|跨仓|公共接口|公共契约)",
     re.IGNORECASE,
 )
-DEFAULT_APPROVAL_MODE = "guard"
-DEFAULT_WORKFLOW_MODE = "adaptive"
-DEFAULT_TDD_ENABLED = False
-DEFAULT_TDD_COVERAGE_THRESHOLD = 90
-TDD_READINESS_SCHEMA = "easy-coding/tdd-readiness-v1"
-TDD_READINESS_SCOPE = "changed-production-lines"
-TDD_READINESS_PATH = Path(".easy-coding/tdd/readiness.json")
-TDD_BASE_VARIABLE = "EASY_CODING_TDD_BASE_SHA"
-TDD_THRESHOLD_VARIABLE = "EASY_CODING_TDD_THRESHOLD"
-COVERAGE_TOOL_PATH = ".easy-coding/tools/easy_coding_java_coverage.py"
-JAVA_BUILD_FILE_NAMES = {"pom.xml", "build.gradle", "build.gradle.kts"}
-GITLAB_CI_ENTRY_FILES = {".gitlab-ci.yml", ".gitlab-ci.yaml"}
-CRITICAL_CONFIRM_TRANSITIONS = {
-    ("ANALYSIS", "IMPLEMENT"),
-    ("QUALITY", "MEMORY"),
-}
-ANALYSIS_CONFIRM_TRANSITION = ("ANALYSIS", "IMPLEMENT")
 
-LEGACY_STAGE_MAP = {
-    "WAITING_CONFIRM": "ANALYSIS",
-    "REVIEW": "QUALITY",
-    "VERIFICATION": "QUALITY",
-    "MEMORY_SHORT": "MEMORY",
-    "MEMORY_LONG": "MEMORY",
-}
 
 DEFAULT_SHORT_TERM_MAX = 10
 DEFAULT_SHORT_TERM_KEEP = 5
@@ -155,28 +204,6 @@ ARCHITECTURE_CHANGELOG_PATH = Path(".easy-coding/CHANGELOG.md")
 ARCHITECTURE_ACTIONS = {"no-op", "backfill", "update"}
 ACCEPTANCE_SNAPSHOT_SCHEMA = 1
 ACCEPTANCE_VERIFICATION_POLICIES = {"carry-forward", "targeted", "waived"}
-SESSION_IDLE_RETENTION_HOURS = 7 * 24
-SESSION_ATTACHED_RETENTION_HOURS = 30 * 24
-MAX_SESSION_FILES = 100
-SESSION_COMPONENT_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
-WORKFLOW_AGENT_IDENTITIES = {"claude-code", "codex", "qoder"}
-# 安装时固化的宿主身份是生产事实源；未渲染源码保留占位符供本仓测试直接加载。
-INSTALLED_WORKFLOW_AGENT = "claude-code"
-SESSION_AGENT_NAMESPACES = {"claude-code", "codex", "qoder", "unknown"}
-CODEX_AGENT_PATH_PATTERN = re.compile(r"^/?root(?:/[a-z0-9._-]+)*$")
-LEGACY_DISPLAY_AGENT_IDENTITIES = {
-    "claude with easy coding": "claude-code",
-    "claude-code with easy coding": "claude-code",
-    "claude code with easy coding": "claude-code",
-    "codex with easy coding": "codex",
-    "qoder with easy coding": "qoder",
-}
-LEGACY_STATE_LOCK_TIMEOUT_SECONDS = 5.0
-LEGACY_STATE_LOCK_STALE_SECONDS = 60.0
-LEGACY_STATE_LOCK_POLL_SECONDS = 0.02
-SESSION_COMMAND_LOCK_TIMEOUT_SECONDS = 5.0
-SESSION_COMMAND_LOCK_STALE_SECONDS = 60.0
-SESSION_COMMAND_LOCK_POLL_SECONDS = 0.02
 SHORT_MEMORY_UUID_V7_PATTERN = re.compile(
     r"^SM-[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )
@@ -216,18 +243,10 @@ TABLE_HEADER_CELLS = {
 }
 
 
-class StateError(Exception):
-    pass
-
-
 def configure_stdio() -> None:
     for stream in (sys.stdin, sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8")
-
-
-def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def generate_short_memory_id() -> str:
@@ -251,56 +270,6 @@ def short_memory_id_sort_key(memory_id: str) -> tuple[int, str]:
     if SHORT_MEMORY_UUID_V7_PATTERN.fullmatch(memory_id):
         return (1, memory_id)
     return (2, memory_id)
-
-
-def canonical_agent_identity(agent: str | None, allow_legacy_display: bool = False) -> str | None:
-    raw_agent = str(agent or "unknown").strip()
-    normalized = raw_agent.lower()
-    # Codex 可能把根执行者写成 root 或 /root；两者及其协作子路径都属于同一平台身份。
-    if CODEX_AGENT_PATH_PATTERN.fullmatch(normalized):
-        return "codex"
-    if normalized in WORKFLOW_AGENT_IDENTITIES:
-        return normalized
-    if allow_legacy_display:
-        return LEGACY_DISPLAY_AGENT_IDENTITIES.get(normalized)
-    return None
-
-
-def normalize_agent_identity(agent: str | None) -> str:
-    raw_agent = str(agent or "unknown").strip()
-    # 旧数据可能误把展示署名写入 owner；只在读取兼容边界将其还原为规范身份。
-    canonical = canonical_agent_identity(raw_agent, allow_legacy_display=True)
-    if canonical is not None:
-        return canonical
-    return raw_agent
-
-
-def normalize_session_agent(agent: str | None) -> str:
-    normalized = normalize_agent_identity(agent)
-    return normalized if normalized in SESSION_AGENT_NAMESPACES else "unknown"
-
-
-def agents_equivalent(first: str | None, second: str | None) -> bool:
-    return normalize_agent_identity(first) == normalize_agent_identity(second)
-
-
-def detect_runtime_agent() -> str:
-    if INSTALLED_WORKFLOW_AGENT in WORKFLOW_AGENT_IDENTITIES:
-        return INSTALLED_WORKFLOW_AGENT
-    # 仅供未渲染源码和旧安装兼容；新安装脚本始终走上面的固化身份。
-    script_path = Path(sys.argv[0]).as_posix()
-    if ".qoder/" in script_path or ".qodercn/" in script_path:
-        return "qoder"
-    if ".codex/" in script_path:
-        return "codex"
-    if ".claude/" in script_path:
-        return "claude-code"
-    # Qoder CLI 会暴露 Claude 兼容环境变量，专属信号必须优先于兼容信号。
-    if os.environ.get("QODER_PROJECT_DIR"):
-        return "qoder"
-    if os.environ.get("CLAUDE_PROJECT_DIR"):
-        return "claude-code"
-    return "unknown"
 
 
 def resolve_state_agent(explicit_agent: str | None) -> str:
@@ -342,47 +311,7 @@ def validate_session_agent(agent: str, session_file: str | Path | None) -> None:
         )
 
 
-def normalize_session_component(value: str) -> str:
-    if (
-        value not in {".", ".."}
-        and len(value) <= 120
-        and SESSION_COMPONENT_PATTERN.fullmatch(value)
-    ):
-        return value
-    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:32]
-    return f"sha256-{digest}"
-
-
 # 逻辑会话由 Agent 命名空间与平台会话 ID 共同标识；PPID 只用于缺少逻辑 ID 的兼容回退。
-def hook_session_identity(
-    payload: dict,
-    agent: str | None,
-    ppid: int | None = None,
-) -> dict:
-    namespace = normalize_session_agent(agent)
-    raw_session_id = payload.get("session_id") or payload.get("sessionId")
-    external_session_id = str(raw_session_id).strip() if raw_session_id is not None else ""
-    source = "hook-session-id"
-    if not external_session_id and namespace == "codex":
-        # Codex App 当前会把 thread ID 暴露在进程环境中；标准 hook session_id 仍保持最高优先级。
-        raw_thread_id = (
-            payload.get("thread_id")
-            or payload.get("threadId")
-            or os.environ.get("CODEX_THREAD_ID")
-        )
-        external_session_id = str(raw_thread_id).strip() if raw_thread_id is not None else ""
-        source = "codex-thread-id"
-    if external_session_id:
-        component = normalize_session_component(external_session_id)
-    else:
-        component = f"ppid-{ppid if ppid is not None else os.getppid()}"
-        source = "legacy-ppid"
-    return {
-        "agent": namespace,
-        "external_session_id": external_session_id or None,
-        "session_key": f"{namespace}-{component}",
-        "session_source": source,
-    }
 
 
 def find_ec_root(start: Path) -> Path | None:
@@ -393,15 +322,6 @@ def find_ec_root(start: Path) -> Path | None:
         if current == current.parent:
             return None
         current = current.parent
-
-
-def load_json(path: Path) -> dict | None:
-    if not path.exists():
-        return None
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
 
 
 def parse_positive_int(value: str) -> int | None:
@@ -454,322 +374,12 @@ def read_memory_config(root: Path) -> dict[str, int]:
     return config
 
 
-def parse_tdd_threshold(value: object, source: str) -> int:
-    if isinstance(value, bool):
-        raise StateError(f"Invalid {source}: expected an integer from 1 to 100.")
-    try:
-        threshold = int(str(value))
-    except (TypeError, ValueError) as error:
-        raise StateError(f"Invalid {source}: expected an integer from 1 to 100.") from error
-    if threshold < 1 or threshold > 100:
-        raise StateError(f"Invalid {source}: expected an integer from 1 to 100.")
-    return threshold
-
-
-def parse_yaml_bool(value: str | None, source: str) -> bool:
-    if value is None:
-        return DEFAULT_TDD_ENABLED
-    normalized = value.lower()
-    if normalized in {"true", "yes", "on"}:
-        return True
-    if normalized in {"false", "no", "off"}:
-        return False
-    raise StateError(f"Invalid {source}: expected true or false.")
-
-
-def read_project_behavior(root: Path) -> tuple[str, str, bool, int]:
-    path = root / ".easy-coding" / "config.yaml"
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return (
-            DEFAULT_APPROVAL_MODE,
-            DEFAULT_WORKFLOW_MODE,
-            DEFAULT_TDD_ENABLED,
-            DEFAULT_TDD_COVERAGE_THRESHOLD,
-        )
-
-    in_behavior = False
-    behavior_indent = 0
-    behavior: dict[str, str] = {}
-    schema_version = 0
-    for raw_line in lines:
-        without_comment = raw_line.split("#", 1)[0].rstrip()
-        stripped = without_comment.strip()
-        if not stripped:
-            continue
-        indent = len(without_comment) - len(without_comment.lstrip(" "))
-        if stripped == "behavior:":
-            in_behavior = True
-            behavior_indent = indent
-            continue
-        if in_behavior and indent <= behavior_indent:
-            in_behavior = False
-        if not in_behavior and indent == 0 and stripped.startswith("version:"):
-            try:
-                schema_version = int(stripped.split(":", 1)[1].strip().strip("'\""))
-            except ValueError:
-                schema_version = 0
-            continue
-        if not in_behavior or ":" not in stripped:
-            continue
-        key, value = stripped.split(":", 1)
-        behavior[key] = value.strip().strip("'\"")
-
-    legacy = behavior.get("confirm_mode")
-    approval_mode = behavior.get("approval_mode")
-    workflow_mode = behavior.get("workflow_mode")
-    if approval_mode is None:
-        if legacy == "lite":
-            approval_mode = "guard"
-        elif legacy in APPROVAL_MODES:
-            approval_mode = legacy
-        else:
-            approval_mode = DEFAULT_APPROVAL_MODE
-    if workflow_mode is None:
-        workflow_mode = "fast" if legacy == "lite" else DEFAULT_WORKFLOW_MODE
-    if approval_mode not in APPROVAL_MODES:
-        raise StateError(
-            "Invalid behavior.approval_mode in .easy-coding/config.yaml: "
-            "expected approve, guard, confirm, or auto."
-        )
-    if workflow_mode not in CONFIGURED_WORKFLOW_MODES:
-        raise StateError(
-            "Invalid behavior.workflow_mode in .easy-coding/config.yaml: "
-            "expected adaptive, fast, standard, or strict."
-        )
-    if schema_version >= 4:
-        tdd_enabled = (
-            parse_yaml_bool(behavior.get("tdd_enabled"), "behavior.tdd_enabled")
-            if schema_version >= 5
-            else DEFAULT_TDD_ENABLED
-        )
-        tdd_threshold = parse_tdd_threshold(
-            behavior.get("tdd_coverage_threshold", DEFAULT_TDD_COVERAGE_THRESHOLD),
-            "behavior.tdd_coverage_threshold",
-        )
-    else:
-        tdd_enabled = DEFAULT_TDD_ENABLED
-        tdd_threshold = DEFAULT_TDD_COVERAGE_THRESHOLD
-    return approval_mode, workflow_mode, tdd_enabled, tdd_threshold
-
-
-def safe_tdd_report_pattern(value: object) -> bool:
-    if not is_non_empty_string(value):
-        return False
-    candidate = Path(str(value))
-    return not candidate.is_absolute() and ".." not in candidate.parts
-
-
-def tdd_gate_uses_task_variables(command: object) -> bool:
-    if not is_non_empty_string(command):
-        return False
-    try:
-        tokens = shlex.split(str(command))
-    except ValueError:
-        return False
-    options: dict[str, str] = {}
-    for index, token in enumerate(tokens[:-1]):
-        if token in {"--base", "--threshold"}:
-            options[token] = tokens[index + 1]
-    return options.get("--base") in {
-        f"${TDD_BASE_VARIABLE}",
-        "$" + "{" + TDD_BASE_VARIABLE + "}",
-    } and options.get("--threshold") in {
-        f"${TDD_THRESHOLD_VARIABLE}",
-        "$" + "{" + TDD_THRESHOLD_VARIABLE + "}",
-    }
-
-
-def tdd_ci_contract_reasons(contents: list[str]) -> list[str]:
-    combined = "\n".join(
-        re.sub(r"\s+#.*$", "", re.sub(r"^\s*#.*$", "", line))
-        for line in "\n".join(contents).splitlines()
-    )
-    lowered = combined.lower()
-    reasons: list[str] = []
-    for marker in (
-        "jacoco",
-        "artifacts",
-        COVERAGE_TOOL_PATH,
-        TDD_BASE_VARIABLE,
-        TDD_THRESHOLD_VARIABLE,
-    ):
-        if marker.lower() not in lowered:
-            reasons.append(f"CI files do not contain required marker: {marker}")
-    if not tdd_gate_uses_task_variables(combined):
-        reasons.append(
-            "CI changed-line gate must use the task baseline and threshold variables"
-        )
-    if re.search(
-        r"(?:^|\n)\s*stage\s*:\s*['\"]?test['\"]?\s*(?:#.*)?(?:\n|$)",
-        combined,
-        re.IGNORECASE,
-    ) is None:
-        reasons.append("CI files do not declare a TEST-stage job")
-    return reasons
-
-
-def tdd_readiness(root: Path) -> dict[str, object]:
-    receipt = root / TDD_READINESS_PATH
-    if not receipt.is_file():
-        return {"status": "needs_init", "reasons": ["TDD readiness receipt is missing"]}
-    try:
-        manifest = json.loads(receipt.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
-        return {"status": "needs_init", "reasons": ["TDD readiness receipt is invalid"]}
-    if not isinstance(manifest, dict):
-        return {
-            "status": "needs_init",
-            "reasons": ["TDD readiness receipt must be a JSON object"],
-        }
-
-    reasons: list[str] = []
-    if manifest.get("schema") != TDD_READINESS_SCHEMA:
-        reasons.append("unsupported readiness schema")
-    if manifest.get("provider") != "gitlab":
-        reasons.append("readiness provider must be gitlab")
-    if manifest.get("coverage_scope") != TDD_READINESS_SCOPE:
-        reasons.append("coverage scope must be changed-production-lines")
-    if manifest.get("historical_coverage_required") is not False:
-        reasons.append("historical coverage must remain disabled")
-    reports = manifest.get("coverage_report_patterns")
-    if not isinstance(reports, list) or not reports or not all(
-        safe_tdd_report_pattern(item) for item in reports
-    ):
-        reasons.append(
-            "coverage_report_patterns must contain safe project-relative report patterns"
-        )
-    gate = manifest.get("changed_line_gate_command")
-    if not is_non_empty_string(gate) or COVERAGE_TOOL_PATH not in str(gate):
-        reasons.append("changed-line coverage gate command is missing")
-    elif not tdd_gate_uses_task_variables(gate):
-        reasons.append(
-            "changed-line coverage gate must use the task baseline and threshold variables"
-        )
-
-    contents: dict[str, list[str]] = {
-        "build_files": [],
-        "ci_files": [],
-        "tool_files": [],
-    }
-    for field in contents:
-        records = manifest.get(field)
-        if not isinstance(records, list) or not records:
-            reasons.append(f"{field} must contain at least one file")
-            continue
-        for record in records:
-            if not isinstance(record, dict):
-                reasons.append(f"{field} contains an invalid record")
-                continue
-            file_name = record.get("path")
-            expected = record.get("sha256")
-            if not is_non_empty_string(file_name) or not re.fullmatch(
-                r"[a-f0-9]{64}", str(expected or "")
-            ):
-                reasons.append(f"{field} contains an invalid path or SHA-256")
-                continue
-            candidate = Path(str(file_name))
-            if candidate.is_absolute():
-                reasons.append(f"readiness file must be project-relative: {file_name}")
-                continue
-            resolved = (root / candidate).resolve()
-            try:
-                resolved.relative_to(root.resolve())
-                payload = resolved.read_bytes()
-                contents[field].append(payload.decode("utf-8"))
-                if hashlib.sha256(payload).hexdigest() != expected:
-                    reasons.append(f"readiness file changed: {file_name}")
-            except (OSError, UnicodeError, ValueError):
-                reasons.append(f"readiness file is missing or unreadable: {file_name}")
-
-    manifest_build_files = manifest.get("build_files")
-    manifest_ci_files = manifest.get("ci_files")
-    manifest_tool_files = manifest.get("tool_files")
-    build_paths = {
-        Path(str(item.get("path", ""))).name
-        for item in manifest_build_files
-        if isinstance(item, dict) and is_non_empty_string(item.get("path"))
-    } if isinstance(manifest_build_files, list) else set()
-    ci_paths = {
-        str(item.get("path", "")).replace("\\", "/")
-        for item in manifest_ci_files
-        if isinstance(item, dict) and is_non_empty_string(item.get("path"))
-    } if isinstance(manifest_ci_files, list) else set()
-    if not build_paths.intersection(JAVA_BUILD_FILE_NAMES):
-        reasons.append("build_files must include a Maven or Gradle Java build file")
-    if not ci_paths.intersection(GITLAB_CI_ENTRY_FILES):
-        reasons.append("ci_files must include the project-root GitLab CI entry file")
-    tool_paths = {
-        str(item.get("path", "")).replace("\\", "/")
-        for item in manifest_tool_files
-        if isinstance(item, dict) and is_non_empty_string(item.get("path"))
-    } if isinstance(manifest_tool_files, list) else set()
-    if COVERAGE_TOOL_PATH not in tool_paths:
-        reasons.append(f"tool_files must include {COVERAGE_TOOL_PATH}")
-    if not any("jacoco" in content.lower() for content in contents["build_files"]):
-        reasons.append("build files do not configure JaCoCo")
-    reasons.extend(tdd_ci_contract_reasons(contents["ci_files"]))
-    return {
-        "status": "ready" if not reasons else "needs_init",
-        "reasons": list(dict.fromkeys(reasons)),
-    }
-
-
 def require_tdd_readiness(root: Path) -> None:
     readiness = tdd_readiness(root)
     if readiness["status"] != "ready":
         reasons = "; ".join(str(reason) for reason in readiness["reasons"])
-        raise StateError(f"TDD cannot be enabled before ec-tdd-init succeeds: {reasons}")
-
-
-def resolve_behavior(
-    root: Path, session: dict
-) -> tuple[str, str | None, str, str, str | None, str, bool, bool | None, bool, int, int | None, int]:
-    project_approval, project_workflow, project_tdd, project_threshold = read_project_behavior(root)
-    legacy = session.get("confirm_mode")
-    session_approval = session.get("approval_mode")
-    session_workflow = session.get("workflow_mode")
-    session_tdd = session.get("tdd_enabled")
-    session_threshold = session.get("tdd_coverage_threshold")
-    if session_approval is None:
-        if legacy == "lite":
-            session_approval = "guard"
-        elif legacy in APPROVAL_MODES:
-            session_approval = legacy
-    if session_workflow is None:
-        if legacy == "lite":
-            session_workflow = "fast"
-        elif legacy in APPROVAL_MODES:
-            session_workflow = "adaptive"
-    if session_approval is not None and session_approval not in APPROVAL_MODES:
-        raise StateError(
-            "Invalid session approval_mode: expected approve, guard, confirm, or auto."
-        )
-    if session_workflow is not None and session_workflow not in CONFIGURED_WORKFLOW_MODES:
-        raise StateError(
-            "Invalid session workflow_mode: expected adaptive, fast, standard, or strict."
-        )
-    if session_tdd is not None and not isinstance(session_tdd, bool):
-        raise StateError("Invalid session tdd_enabled: expected true or false.")
-    if session_threshold is not None:
-        session_threshold = parse_tdd_threshold(
-            session_threshold, "session tdd_coverage_threshold"
-        )
-    return (
-        project_approval,
-        str(session_approval) if session_approval else None,
-        str(session_approval or project_approval),
-        project_workflow,
-        str(session_workflow) if session_workflow else None,
-        str(session_workflow or project_workflow),
-        project_tdd,
-        session_tdd,
-        session_tdd if session_tdd is not None else project_tdd,
-        project_threshold,
-        session_threshold,
-        session_threshold if session_threshold is not None else project_threshold,
-    )
+        action = "Run ec-tdd-init first" if readiness["status"] == "needs_init" else "Repair TDD readiness"
+        raise StateError(f"{action}: {reasons}. TDD settings are unchanged.")
 
 
 def resolve_approval_mode(root: Path, session: dict) -> tuple[str, str | None, str]:
@@ -778,6 +388,7 @@ def resolve_approval_mode(root: Path, session: dict) -> tuple[str, str | None, s
 
 
 def materialize_legacy_session_behavior(session: dict) -> None:
+    migrate_unit_test_settings(session)
     legacy = session.get("confirm_mode")
     if legacy == "lite":
         session.setdefault("approval_mode", "guard")
@@ -1121,6 +732,7 @@ def record_architecture_assessment(
     if action not in ARCHITECTURE_ACTIONS:
         raise StateError(f"Unknown architecture assessment action: {action}")
     session, resolved_task_id, task = resolve_current_task(root, task_id, session_file)
+    require_spec_context(root, task, agent, session_file)
     if task.get("status") != "MEMORY":
         raise StateError("Architecture assessment is only available during MEMORY.")
     progress = task.get("memory_progress")
@@ -1258,541 +870,8 @@ def validate_distillation_file_sets(root: Path, instruction: dict) -> None:
             raise StateError(f"Short-memory file selected for retention is missing: {memory_file}")
 
 
-def normalize_legacy_stage(stage: object) -> object:
-    return LEGACY_STAGE_MAP.get(str(stage), stage)
-
-
-def normalize_legacy_task(task: dict) -> bool:
-    """Normalize legacy task state without touching artifacts outside task.json."""
-    legacy_status = str(task.get("status") or "")
-    changed = False
-
-    for field in ("created_by", "last_agent"):
-        normalized_agent = canonical_agent_identity(
-            task.get(field), allow_legacy_display=True
-        )
-        if normalized_agent is not None and normalized_agent != task.get(field):
-            task[field] = normalized_agent
-            changed = True
-
-    if legacy_status in LEGACY_STAGE_MAP:
-        task["status"] = LEGACY_STAGE_MAP[legacy_status]
-        changed = True
-
-    pending = task.get("pending_transition")
-    if isinstance(pending, dict):
-        source = normalize_legacy_stage(pending.get("from"))
-        target = normalize_legacy_stage(pending.get("to"))
-        if source == target:
-            task.pop("pending_transition", None)
-            changed = True
-        elif source != pending.get("from") or target != pending.get("to"):
-            task["pending_transition"] = {**pending, "from": source, "to": target}
-            changed = True
-
-    if not isinstance(task.get("quality_checkpoint"), dict) and isinstance(
-        task.get("verification_checkpoint"), dict
-    ):
-        task["quality_checkpoint"] = task["verification_checkpoint"]
-        changed = True
-    if "verification_checkpoint" in task:
-        task.pop("verification_checkpoint")
-        changed = True
-
-    history = task.get("stage_history")
-    if isinstance(history, list):
-        normalized_history: list[dict] = []
-        for raw_entry in history:
-            if not isinstance(raw_entry, dict):
-                continue
-            entry = dict(raw_entry)
-            mapped_stage = normalize_legacy_stage(entry.get("stage"))
-            if mapped_stage != entry.get("stage"):
-                entry["stage"] = mapped_stage
-                changed = True
-            normalized_agent = canonical_agent_identity(
-                entry.get("agent"), allow_legacy_display=True
-            )
-            if normalized_agent is not None and normalized_agent != entry.get("agent"):
-                entry["agent"] = normalized_agent
-                changed = True
-            if normalized_history and normalized_history[-1].get("stage") == entry.get("stage"):
-                changed = True
-                continue
-            normalized_history.append(entry)
-        if changed:
-            task["stage_history"] = normalized_history
-
-    if legacy_status == "WAITING_CONFIRM" and not task.get("pending_transition"):
-        requested_by = canonical_agent_identity(
-            task.get("last_agent"), allow_legacy_display=True
-        ) or "legacy-migration"
-        task["pending_transition"] = {
-            "from": "ANALYSIS",
-            "to": "IMPLEMENT",
-            "requested_at": now_iso(),
-            "requested_by": requested_by,
-            "reason": "migrated-from-WAITING_CONFIRM",
-        }
-        changed = True
-
-    if legacy_status == "MEMORY_LONG":
-        progress = task.get("memory_progress")
-        if not isinstance(progress, dict):
-            progress = {}
-        if progress.get("short_memory_written") is not True:
-            progress["short_memory_written"] = True
-            progress["legacy_short_memory_assumed"] = True
-            progress["updated_at"] = now_iso()
-            task["memory_progress"] = progress
-            changed = True
-        elif progress.get("legacy_short_memory_assumed") is not True:
-            progress["legacy_short_memory_assumed"] = True
-            progress["updated_at"] = now_iso()
-            task["memory_progress"] = progress
-            changed = True
-
-    return changed
-
-
-def write_json(path: Path, data: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
-    )
-    temporary_path = Path(temporary_name)
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
-            handle.write(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary_path, path)
-        try:
-            directory_descriptor = os.open(path.parent, os.O_RDONLY)
-            try:
-                os.fsync(directory_descriptor)
-            finally:
-                os.close(directory_descriptor)
-        except OSError:
-            # Some platforms do not allow opening directories; file replacement is still atomic.
-            pass
-    finally:
-        if temporary_path.exists():
-            temporary_path.unlink()
-
-
-def session_command_lock_path(root: Path, session_path: Path) -> Path:
-    key = hashlib.sha256(str(session_path.resolve()).encode("utf-8")).hexdigest()[:24]
-    return root / ".easy-coding" / "sessions" / f".session-{key}.lock"
-
-
-def acquire_session_command_lock(root: Path, session_path: Path) -> Path:
-    lock_path = session_command_lock_path(root, session_path)
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    deadline = time.monotonic() + SESSION_COMMAND_LOCK_TIMEOUT_SECONDS
-    while True:
-        try:
-            lock_path.mkdir()
-            return lock_path
-        except FileExistsError:
-            try:
-                if time.time() - lock_path.stat().st_mtime > SESSION_COMMAND_LOCK_STALE_SECONDS:
-                    lock_path.rmdir()
-                    continue
-            except FileNotFoundError:
-                continue
-            except OSError:
-                pass
-            if time.monotonic() >= deadline:
-                raise StateError("Timed out waiting for the logical session command lock.")
-            time.sleep(SESSION_COMMAND_LOCK_POLL_SECONDS)
-        except OSError as exc:
-            raise StateError("Cannot acquire the logical session command lock.") from exc
-
-
-def release_session_command_lock(lock_path: Path | None) -> None:
-    if lock_path is None:
-        return
-    try:
-        lock_path.rmdir()
-    except OSError:
-        pass
-
-
-def acquire_legacy_state_lock(root: Path) -> Path | None:
-    state_path = root / ".easy-coding" / "state.json"
-    lock_path = root / ".easy-coding" / "sessions" / ".legacy-state-migration.lock"
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    deadline = time.monotonic() + LEGACY_STATE_LOCK_TIMEOUT_SECONDS
-
-    while state_path.exists() or lock_path.exists():
-        try:
-            lock_path.mkdir()
-            return lock_path
-        except FileExistsError:
-            try:
-                lock_age = time.time() - lock_path.stat().st_mtime
-                if lock_age > LEGACY_STATE_LOCK_STALE_SECONDS:
-                    lock_path.rmdir()
-                    continue
-            except FileNotFoundError:
-                continue
-            except OSError:
-                pass
-            if time.monotonic() >= deadline:
-                raise StateError("Timed out waiting for legacy state migration lock.")
-            time.sleep(LEGACY_STATE_LOCK_POLL_SECONDS)
-        except OSError as error:
-            raise StateError("Cannot acquire legacy state migration lock.") from error
-    return None
-
-
-def release_legacy_state_lock(lock_path: Path | None) -> None:
-    if lock_path is None:
-        return
-    try:
-        lock_path.rmdir()
-    except OSError:
-        pass
-
-
-def migrate_legacy_state(root: Path, agent: str) -> dict | None:
-    """Prepare old state.json data for the canonical session; the caller commits it first."""
-    state_path = root / ".easy-coding" / "state.json"
-    old_state = load_json(state_path)
-    if old_state is None:
-        return None
-
-    task_id = old_state.get("current_task")
-    if task_id:
-        task_path = task_json_path(root, str(task_id))
-        task = load_json(task_path)
-        if task:
-            if "stage_history" not in task or not task["stage_history"]:
-                task["stage_history"] = old_state.get("stage_history", [])
-            if "last_agent" not in task or not task["last_agent"]:
-                task["last_agent"] = (
-                    canonical_agent_identity(
-                        old_state.get("last_agent"), allow_legacy_display=True
-                    )
-                    or agent
-                )
-            if old_state.get("confirmed_by_user"):
-                task["confirmed_by_user"] = True
-            if old_state.get("test_strategy_confirmed"):
-                task["test_strategy_confirmed"] = True
-            if old_state.get("repo_paths"):
-                task["repo_paths"] = old_state["repo_paths"]
-            normalize_legacy_task(task)
-            write_json(task_path, task)
-
-    return {"current_task": task_id, "created_at": now_iso()}
-
-
-def resolve_session_path(root: Path, session_file: str | Path | None = None) -> Path:
-    sessions_dir = (root / ".easy-coding" / "sessions").resolve()
-    if session_file:
-        path = Path(session_file)
-        candidate = path if path.is_absolute() else root / path
-        resolved = candidate.resolve()
-        try:
-            resolved.relative_to(sessions_dir)
-        except ValueError as error:
-            raise StateError(
-                "Unsafe session file path: "
-                f"{session_file}. Must be under .easy-coding/sessions/."
-            ) from error
-        if resolved == sessions_dir:
-            raise StateError(
-                "Unsafe session file path: "
-                f"{session_file}. Must be a file under .easy-coding/sessions/."
-            )
-        return resolved
-    identity = hook_session_identity({}, detect_runtime_agent())
-    return sessions_dir / f"{identity['session_key']}.json"
-
-
-def resolve_hook_session_path(
-    root: Path,
-    payload: dict,
-    agent: str | None,
-    ppid: int | None = None,
-) -> Path:
-    identity = hook_session_identity(payload, agent, ppid)
-    return resolve_session_path(root, f".easy-coding/sessions/{identity['session_key']}.json")
-
-
-def display_path(root: Path, path: Path) -> str:
-    try:
-        return path.resolve().relative_to(root.resolve()).as_posix()
-    except ValueError:
-        return path.as_posix()
-
-
-def default_session() -> dict:
-    timestamp = now_iso()
-    return {"current_task": None, "created_at": timestamp, "last_active_at": timestamp}
-
-
-def apply_hook_session_identity(session: dict, identity: dict) -> None:
-    timestamp = now_iso()
-    if not session.get("created_at"):
-        session["created_at"] = timestamp
-    session["last_active_at"] = timestamp
-    for key in ("agent", "external_session_id", "session_key", "session_source"):
-        session[key] = identity.get(key)
-
-
-def clear_session_pointer(session: dict, agent: str | None = None) -> None:
-    session["current_task"] = None
-    session["last_seen_task"] = None
-    session["last_seen_stage"] = "idle"
-    if agent:
-        session["last_agent"] = agent
-
-
-def load_session(root: Path, session_file: str | Path | None = None) -> dict | None:
-    session = load_json(resolve_session_path(root, session_file))
-    return session if isinstance(session, dict) else None
-
-
-def write_session(root: Path, session: dict, session_file: str | Path | None = None) -> None:
-    write_json(resolve_session_path(root, session_file), session)
-
-
-def migrate_legacy_pid_session(
-    root: Path,
-    session_path: Path,
-    identity: dict,
-    ppid: int,
-) -> dict | None:
-    sessions_dir = root / ".easy-coding" / "sessions"
-    fallback_path = sessions_dir / f"{identity['agent']}-ppid-{ppid}.json"
-    legacy_paths = [fallback_path, sessions_dir / f"{ppid}.json"]
-    session_path.parent.mkdir(parents=True, exist_ok=True)
-
-    for legacy_path in legacy_paths:
-        if legacy_path == session_path or not legacy_path.is_file():
-            continue
-        try:
-            legacy_path.replace(session_path)
-        except FileNotFoundError:
-            continue
-        except OSError:
-            if session_path.is_file():
-                break
-            continue
-        migrated = load_session(root, session_path)
-        if migrated is not None:
-            return migrated
-    return load_session(root, session_path)
-
-
-def merge_legacy_session(session: dict, legacy_session: dict) -> dict:
-    merged = dict(session)
-    if not merged.get("current_task") and legacy_session.get("current_task"):
-        merged["current_task"] = legacy_session["current_task"]
-    if not merged.get("created_at") and legacy_session.get("created_at"):
-        merged["created_at"] = legacy_session["created_at"]
-    return merged
-
-
-def ensure_hook_session(
-    root: Path,
-    payload: dict,
-    agent: str | None,
-    ppid: int | None = None,
-) -> tuple[dict, Path]:
-    session_path = resolve_hook_session_path(root, payload, agent, ppid)
-    lock_path = acquire_session_command_lock(root, session_path)
-    try:
-        return ensure_hook_session_unlocked(root, payload, agent, ppid)
-    finally:
-        release_session_command_lock(lock_path)
-
-
-def ensure_hook_session_unlocked(
-    root: Path,
-    payload: dict,
-    agent: str | None,
-    ppid: int | None = None,
-) -> tuple[dict, Path]:
-    identity = hook_session_identity(payload, agent, ppid)
-    session_path = resolve_hook_session_path(root, payload, agent, ppid)
-    resolved_ppid = ppid if ppid is not None else os.getppid()
-    legacy_state_lock = acquire_legacy_state_lock(root)
-    try:
-        session = load_session(root, session_path)
-        legacy_state = (
-            migrate_legacy_state(root, str(identity["agent"]))
-            if legacy_state_lock is not None
-            else None
-        )
-
-        if session is None:
-            clean_session_runtime(root, reserve_slots=1)
-            session = migrate_legacy_pid_session(root, session_path, identity, resolved_ppid)
-        if session is None:
-            session = load_session(root, session_path)
-        if session is None:
-            session = default_session()
-        if legacy_state is not None:
-            session = merge_legacy_session(session, legacy_state)
-
-        apply_hook_session_identity(session, identity)
-        write_session(root, session, session_path)
-        if legacy_state is not None:
-            try:
-                (root / ".easy-coding" / "state.json").unlink()
-            except OSError:
-                pass
-        return session, session_path
-    finally:
-        release_legacy_state_lock(legacy_state_lock)
-
-
-def clean_stale_sessions(
-    root: Path,
-    threshold_hours: int | None = None,
-    idle_threshold_hours: int = SESSION_IDLE_RETENTION_HOURS,
-    attached_threshold_hours: int = SESSION_ATTACHED_RETENTION_HOURS,
-    max_sessions: int = MAX_SESSION_FILES,
-    reserve_slots: int = 0,
-) -> int:
-    sessions_dir = root / ".easy-coding" / "sessions"
-    if not sessions_dir.is_dir():
-        return 0
-
-    now = datetime.now(timezone.utc)
-    if threshold_hours is not None:
-        idle_threshold_hours = threshold_hours
-        attached_threshold_hours = threshold_hours
-    candidates: list[tuple[Path, str, dict, datetime]] = []
-    for entry in sessions_dir.iterdir():
-        if not entry.is_file() or entry.suffix != ".json":
-            continue
-        try:
-            content = entry.read_text(encoding="utf-8")
-            try:
-                session = json.loads(content)
-            except json.JSONDecodeError:
-                session = {}
-            if not isinstance(session, dict):
-                session = {}
-            activity_value = session.get("last_active_at") or session.get("created_at")
-            try:
-                if not isinstance(activity_value, str):
-                    raise ValueError
-                last_active = datetime.fromisoformat(activity_value)
-                if last_active.tzinfo is None:
-                    last_active = last_active.replace(tzinfo=timezone.utc)
-            except (ValueError, TypeError):
-                last_active = datetime.fromtimestamp(entry.stat().st_mtime, tz=timezone.utc)
-            candidates.append((entry, content, session, last_active))
-        except OSError:
-            continue
-
-    removed: set[Path] = set()
-    for entry, content, session, last_active in candidates:
-        retention_hours = (
-            attached_threshold_hours if session.get("current_task") else idle_threshold_hours
-        )
-        age_hours = (now - last_active).total_seconds() / 3600
-        if age_hours <= retention_hours:
-            continue
-        if unlink_session_if_unchanged(entry, content):
-            removed.add(entry)
-
-    allowed_existing = max(0, max_sessions - reserve_slots)
-    remaining = sorted(
-        (candidate for candidate in candidates if candidate[0] not in removed),
-        key=lambda candidate: candidate[3],
-    )
-    overflow = max(0, len(remaining) - allowed_existing)
-    for entry, content, _session, _last_active in remaining[:overflow]:
-        if unlink_session_if_unchanged(entry, content):
-            removed.add(entry)
-    return len(removed)
-
-
-def unlink_session_if_unchanged(entry: Path, expected_content: str) -> bool:
-    try:
-        if entry.read_text(encoding="utf-8") != expected_content:
-            return False
-        entry.unlink()
-        return True
-    except OSError:
-        # GC 采用尽力清理；锁定、并发移除等失败文件留到后续新会话再次处理。
-        return False
-
-
-def clean_orphan_acceptance_snapshots(root: Path) -> int:
-    acceptance_dir = root / ".easy-coding" / "sessions" / "acceptance"
-    if not acceptance_dir.is_dir():
-        return 0
-
-    cleaned = 0
-    for entry in acceptance_dir.iterdir():
-        if not entry.is_file() or entry.suffix != ".json":
-            continue
-        task_path = root / ".easy-coding" / "tasks" / entry.stem / "task.json"
-        if task_path.is_file():
-            try:
-                task = json.loads(task_path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                continue
-            if not isinstance(task, dict):
-                continue
-        else:
-            task = None
-
-        checkpoint = None
-        if task is not None:
-            checkpoint = task.get("quality_checkpoint")
-            if not isinstance(checkpoint, dict):
-                checkpoint = task.get("verification_checkpoint")
-        snapshot_file = checkpoint.get("snapshot_file") if isinstance(checkpoint, dict) else None
-        referenced = bool(
-            isinstance(snapshot_file, str)
-            and (root / snapshot_file).resolve() == entry.resolve()
-        )
-        terminal = task is not None and task.get("status") in TERMINAL_STATUSES
-        if task is not None and referenced and not terminal:
-            continue
-        try:
-            entry.unlink()
-            cleaned += 1
-        except OSError:
-            # 验收快照清理失败不能阻断新逻辑会话启动。
-            continue
-    return cleaned
-
-
-def clean_session_runtime(root: Path, reserve_slots: int = 0) -> dict:
-    return {
-        "sessions_removed": clean_stale_sessions(root, reserve_slots=reserve_slots),
-        "acceptance_snapshots_removed": clean_orphan_acceptance_snapshots(root),
-    }
-
-
-def task_json_path(root: Path, task_id: str) -> Path:
-    assert_safe_task_id(task_id)
-    return root / ".easy-coding" / "tasks" / task_id / "task.json"
-
-
-def load_task(root: Path, task_id: str | None) -> dict | None:
-    if not task_id:
-        return None
-    return load_json(task_json_path(root, str(task_id)))
-
-
 def write_task(root: Path, task_id: str, task: dict) -> None:
     write_json(task_json_path(root, task_id), task)
-
-
-def execution_log_path(root: Path, task_id: str) -> Path:
-    assert_safe_task_id(task_id)
-    return root / ".easy-coding" / "tasks" / task_id / "execution.jsonl"
 
 
 def append_execution_record(root: Path, task_id: str, record: dict) -> None:
@@ -1802,10 +881,11 @@ def append_execution_record(root: Path, task_id: str, record: dict) -> None:
         handle.write(json.dumps(record, ensure_ascii=False) + "\n")
         handle.flush()
         os.fsync(handle.fileno())
-
-
-def is_non_empty_string(value: object) -> bool:
-    return isinstance(value, str) and bool(value.strip())
+    records = cached_memo(("execution", str(path)))
+    if records is not None:
+        records.append(record)
+    if record.get("type") in {"plan", "spec-design-sync"}:
+        invalidate_memo(("plan", str(path)))
 
 
 def is_string_list(value: object, allow_empty: bool = True) -> bool:
@@ -1830,13 +910,47 @@ def is_valid_review_finding(value: object) -> bool:
     )
 
 
+def gate_identity(record: dict) -> tuple:
+    # 已有手写证据没有输入凭据，保留原覆盖语义；新证据与 prepare-check 共用身份。
+    if isinstance(record.get("inputs"), dict):
+        return check_identity(record)
+    return (str(record.get("source_task_id") or ""), str(record.get("unit_id") or ""),
+            str(record.get("dimension") or record.get("check") or ""),
+            str(record.get("review_scope") or record.get("coverage_scope") or ""))
+
+
+def failure_label(record: dict) -> str:
+    unit = str(record.get("unit_id") or "")
+    name = str(record.get("dimension") or record.get("check") or "")
+    scope = str(record.get("review_scope") or record.get("coverage_scope") or "")
+    label = f"{record['type']}:{name}"
+    if scope:
+        label += f":{scope}"
+    if unit:
+        label += f":unit={unit}"
+    return label
+
+
+def require_unit_evidence(plan: dict, records: list[dict], label: str, dimensions: int = 0) -> None:
+    if not any(record.get("unit_id") for record in records):
+        return
+    for unit in plan.get("units", []):
+        applicable = [record for record in records
+                      if record.get("unit_id") == unit["id"] or
+                      (not record.get("unit_id") and
+                       (not record.get("source_task_id") or
+                        record["source_task_id"] == unit.get("source_task_id")))]
+        if not applicable or (dimensions and len({r.get("dimension") for r in applicable}) < dimensions):
+            raise StateError(f"{label} evidence does not cover Unit {unit['id']} at the required depth.")
+
+
 def validate_quality_gate_record_schemas(
     review_records: list[dict], verification_records: list[dict]
 ) -> None:
     latest_reviews: dict[tuple[str, str], dict] = {}
     for index, record in enumerate(review_records):
         dimension = str(record.get("dimension") or f"<missing-{index}>")
-        latest_reviews[(str(record.get("source_task_id") or ""), dimension)] = record
+        latest_reviews[gate_identity(record)] = record
     for record in latest_reviews.values():
         findings = record.get("findings")
         if (
@@ -1864,13 +978,7 @@ def validate_quality_gate_record_schemas(
     latest_verifications: dict[tuple[str, str, str], dict] = {}
     for index, record in enumerate(verification_records):
         check = str(record.get("check") or f"<missing-{index}>")
-        latest_verifications[
-            (
-                str(record.get("source_task_id") or ""),
-                check,
-                str(record.get("coverage_scope") or ""),
-            )
-        ] = record
+        latest_verifications[gate_identity(record)] = record
     for record in latest_verifications.values():
         applicable = record.get("applicable") is not False
         if (
@@ -2050,7 +1158,9 @@ def legacy_source_digest_matches(
     return legacy_sha256 == design_document_sha256
 
 
-def inspect_task_spec(root: Path, task: dict) -> tuple[dict, dict]:
+def inspect_task_spec(
+    root: Path, task: dict, *, allow_pending_hard_dependencies: bool = False,
+) -> tuple[dict, dict]:
     source = task.get("spec_source")
     selected = task.get("selected_spec_tasks")
     repo_paths = task.get("repo_paths")
@@ -2072,7 +1182,10 @@ def inspect_task_spec(root: Path, task: dict) -> tuple[dict, dict]:
             and is_non_empty_string(record.get("task_id"))
             and is_non_empty_string(record.get("evidence"))
         }
-        selection = select_tasks(inspection, selected, satisfied)
+        selection = select_tasks(
+            inspection, selected, satisfied,
+            allow_pending_hard_dependencies=allow_pending_hard_dependencies,
+        )
     except EasyDevSpecError as exc:
         raise StateError(f"Canonical Spec validation failed: {exc}") from exc
     if not isinstance(inspection.get("execution"), dict):
@@ -2179,6 +1292,160 @@ def inspect_task_spec(root: Path, task: dict) -> tuple[dict, dict]:
     return inspection, selection
 
 
+def restore_spec_context(
+    root: Path, task_id: str, task: dict, agent: str,
+    session_file: str | Path | None = None,
+    *, force: bool = False,
+) -> dict | None:
+    if not isinstance(task.get("spec_source"), dict):
+        return None
+    session_key = resolve_session_path(root, session_file).relative_to(root.resolve()).as_posix()
+    try:
+        inspection, _ = inspect_task_spec(root, task, allow_pending_hard_dependencies=True)
+        if isinstance(task.get("spec_change"), dict):
+            raise StateError("Confirmed Spec change is pending; update the bound source and run sync-spec-design.")
+        expected = {
+            "session_file": session_key, "agent": normalize_session_agent(agent),
+            "spec_id": inspection["spec_id"], "revision": inspection["revision"],
+            "design_sha256": inspection["design_sha256"],
+            "selected_spec_tasks": task["selected_spec_tasks"],
+        }
+        receipts = task.setdefault("spec_contexts", {})
+        receipt = receipts.get(session_key) or task.get("spec_context")
+        if not force and isinstance(receipt, dict) and all(receipt.get(k) == v for k, v in expected.items()):
+            receipts[session_key] = receipt
+            task["spec_context"] = receipt
+            write_task(root, task_id, task)
+            return {"status": "ready", "reused": True, "receipt": receipt}
+        context = select_consumption_scopes(
+            stored_spec_path(root, task), root, task["selected_spec_tasks"]
+        )
+        if context.get("design_sha256") != inspection.get("design_sha256"):
+            raise StateError("Canonical Spec changed while restoring context; retry resume-spec-context.")
+        task["spec_context"] = {
+            **expected,
+            "loaded_at": now_iso(),
+        }
+        receipts[session_key] = task["spec_context"]
+        result = {"status": "ready", "consumption": context}
+    except (StateError, EasyDevSpecError, OSError, UnicodeError) as exc:
+        task.pop("spec_context", None)
+        task.get("spec_contexts", {}).pop(session_key, None)
+        # 接手仍可成功，修复来源与同步状态后必须重新加载，不能沿用旧会话的消费记录。
+        result = {"status": "blocked", "reason": str(exc), "source": task["spec_source"]}
+    write_task(root, task_id, task)
+    return result
+
+
+def resume_spec_context(
+    root: Path, agent: str, task_id: str | None = None,
+    session_file: str | Path | None = None,
+) -> dict:
+    session, resolved_task_id, task = resolve_current_task(root, task_id, session_file)
+    if not isinstance(task.get("spec_source"), dict):
+        raise StateError("Current task is not backed by a Canonical Spec.")
+    context = restore_spec_context(root, resolved_task_id, task, agent, session_file, force=True)
+    snapshot = snapshot_state(root, session_file, session)
+    snapshot.update({"action": "resume-spec-context", "spec_context": context})
+    return snapshot
+
+
+def require_spec_context(
+    root: Path, task: dict, agent: str, session_file: str | Path | None = None,
+    *, allow_pending_hard_dependencies: bool = False,
+) -> dict | None:
+    if not isinstance(task.get("spec_source"), dict):
+        return
+    if isinstance(task.get("spec_change"), dict):
+        raise StateError("Confirmed Spec change is pending; update the bound source and run sync-spec-design.")
+    inspection, _ = inspect_task_spec(
+        root, task, allow_pending_hard_dependencies=allow_pending_hard_dependencies,
+    )
+    session_key = resolve_session_path(root, session_file).relative_to(root.resolve()).as_posix()
+    receipt = task.get("spec_contexts", {}).get(session_key) or task.get("spec_context")
+    expected = {
+        "session_file": session_key,
+        "agent": normalize_session_agent(agent),
+        "spec_id": inspection["spec_id"],
+        "revision": inspection["revision"],
+        "design_sha256": inspection["design_sha256"],
+        "selected_spec_tasks": task["selected_spec_tasks"],
+    }
+    if not isinstance(receipt, dict) or any(receipt.get(key) != value for key, value in expected.items()):
+        raise StateError("Current session must consume the bound Canonical Spec via resume-spec-context before advancing.")
+
+    return inspection
+
+
+def refresh_correction_plan(root: Path, task_id: str, task: dict, inspection: dict) -> None:
+    plan = latest_execution_plan(root, task_id)
+    if plan is None:
+        raise StateError("A correction must preserve its original execution plan.")
+    selection = select_tasks(inspection, task["selected_spec_tasks"], allow_pending_hard_dependencies=True)
+    steps = {s["step_id"]: s for s in selection["selected_steps"]}
+    changes = {c["change_id"]: c for c in selection["selected_changes"]}
+    tests = {t["test_id"]: t for t in selection["selected_tests"]}
+    correction = task["correction"]
+    plan["spec_design_sha256"] = inspection["design_sha256"]
+    for unit in plan["units"]:
+        if unit["id"] not in correction["unit_ids"]:
+            continue
+        source_steps = [steps[s] for s in unit["source_step_ids"] if s in steps]
+        selected_changes = [changes[c] for s in source_steps for c in s.get("change_ids", [])]
+        original_files = set(unit["files"])
+        mapped_files = {c["path"] for c in selected_changes}
+        if not mapped_files <= original_files:
+            raise StateError("Source design expands the correction scope; analyze the new requirement.")
+        unit["source_step_ids"] = [s["step_id"] for s in source_steps]
+        unit["files"] = sorted(mapped_files | (original_files & set(correction["files"])))
+        unit["symbols"] = sorted({symbol for c in selected_changes for symbol in c.get("symbols", [])})
+        unit["test_commands"] = sorted({tests[t]["command"] for s in source_steps for t in s.get("test_ids", [])})
+        unit["acceptance_criteria"] = [correction["summary"]]
+        unit["contracts"] = [correction["summary"]]
+    append_execution_record(root, task_id, plan)
+
+
+def begin_spec_change(
+    root: Path, affected_task_ids: list[str], summary: str, agent: str,
+    task_id: str | None = None, session_file: str | Path | None = None,
+) -> dict:
+    session, resolved_task_id, task = resolve_current_task(root, task_id, session_file)
+    if task.get("status") in TERMINAL_STATUSES:
+        raise StateError("Cannot change the design of a terminal task.")
+    selected = task.get("selected_spec_tasks") or []
+    affected = sorted(set(affected_task_ids))
+    if not affected or not set(affected).issubset(selected) or not is_non_empty_string(summary):
+        raise StateError("Spec change requires selected affected task IDs and a confirmed summary.")
+    existing = task.get("spec_change")
+    if isinstance(existing, dict):
+        if existing.get("affected_task_ids") != affected or existing.get("summary") != summary.strip():
+            raise StateError("A different confirmed Spec change is pending; finish its synchronization first.")
+    else:
+        inspect_task_spec(root, task, allow_pending_hard_dependencies=True)
+        if _writeback_progress(task).get("pending_action"):
+            raise StateError("Reconcile pending Spec writeback before beginning a design change.")
+        cancel_active_quality_attempt(root, resolved_task_id, task, agent, summary, "manual-return")
+        task = load_task(root, resolved_task_id) or task
+        cleanup_verification_checkpoint(root, resolved_task_id, task)
+        task["spec_change"] = {
+            "summary": summary.strip(), "affected_task_ids": affected,
+            "spec_id": task["spec_source"]["spec_id"],
+            "revision": task["spec_source"]["revision"],
+            "design_sha256": task["spec_source"]["design_sha256"],
+            "confirmed_by": agent, "confirmed_at": now_iso(),
+        }
+        task.pop("spec_context", None)
+        task.pop("pending_transition", None)
+        if task.get("status") != "ANALYSIS":
+            task["status"] = "ANALYSIS"
+            append_stage_history(task, "ANALYSIS", agent)
+        task["last_agent"] = agent
+        write_task(root, resolved_task_id, task)
+    snapshot = snapshot_state(root, session_file, session)
+    snapshot["action"] = "begin-spec-change"
+    return snapshot
+
+
 def is_valid_spec_execution_plan(root: Path, task: dict, plan: object) -> bool:
     if not isinstance(plan, dict):
         return False
@@ -2264,7 +1531,7 @@ def is_valid_spec_execution_plan(root: Path, task: dict, plan: object) -> bool:
         if (
             not step_change_ids.issubset(change_by_id)
             or not step_test_ids.issubset(test_by_id)
-            or set(unit.get("files", [])) != step_files
+            or (set(unit.get("files", [])) - set(task.get("correction", {}).get("files", []))) != (step_files - set(task.get("correction", {}).get("files", [])))
             or set(unit["symbols"]) != step_symbols
             or not set(unit["test_commands"]).issuperset(step_commands)
         ):
@@ -2286,9 +1553,10 @@ def is_valid_spec_execution_plan(root: Path, task: dict, plan: object) -> bool:
         steps = covered_steps[source_task_id]
         if len(steps) != len(set(steps)) or set(steps) != set(source_task.get("step_ids", [])):
             return False
-        if covered_files[source_task_id] != {
+        restoration_files = set(task.get("correction", {}).get("files", []))
+        if covered_files[source_task_id] - restoration_files != {
             str(change["path"]) for change in changes_by_task[source_task_id]
-        }:
+        } - restoration_files:
             return False
         if covered_symbols[source_task_id] != {
             str(symbol)
@@ -2434,7 +1702,7 @@ def has_valid_execution_plan(root: Path, task_id: str) -> bool:
                 return False
             if isinstance(record, dict) and record.get("type") == "plan":
                 latest_plan = record
-            elif isinstance(record, dict) and record.get("type") == "spec-design-sync":
+            elif isinstance(record, dict) and record.get("type") == "spec-design-sync" and not record.get("preserve_plan"):
                 latest_plan = None
     except OSError:
         return False
@@ -2450,29 +1718,17 @@ def has_valid_execution_plan(root: Path, task_id: str) -> bool:
     return True
 
 
-def execution_records(root: Path, task_id: str) -> list[dict]:
-    path = execution_log_path(root, task_id)
-    if not path.exists():
-        return []
-    records: list[dict] = []
-    try:
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            record = json.loads(line)
-            if isinstance(record, dict):
-                records.append(record)
-    except (OSError, json.JSONDecodeError):
-        return []
-    return records
-
-
 def latest_execution_plan(root: Path, task_id: str) -> dict | None:
+    return memo(("plan", str(execution_log_path(root, task_id))),
+                lambda: _latest_execution_plan(root, task_id))
+
+
+def _latest_execution_plan(root: Path, task_id: str) -> dict | None:
     latest: dict | None = None
     for record in execution_records(root, task_id):
         if record.get("type") == "plan":
             latest = record
-        elif record.get("type") == "spec-design-sync":
+        elif record.get("type") == "spec-design-sync" and not record.get("preserve_plan"):
             latest = None
     if latest is None or not is_valid_execution_plan(latest, allow_empty_files=True):
         return None
@@ -2722,7 +1978,7 @@ def tdd_baseline_marker_reasons(
 def contains_tdd_threshold(content: str, threshold: int) -> bool:
     return re.search(
         rf"(?<!\d){threshold}\s*%|--threshold(?:\s+|=){threshold}(?!\d)|"
-        rf"tdd_coverage_threshold\s*[:=]\s*{threshold}(?!\d)",
+        rf"ut_coverage_threshold\s*[:=]\s*{threshold}(?!\d)",
         content,
         re.IGNORECASE,
     ) is not None
@@ -2750,41 +2006,28 @@ def is_easy_coding_state_path(
 
 def git_index_entries(
     repository: Path, pathspecs: list[str]
-) -> dict[bytes, tuple[bytes, bytes]]:
+) -> dict[bytes, tuple[bytes, bytes, bytes]]:
     result = run_git(
         repository,
         "ls-files",
         "--stage",
+        "-v",
         "-z",
         "--",
         *pathspecs,
     )
     if result is None or result.returncode != 0:
         return {}
-    entries: dict[bytes, tuple[bytes, bytes]] = {}
+    entries: dict[bytes, tuple[bytes, bytes, bytes]] = {}
     for raw_entry in filter(None, result.stdout.split(b"\0")):
         try:
             metadata, raw_path = raw_entry.split(b"\t", 1)
-            mode, object_id, stage = metadata.split()
+            tag, mode, object_id, stage = metadata.split()
         except ValueError:
             continue
         if stage == b"0":
-            entries[raw_path] = (mode, object_id)
+            entries[raw_path] = (mode, object_id, tag)
     return entries
-
-
-def git_worktree_blob_oid(repository: Path, relative_name: str) -> bytes | None:
-    result = run_git(
-        repository,
-        "hash-object",
-        f"--path={relative_name}",
-        "--",
-        relative_name,
-    )
-    if result is None or result.returncode != 0:
-        return None
-    object_id = result.stdout.strip()
-    return object_id or None
 
 
 def worktree_git_mode(path: Path) -> bytes:
@@ -2796,350 +2039,345 @@ def worktree_git_mode(path: Path) -> bytes:
         return b"<missing-mode>"
 
 
-def update_git_repository_content_fingerprint(
-    digest,
-    root: Path,
-    repository: Path,
-    scopes: list[Path],
-    visited: set[tuple[Path, tuple[Path, ...]]],
-) -> None:
-    normalized_repository = repository.resolve()
-    normalized_scopes = tuple(scope.resolve() for scope in scopes)
-    visit_key = (normalized_repository, normalized_scopes)
-    if visit_key in visited:
-        digest.update(b"<git-scope-cycle>\0")
-        return
-    visited.add(visit_key)
-    try:
-        digest.update(b"git-repository\0")
-        digest.update(os.fsencode(display_path(root, normalized_repository)))
-        digest.update(b"\0")
-        pathspecs = repository_scope_pathspecs(
-            normalized_repository, list(normalized_scopes)
-        )
-        for scope in normalized_scopes:
-            relative_scope = scope.relative_to(normalized_repository).as_posix()
-            digest.update(b"git-scope\0")
-            digest.update(os.fsencode(relative_scope))
-            digest.update(b"\0")
-
-        index_entries = git_index_entries(normalized_repository, pathspecs)
-        listed = run_git(
-            normalized_repository,
-            "ls-files",
-            "--cached",
-            "--others",
-            "--exclude-standard",
-            "-z",
-            "--",
-            *pathspecs,
-        )
-        modified = run_git(
-            normalized_repository,
-            "diff-files",
-            "--name-only",
-            "-z",
-            "--ignore-submodules=none",
-            "--",
-            *pathspecs,
-        )
-        if listed is None or listed.returncode != 0:
-            digest.update(b"<git-files-error>\0")
-            return
-        if modified is None or modified.returncode != 0:
-            digest.update(b"<git-diff-files-error>\0")
-            return
-        modified_paths = set(filter(None, modified.stdout.split(b"\0")))
-
-        for raw_path in sorted(set(filter(None, listed.stdout.split(b"\0")))):
-            relative_name = os.fsdecode(raw_path)
-            if is_easy_coding_state_path(
-                normalized_repository, relative_name, list(normalized_scopes)
-            ):
-                continue
-            candidate = normalized_repository / relative_name
-            index_entry = index_entries.get(raw_path)
-            if index_entry is not None and index_entry[0] == b"160000":
-                digest.update(b"git-entry\0")
-                digest.update(raw_path)
-                digest.update(b"\0gitlink\0")
-                submodule_root = git_repository_root(candidate)
-                if (
-                    submodule_root is not None
-                    and submodule_root.resolve() == candidate.resolve()
-                ):
-                    update_git_repository_content_fingerprint(
-                        digest,
-                        root,
-                        submodule_root,
-                        [submodule_root],
-                        visited,
-                    )
-                else:
-                    digest.update(index_entry[1])
-                    digest.update(b"\0")
-                continue
-
-            exists = candidate.exists() or candidate.is_symlink()
-            if not exists:
-                if raw_path in modified_paths or index_entry is None:
-                    # A worktree deletion is canonically absent before and after staging.
-                    continue
-                # Sparse or otherwise intentionally absent tracked files retain index content.
-                mode, object_id = index_entry
-            elif index_entry is not None and raw_path not in modified_paths:
-                mode, object_id = index_entry
-            else:
-                mode = worktree_git_mode(candidate)
-                object_id = git_worktree_blob_oid(
-                    normalized_repository, relative_name
-                )
-                if object_id is None:
-                    try:
-                        content = (
-                            os.fsencode(os.readlink(candidate))
-                            if candidate.is_symlink()
-                            else candidate.read_bytes()
-                        )
-                    except OSError:
-                        content = b"<missing>"
-                    object_id = hashlib.sha256(content).hexdigest().encode("ascii")
-
-            digest.update(b"git-entry\0")
-            digest.update(raw_path)
-            digest.update(b"\0")
-            digest.update(mode)
-            digest.update(b"\0")
-            digest.update(object_id)
-            digest.update(b"\0")
-    finally:
-        visited.remove(visit_key)
-
-
-def update_git_worktree_fingerprint(
-    digest,
-    root: Path,
-    task: dict | None,
-    plan: dict,
-) -> None:
-    visited: set[tuple[Path, tuple[Path, ...]]] = set()
-    for repository, scopes in task_repository_scopes(root, task, plan):
-        if not scopes:
+def tdd_infrastructure_fingerprint(repositories: set[Path]) -> str:
+    # 初始化快照不参与就绪判断；当前输入同时约束验收和跨仓证据继承。
+    digest = hashlib.sha256()
+    for repository in sorted(repositories, key=str):
+        receipt = repository / TDD_READINESS_PATH
+        digest.update(str(repository).encode("utf-8") + b"\0")
+        try:
+            receipt_payload = receipt.read_bytes()
+            manifest = json.loads(receipt_payload)
+            digest.update(receipt_payload)
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            digest.update(b"<missing-or-invalid-readiness>")
             continue
-        update_git_repository_content_fingerprint(
-            digest, root, repository, scopes, visited
-        )
+        if not isinstance(manifest, dict):
+            continue
+        for field in ("build_files", "tool_files"):
+            records = manifest.get(field)
+            for record in records if isinstance(records, list) else []:
+                if not isinstance(record, dict) or not is_non_empty_string(record.get("path")):
+                    continue
+                candidate = (repository / str(record["path"])).resolve()
+                try:
+                    candidate.relative_to(repository.resolve())
+                except ValueError as error:
+                    raise StateError("TDD evidence file escapes repository.") from error
+                digest.update(f"{field}:{record['path']}".encode("utf-8") + b"\0")
+                try:
+                    digest.update(candidate.read_bytes())
+                except OSError:
+                    digest.update(b"<missing>")
+                digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def check_identity(record: dict) -> tuple:
+    return (*tuple(str(record.get(key) or "") for key in (
+        "type", "repo_id", "unit_id", "source_task_id", "dimension", "review_scope", "check_type", "coverage_scope"
+    )), command_identity(str(record.get("command") or "")))
+
+
+def prepare_check(root: Path, task_id: str, task: dict, descriptor: dict, agent: str) -> dict:
+    if task.get("status") not in {"IMPLEMENT", "QUALITY"}:
+        raise StateError("Checks belong to IMPLEMENT or QUALITY.")
+    if descriptor.get("type") not in {"review", "verify"}:
+        raise StateError("A check must identify type review or verify.")
+    if descriptor.get("type") == "verify" and not is_non_empty_string(descriptor.get("command")):
+        raise StateError("Verification must identify the actual command before execution.")
+    plan = latest_execution_plan(root, task_id) or {}
+    if descriptor.get("unit_id"):
+        owner = next((u for u in plan.get("units", []) if u["id"] == descriptor["unit_id"]), None)
+        if owner is None:
+            raise StateError("Check unit does not belong to the current plan.")
+        for field in ("repo_id", "source_task_id"):
+            if field in owner:
+                descriptor[field] = owner[field]
+    inputs = capture(input_spec(root, task, plan, descriptor))
+    records = execution_records(root, task_id)
+    previous = next((r for r in reversed(records)
+                     if check_identity(r) == check_identity(descriptor)), None)
+    if previous and previous.get("passed") is True and previous.get("inputs") == inputs:
+        return {"reusable": True, "evidence_index": records.index(previous),
+                "input_signature": inputs["signature"], "changed_inputs": []}
+    prepared_id = digest([descriptor, inputs["signature"]])
+    if not any(r.get("prepared_id") == prepared_id and r.get("type") == "check-inputs" for r in records):
+        append_execution_record(root, task_id, {
+            "type": "check-inputs", "prepared_id": prepared_id, "descriptor": descriptor,
+            "inputs": inputs, "timestamp": now_iso(), "agent": agent,
+        })
+    return {"reusable": False, "prepared_id": prepared_id,
+            "input_signature": inputs["signature"],
+            "changed_inputs": changed_inputs(previous["inputs"], inputs)
+            if previous and isinstance(previous.get("inputs"), dict) else ["no matching input-bound evidence"]}
+
+
+def record_check(root: Path, task_id: str, task: dict, prepared_id: str, result: dict, agent: str) -> dict:
+    prepared = next((r for r in reversed(execution_records(root, task_id))
+                     if r.get("type") == "check-inputs" and r.get("prepared_id") == prepared_id), None)
+    if prepared is None:
+        raise StateError("Prepare the check before executing it.")
+    descriptor = prepared["descriptor"]
+    current = capture(input_spec(root, task, latest_execution_plan(root, task_id) or {}, descriptor))
+    changes = changed_inputs(prepared["inputs"], current)
+    if changes:
+        raise StateError("Check inputs changed during execution: " + "; ".join(changes))
+    if type(result.get("passed")) is not bool:
+        raise StateError("Check result must include passed.")
+    if descriptor["type"] == "verify" and result.get("applicable") is not False:
+        if type(result.get("exit_code")) is not int or result["passed"] != (result["exit_code"] == 0):
+            raise StateError("Verification passed must agree with its real exit_code.")
+    context = None
+    repair = task.get("quality_repair")
+    repairing = (task.get("status") == "QUALITY" and descriptor["type"] == "verify"
+                 and isinstance(repair, dict) and repair.get("approved_at") and not repair.get("completed_at"))
+    if task.get("status") == "QUALITY" and not repairing:
+        context = ensure_quality_attempt_context(root, task_id, task, agent, persist=True)
+    elif task.get("status") != "IMPLEMENT" and not repairing:
+        raise StateError("Record checks only during implementation or quality.")
+    record = {
+        **result, **descriptor, **evidence_fingerprints(root, task_id),
+        "inputs": current, "prepared_id": prepared_id, "timestamp": now_iso(),
+        "quality_attempt": context["attempt"] if context else 0,
+    }
+    append_execution_record(root, task_id, record)
+    return {"recorded": True, "passed": record["passed"], "input_signature": current["signature"]}
+
+
+def carry_forward_scoped_evidence(root: Path, task_id: str, task: dict, context: dict) -> None:
+    plan = latest_execution_plan(root, task_id) or {}
+    latest = {}
+    for index, record in enumerate(execution_records(root, task_id)):
+        if record.get("type") in {"review", "verify"}:
+            latest[check_identity(record)] = (index, record)
+    for index, record in latest.values():
+        if record.get("passed") is not True or not isinstance(record.get("inputs"), dict):
+            continue
+        if any(f.get("severity") == "error" for f in record.get("findings", [])):
+            continue
+        if record.get("unit_id") and not any(u["id"] == record["unit_id"] for u in plan.get("units", [])):
+            continue
+        current = capture(input_spec(root, task, plan, record))
+        if current != record["inputs"]:
+            continue
+        if record.get("quality_attempt") == context["attempt"]:
+            continue
+        # 仅运行时生成引用，保留原始执行时间与输入；Agent 不重新包装历史结论。
+        append_execution_record(root, task_id, {
+            **record, "reused_from": index, "quality_attempt": context["attempt"],
+            "implementation_fingerprint": context["implementation_fingerprint"],
+            "config_fingerprint": context["config_fingerprint"],
+        })
+
+
+def begin_correction(root: Path, task_id: str, task: dict, files: list[str], summary: str,
+                     risks: list[str], agent: str) -> dict:
+    if task.get("status") not in {"IMPLEMENT", "QUALITY", "MEMORY", "ANALYSIS"}:
+        raise StateError("A correction needs an active implementation task.")
+    plan = latest_execution_plan(root, task_id) or {}
+    units = plan.get("units", [])
+    allowed = {f for unit in units for f in unit.get("files", [])}
+    if not files or not set(files) <= allowed or not summary.strip():
+        raise StateError("A correction must name existing task files and the confirmed change.")
+    if task.get("status") == "QUALITY":
+        return prepare_quality_repair(root, task_id, task, files, summary, agent)
+    cancel_active_quality_attempt(root, task_id, task, agent, summary, "manual-return")
+    task = load_task(root, task_id) or task
+    cleanup_verification_checkpoint(root, task_id, task)
+    task["correction"] = {
+        "files": sorted(set(files)), "summary": summary.strip(), "risks": risks,
+        "unit_ids": [u["id"] for u in units if set(u.get("files", [])) & set(files)],
+        "started_at": now_iso(),
+    }
+    records = validated_quality_records(root, task_id)
+    if records:
+        task["quality_consumed_attempt"] = records[-1][1]["attempt"]
+    task.pop("quality_return_required", None)
+    task.pop("pending_transition", None)
+    task["status"] = "IMPLEMENT"
+    append_stage_history(task, "IMPLEMENT", agent)
+    write_task(root, task_id, task)
+    task["workflow_mode"], reasons = calculate_workflow_floor(root, task_id)
+    write_task(root, task_id, task)
+    if isinstance(task.get("spec_source"), dict):
+        writeback_ready_tasks_for_implement(root, task_id, task, agent, source_task_ids={
+            str(u["source_task_id"]) for u in units if u["id"] in task["correction"]["unit_ids"]
+        })
+    append_execution_record(root, task_id, {
+        "type": "correction", **task["correction"], "workflow_mode": task["workflow_mode"],
+    })
+    return {"task_id": task_id, "status": "IMPLEMENT", "workflow_mode": task["workflow_mode"],
+            "reasons": reasons, "correction": task["correction"]}
+
+
+def prepare_quality_repair(root: Path, task_id: str, task: dict, files: list[str],
+                           summary: str, agent: str) -> dict:
+    plan = latest_execution_plan(root, task_id) or {}
+    records = validated_quality_records(root, task_id)
+    last = records[-1][1] if records else {}
+    if last.get("outcome") == "replan" and last.get("attempt") != task.get("quality_consumed_attempt"):
+        raise StateError("The confirmed contract changed; finish the ANALYSIS replan first.")
+    inputs = capture(input_spec(root, task, plan, {"type": "review"}))
+    repair_id = digest([last.get("attempt", 0), inputs["signature"], sorted(files), summary.strip()])
+    existing = task.get("quality_repair")
+    if isinstance(existing, dict) and not existing.get("completed_at"):
+        if existing["repair_id"] == repair_id:
+            return {"task_id": task_id, "status": "QUALITY", "quality_repair": existing}
+        if existing.get("approved_at"):
+            raise StateError("Complete the approved repair before preparing another one.")
+    repair = {
+        "repair_id": repair_id, "summary": summary.strip(), "files": sorted(set(files)),
+        "unit_ids": [u["id"] for u in plan.get("units", []) if set(u["files"]) & set(files)],
+        "quality_attempt": last.get("attempt", 0),
+        "implementation_fingerprint": inputs["signature"], "inputs": inputs,
+    }
+    task["quality_repair"] = repair
+    write_task(root, task_id, task)
+    return {"task_id": task_id, "status": "QUALITY", "quality_repair": repair}
+
+
+def start_quality_repair(root: Path, repair_id: str, executor: str, confirmed: bool, agent: str,
+                         task_id: str | None = None, session_file: str | Path | None = None) -> dict:
+    session, task_id, task = resolve_current_task(root, task_id, session_file)
+    require_spec_context(root, task, agent, session_file)
+    repair = task.get("quality_repair")
+    if task.get("status") != "QUALITY" or not isinstance(repair, dict) or repair.get("repair_id") != repair_id:
+        raise StateError("Select the current QUALITY repair bundle.")
+    if repair.get("completed_at"):
+        return snapshot_state(root, session_file, session)
+    mode = behavior_layers(root, session)["cooperate_mode"]["value"]
+    if executor not in {"current", "other"} or (not repair.get("approved_at") and executor == "other" and mode != "dispatch"):
+        raise StateError("QUALITY repair handoff requires cooperate_mode dispatch.")
+    if repair.get("approved_at"):
+        if repair.get("executor") != executor:
+            raise StateError("This repair already has an approved executor; resume that handoff.")
+    else:
+        if (mode == "dispatch" or resolve_approval_mode(root, session)[2] == "approve") and not confirmed:
+            raise StateError("Confirm the repair scope and executor once before starting this repair.")
+        if implementation_fingerprint(root, task_id) != repair["implementation_fingerprint"]:
+            raise StateError("Repair inputs changed before approval; refresh the displayed repair bundle.")
+        if isinstance(task.get("spec_source"), dict):
+            task, failed_sources = prepare_canonical_repair_transition(root, task_id, task, agent)
+            plan = latest_execution_plan(root, task_id) or {}
+            repair_sources = {u.get("source_task_id") for u in plan.get("units", [])
+                              if u["id"] in repair["unit_ids"]}
+            if not failed_sources <= repair_sources:
+                raise StateError("The repair bundle must cover all failed Canonical source tasks: "
+                                 + ", ".join(sorted(failed_sources - repair_sources)))
+        cancel_active_quality_attempt(root, task_id, task, agent, repair["summary"], "manual-return")
+        task = load_task(root, task_id) or task
+        repair = task["quality_repair"]
+        repair.update(approved_at=now_iso(), approved_by=agent, executor=executor,
+                      authorization="explicit-user" if confirmed else "approval-policy",
+                      execution_start_index=len(execution_records(root, task_id)))
+        cleanup_verification_checkpoint(root, task_id, task)
+        task.pop("pending_transition", None)
+        write_task(root, task_id, task)
+    if isinstance(task.get("canonical_repair_transition"), dict):
+        sources = set(task["canonical_repair_transition"]["source_task_ids"])
+        writeback_ready_tasks_for_implement(root, task_id, task, agent, {"blocked"}, sources,
+                                           repair_id=repair_id)
+        task = load_task(root, task_id) or task
+        task.pop("canonical_repair_transition", None)
+        write_task(root, task_id, task)
+    if executor == "other" and not repair.get("handed_off"):
+        # 同一授权直接生成接力，接手不再经过阶段审批。
+        result = handoff_task(root, agent, repair["summary"], task_id, session_file,
+                              {"next_action": "repair", "unit_ids": repair["unit_ids"],
+                               "stop_after": "repair", "repair_id": repair_id})
+        task = load_task(root, task_id)
+        task["quality_repair"]["handed_off"] = True
+        write_task(root, task_id, task)
+        return result
+    return snapshot_state(root, session_file, session)
+
+
+def complete_quality_repair(root: Path, repair_id: str, agent: str,
+                            task_id: str | None = None, session_file: str | Path | None = None) -> dict:
+    session, task_id, task = resolve_current_task(root, task_id, session_file)
+    require_spec_context(root, task, agent, session_file)
+    repair = task.get("quality_repair")
+    if task.get("status") != "QUALITY" or not isinstance(repair, dict) or repair.get("repair_id") != repair_id or not repair.get("approved_at"):
+        raise StateError("Complete only the approved current QUALITY repair.")
+    if repair.get("completed_at"):
+        return snapshot_state(root, session_file, session)
+    plan = latest_execution_plan(root, task_id) or {}
+    current = capture(input_spec(root, task, plan, {"type": "review"}))
+    previous = repair["inputs"]
+    if previous["spec"] != current["spec"]:
+        raise StateError("Repair changed the contract or input scope; reconcile the plan before verification.")
+    allowed = set()
+    for unit in plan.get("units", []):
+        if unit["id"] not in repair["unit_ids"]:
+            continue
+        binding = (task.get("repo_paths") or {}).get(unit.get("repo_id"), str(root))
+        repository = Path(binding)
+        if not repository.is_absolute():
+            repository = root / repository
+        allowed.update(str((repository / file).resolve()) for file in repair["files"] if file in unit["files"])
+    changed = [str((Path(repo) / file).resolve()) for repo, files in current["files"].items()
+               for file in set(files) | set(previous["files"].get(repo, {}))
+               if files.get(file) != previous["files"].get(repo, {}).get(file)]
+    if any(not any(path == scope or path.startswith(scope + "/") for scope in allowed) for path in changed):
+        raise StateError("Repair changed files outside the approved bundle.")
+    if isinstance(task.get("spec_source"), dict):
+        inspection, _ = inspect_task_spec(root, task)
+        snapshots = _selected_execution_snapshots(inspection, task)
+        sources = {u["source_task_id"] for u in plan.get("units", []) if u["id"] in repair["unit_ids"]}
+        if any(snapshots.get(source, {}).get("status") not in {"implemented", "verified", "completed"}
+               for source in sources):
+            raise StateError("Write back the repaired Canonical tasks as implemented before returning.")
+    repair["completed_at"] = now_iso()
+    task.pop("quality_return_required", None)
+    records = validated_quality_records(root, task_id)
+    if records:
+        task["quality_consumed_attempt"] = records[-1][1]["attempt"]
+    task["continuation"] = {"next_action": "quality", "unit_ids": repair["unit_ids"]}
+    write_task(root, task_id, task)
+    if repair["executor"] == "other":
+        return handoff_task(root, agent, "Repair complete; review the delta and verify affected inputs.",
+                            task_id, session_file, task["continuation"])
+    return snapshot_state(root, session_file, session)
 
 
 def implementation_fingerprint(root: Path, task_id: str) -> str:
     plan = latest_execution_plan(root, task_id)
     if not plan:
         raise StateError("Cannot calculate implementation fingerprint without a valid plan.")
-    task = load_task(root, task_id)
-    workflow_mode = str(task.get("workflow_mode") or "") if task else ""
-    digest = hashlib.sha256()
-    digest.update(b"workflow-mode\0")
-    digest.update(workflow_mode.encode("utf-8"))
-    digest.update(b"\0")
-    if task and task.get("tdd_enabled") is True:
-        digest.update(b"tdd\0enabled\0")
-        digest.update(str(task.get("tdd_coverage_threshold") or "").encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(
-            json.dumps(
-                task.get("tdd_baselines") or {},
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode("utf-8")
-        )
-        digest.update(b"\0")
-    digest.update(b"execution-plan\0")
-    digest.update(
-        json.dumps(
-            plan,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-    )
-    digest.update(b"\0")
-    if task and isinstance(task.get("spec_source"), dict):
-        digest.update(b"canonical-spec\0")
-        source = task.get("spec_source") or {}
-        digest.update(
-            json.dumps(
-                {
-                    "source": {
-                        "schema": source.get("schema"),
-                        "spec_id": source.get("spec_id"),
-                        "revision": source.get("revision"),
-                        "design_sha256": source.get("design_sha256"),
-                    },
-                    "selected_tasks": task.get("selected_spec_tasks"),
-                },
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode("utf-8")
-        )
-        digest.update(b"\0")
-    update_git_worktree_fingerprint(digest, root, task, plan)
-    repo_paths = task.get("repo_paths") if task else None
-    file_entries: set[tuple[str, str | None]] = {
-        (str(file_name), str(unit.get("repo_id")) if unit.get("repo_id") else None)
-        for unit in plan.get("units", [])
-        if isinstance(unit, dict)
-        for file_name in unit.get("files", [])
-        if is_non_empty_string(file_name)
-    }
-    for file_name, repo_id in sorted(file_entries, key=lambda item: (item[0], item[1] or "")):
-        candidate = Path(file_name)
-        was_absolute = candidate.is_absolute()
-        base = root
-        if (
-            task
-            and isinstance(task.get("spec_source"), dict)
-            and isinstance(repo_paths, dict)
-            and repo_id
-            and is_non_empty_string(repo_paths.get(repo_id))
-        ):
-            raw_base = Path(str(repo_paths[repo_id]))
-            base = raw_base if raw_base.is_absolute() else root / raw_base
-        if not was_absolute:
-            candidate = base / candidate
-        resolved = candidate.resolve()
-        if not was_absolute:
-            try:
-                resolved.relative_to(base.resolve())
-            except ValueError as error:
-                raise StateError(f"Execution plan file escapes repository: {file_name}") from error
-        digest.update(f"{repo_id or ''}:{file_name}".encode("utf-8"))
-        digest.update(b"\0")
-        try:
-            digest.update(resolved.read_bytes())
-        except OSError:
-            digest.update(b"<missing>")
-        digest.update(b"\0")
-    return digest.hexdigest()
+    task = load_task(root, task_id) or {}
+    # 候选只绑定实际输入与验收契约，执行状态、revision、模式和计划说明不参与。
+    return capture(input_spec(root, task, plan, {"type": "review"}))["signature"]
 
 
-def canonical_repository_fingerprints(
-    root: Path, task_id: str, task: dict
-) -> dict[str, str]:
+def canonical_repository_fingerprints(root: Path, task_id: str, task: dict) -> dict[str, str]:
     if not isinstance(task.get("spec_source"), dict):
         return {}
     plan = latest_execution_plan(root, task_id) or {}
-    repo_paths = task.get("repo_paths") if isinstance(task.get("repo_paths"), dict) else {}
-    fingerprints: dict[str, str] = {}
-    for repo_id in sorted(
-        {
-            str(unit.get("repo_id"))
-            for unit in plan.get("units", [])
-            if isinstance(unit, dict) and is_non_empty_string(unit.get("repo_id"))
-        }
-    ):
-        raw_base = repo_paths.get(repo_id)
-        if not is_non_empty_string(raw_base):
-            continue
-        base = Path(str(raw_base))
-        if not base.is_absolute():
-            base = root / base
-        base = base.resolve()
-        digest = hashlib.sha256()
-        units = [
-            unit
-            for unit in plan.get("units", [])
-            if isinstance(unit, dict) and unit.get("repo_id") == repo_id
-        ]
-        digest.update(
-            json.dumps(
-                units,
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode("utf-8")
-        )
-        digest.update(b"\0")
-        repository = git_repository_root(base)
-        if repository is not None and repository.resolve() == base:
-            update_git_repository_content_fingerprint(
-                digest,
-                root,
-                repository,
-                [base],
-                set(),
-            )
-        else:
-            for unit in units:
-                for file_name in sorted(
-                    str(value)
-                    for value in unit.get("files", [])
-                    if is_non_empty_string(value)
-                ):
-                    candidate = (base / file_name).resolve()
-                    try:
-                        candidate.relative_to(base)
-                    except ValueError as error:
-                        raise StateError(
-                            f"Execution plan file escapes repository: {file_name}"
-                        ) from error
-                    digest.update(file_name.encode("utf-8"))
-                    digest.update(b"\0")
-                    try:
-                        digest.update(candidate.read_bytes())
-                    except OSError:
-                        digest.update(b"<missing>")
-                    digest.update(b"\0")
-        fingerprints[repo_id] = digest.hexdigest()
-    return fingerprints
+    return {
+        repo: digest([capture(input_spec(root, task, plan, {
+            "type": "review", "unit_id": unit["id"]
+        }))["signature"] for unit in plan.get("units", []) if unit.get("repo_id") == repo])
+        for repo in sorted({unit["repo_id"] for unit in plan.get("units", [])})
+    }
 
 
-def config_without_frozen_tdd_settings(payload: bytes) -> bytes:
-    """任务冻结 TDD 契约后，从证据指纹中排除仅影响未来任务的实时 TDD 配置。"""
-    try:
-        lines = payload.decode("utf-8").splitlines(keepends=True)
-    except UnicodeDecodeError:
-        return payload
-    filtered: list[str] = []
-    in_behavior = False
-    behavior_indent = 0
-    behavior_key_indent: int | None = None
-    for line in lines:
-        clean = line.split("#", 1)[0].rstrip()
-        stripped = clean.strip()
-        indent = len(clean) - len(clean.lstrip(" "))
-        if stripped == "behavior:":
-            in_behavior = True
-            behavior_indent = indent
-            behavior_key_indent = None
-            filtered.append(line)
-            continue
-        if in_behavior and stripped and indent <= behavior_indent:
-            in_behavior = False
-        if in_behavior and stripped:
-            if behavior_key_indent is None:
-                behavior_key_indent = indent
-            key = stripped.split(":", 1)[0]
-            if (
-                indent == behavior_key_indent
-                and key in {"tdd_enabled", "tdd_coverage_threshold"}
-            ):
-                continue
-        filtered.append(line)
-    return "".join(filtered).encode("utf-8")
+def unit_test_contract(task: dict) -> dict:
+    mode = task.get("unit_test_mode")
+    # 旧证据的序列化键保持不变，配置字段改名不触发全局失效；UT 单独标识。
+    contract = {
+        "tdd_enabled": None if mode is None else mode != "none",
+        "tdd_coverage_threshold": task.get("ut_coverage_threshold"),
+        "tdd_baselines": task.get("tdd_baselines"),
+    }
+    if mode == "ut":
+        contract["unit_test_mode"] = "ut"
+    return contract
 
 
 def behavior_config_fingerprint(root: Path, task: dict | None = None) -> str:
-    path = root / ".easy-coding" / "config.yaml"
-    digest = hashlib.sha256()
-    try:
-        payload = path.read_bytes()
-        if task and isinstance(task.get("tdd_enabled"), bool):
-            payload = config_without_frozen_tdd_settings(payload)
-        digest.update(payload)
-    except OSError:
-        digest.update(b"<missing-config>")
-    return digest.hexdigest()
+    # 审批方式、记忆策略等配置不影响已经执行的测试。
+    return digest(unit_test_contract(task or {}))
 
 
 def evidence_fingerprints(root: Path, task_id: str) -> dict[str, str]:
@@ -3348,6 +2586,12 @@ def ensure_quality_attempt_context(
     persist: bool = False,
     infer_existing_evidence: bool = False,
 ) -> dict:
+    repair = task.get("quality_repair")
+    if isinstance(repair, dict) and not repair.get("completed_at"):
+        raise StateError("Complete the current QUALITY repair before collecting gate evidence.")
+    if persist and (task.get("continuation") or {}).get("next_action") == "quality":
+        task.pop("continuation", None)
+        write_task(root, task_id, task)
     if isinstance(task.get("canonical_repair_transition"), dict):
         raise StateError(
             "Canonical repair transition is incomplete; resume it before collecting new QUALITY evidence."
@@ -3449,6 +2693,7 @@ def ensure_quality_attempt_context(
             )
         if (
             finalized.get("outcome") in {"passed", "repair", "replan"}
+            and finalized.get("attempt") != task.get("quality_consumed_attempt")
             and finalized.get("implementation_fingerprint")
             == expected["implementation_fingerprint"]
             and finalized.get("config_fingerprint") == expected["config_fingerprint"]
@@ -3462,6 +2707,7 @@ def ensure_quality_attempt_context(
     )
     if persist:
         append_canonical_quality_carry_forward(root, task_id, task, context, agent)
+        carry_forward_scoped_evidence(root, task_id, task, context)
         task["quality_attempt"] = context
         task["last_agent"] = agent
         write_task(root, task_id, task)
@@ -3738,19 +2984,9 @@ def finalize_quality_attempt(
     latest_failure_records: dict[tuple[str, str], dict] = {}
     for record in [*current_reviews, *current_verifications]:
         owner = str(record.get("source_task_id")) if canonical else task_id
-        if record.get("type") == "review" and is_non_empty_string(
-            record.get("dimension")
-        ):
-            label = f"review:{record['dimension']}"
-        elif record.get("type") == "verify" and is_non_empty_string(
-            record.get("check")
-        ):
-            coverage_scope = str(record.get("coverage_scope") or "")
-            label = f"verify:{record['check']}"
-            if coverage_scope:
-                label = f"{label}:{coverage_scope}"
-        else:
+        if record.get("type") not in {"review", "verify"}:
             continue
+        label = failure_label(record)
         latest_failure_records[(owner, label)] = record
     evidence_failure_classes: set[str] = set()
     for owner, labels in failures.items():
@@ -3911,6 +3147,7 @@ def finalize_quality_decision(
     session_file: str | Path | None = None,
 ) -> dict:
     session, resolved_task_id, task = resolve_current_task(root, task_id, session_file)
+    require_spec_context(root, task, agent, session_file)
     if task.get("status") != "QUALITY":
         raise StateError("A QUALITY decision can only be finalized during QUALITY.")
     record = finalize_quality_attempt(
@@ -4061,9 +3298,10 @@ def verification_contract_fingerprint(root: Path, task_id: str, task: dict) -> s
     source = task.get("spec_source") if isinstance(task.get("spec_source"), dict) else {}
     contract = {
         "workflow_mode": task.get("workflow_mode"),
-        "tdd_enabled": task.get("tdd_enabled"),
-        "tdd_coverage_threshold": task.get("tdd_coverage_threshold"),
-        "tdd_baselines": task.get("tdd_baselines"),
+        **unit_test_contract(task),
+        **({"tdd_infrastructure": tdd_infrastructure_fingerprint(
+            {root.resolve(), *task_repository_roots(root, task, plan)}
+        )} if task.get("unit_test_mode") in {"ut", "tdd"} else {}),
         "plan": plan,
         "canonical": {
             "schema": source.get("schema"),
@@ -4080,7 +3318,9 @@ def verification_contract_fingerprint(root: Path, task_id: str, task: dict) -> s
     return canonical_json_sha256(contract)
 
 
-def acceptance_repository_entries(repository: Path, scopes: list[Path]) -> list[dict]:
+def acceptance_repository_entries(
+    repository: Path, scopes: list[Path], previous: dict[str, dict] | None = None,
+) -> list[dict]:
     pathspecs = repository_scope_pathspecs(repository, scopes)
     index_entries = git_index_entries(repository, pathspecs)
     listed = run_git(
@@ -4113,6 +3353,8 @@ def acceptance_repository_entries(repository: Path, scopes: list[Path]) -> list[
             continue
         candidate = repository / relative_name
         index_entry = index_entries.get(raw_path)
+        # 小写标记表示 assume-unchanged，S 表示 skip-worktree；Git 不检查其工作区变化。
+        trusted_index = index_entry is not None and index_entry[2] == b"H"
         if index_entry is not None and index_entry[0] == b"160000":
             entries.append(
                 {
@@ -4135,6 +3377,17 @@ def acceptance_repository_entries(repository: Path, scopes: list[Path]) -> list[
                 }
             )
             continue
+        mode = worktree_git_mode(candidate).decode("ascii", errors="replace")
+        prior = (previous or {}).get(relative_name)
+        if (
+            prior is not None and prior.get("exists") is True
+            and prior.get("mode") == mode and trusted_index
+            and raw_path not in modified_paths
+            and prior.get("git_oid") == index_entry[1].decode("ascii")
+        ):
+            # Git 对象与工作区均未变化，沿用冻结快照的内容摘要。
+            entries.append(prior)
+            continue
         try:
             content = (
                 os.fsencode(os.readlink(candidate))
@@ -4143,14 +3396,13 @@ def acceptance_repository_entries(repository: Path, scopes: list[Path]) -> list[
             )
         except OSError as exc:
             raise StateError(f"Cannot read verification snapshot file: {relative_name}") from exc
-        mode = worktree_git_mode(candidate).decode("ascii", errors="replace")
         entry = {
             "path": relative_name,
             "exists": True,
             "mode": mode,
             "sha256": hashlib.sha256(content).hexdigest(),
         }
-        if index_entry is not None and raw_path not in modified_paths:
+        if trusted_index and raw_path not in modified_paths:
             entry["git_oid"] = index_entry[1].decode("ascii", errors="replace")
         else:
             # 仅无法从 Git object 还原的工作区内容进入被忽略的临时快照。
@@ -4234,13 +3486,19 @@ def acceptance_filesystem_repositories(
     return repositories
 
 
-def build_acceptance_snapshot(root: Path, task_id: str, task: dict) -> dict:
+def build_acceptance_snapshot(
+    root: Path, task_id: str, task: dict, baseline: dict | None = None,
+) -> dict:
     plan = latest_execution_plan(root, task_id)
     if plan is None:
         raise StateError("Cannot capture verification snapshot without a valid plan.")
     fingerprints = evidence_fingerprints(root, task_id)
     repository_scopes = task_repository_scopes(root, task, plan)
     repositories = []
+    previous = {
+        repo["root"]: {entry["path"]: entry for entry in repo["entries"]}
+        for repo in (baseline or {}).get("repositories", [])
+    }
     for repository, scopes in repository_scopes:
         repositories.append(
             {
@@ -4249,7 +3507,9 @@ def build_acceptance_snapshot(root: Path, task_id: str, task: dict) -> dict:
                 "scopes": [
                     scope.relative_to(repository.resolve()).as_posix() for scope in scopes
                 ],
-                "entries": acceptance_repository_entries(repository.resolve(), scopes),
+                "entries": acceptance_repository_entries(
+                    repository.resolve(), scopes, previous.get(str(repository.resolve())),
+                ),
             }
         )
     repositories.extend(acceptance_filesystem_repositories(root, plan, repository_scopes))
@@ -4345,7 +3605,7 @@ def acceptance_change_patch(
 def inspect_acceptance_drift(root: Path, task_id: str, task: dict) -> dict:
     checkpoint = task.get("quality_checkpoint")
     baseline = load_acceptance_snapshot(root, task)
-    current = build_acceptance_snapshot(root, task_id, task)
+    current = build_acceptance_snapshot(root, task_id, task, baseline)
     baseline_entries = acceptance_snapshot_entries(baseline)
     current_entries = acceptance_snapshot_entries(current)
     changes: list[dict] = []
@@ -4471,6 +3731,7 @@ def record_verification_checkpoint(
     session_file: str | Path | None = None,
 ) -> dict:
     session, resolved_task_id, task = resolve_current_task(root, task_id, session_file)
+    require_spec_context(root, task, agent, session_file)
     if task.get("status") != "QUALITY":
         raise StateError("Quality checkpoint can only be recorded during QUALITY.")
     if isinstance(task.get("quality_checkpoint"), dict):
@@ -4567,6 +3828,7 @@ def inspect_transition_drift(
     session_file: str | Path | None = None,
 ) -> dict:
     session, resolved_task_id, task = resolve_current_task(root, task_id, session_file)
+    require_spec_context(root, task, agent, session_file)
     if task.get("status") != "QUALITY":
         raise StateError("Transition drift can only be inspected during QUALITY.")
     task = ensure_verification_checkpoint(root, resolved_task_id, task, agent, session_file)
@@ -4586,8 +3848,10 @@ def append_transition_acceptance(
     expected_diff_sha256: str | None = None,
     verification_policy: str | None = None,
     summary: str | None = None,
+    *, drift: dict | None = None,
 ) -> dict:
-    drift = inspect_acceptance_drift(root, task_id, task)
+    if drift is None:
+        drift = inspect_acceptance_drift(root, task_id, task)
     if drift["config_changed"]:
         raise StateError(
             "Behavior config changed after quality checks; rerun QUALITY before MEMORY."
@@ -4825,8 +4089,10 @@ def validate_spec_implementation_results(root: Path, task_id: str, task: dict) -
         default=-1,
     )
     lifecycle_by_unit: dict[str, list[dict]] = {unit_id: [] for unit_id in unit_by_id}
-    for record in records[latest_plan_index + 1 :]:
+    for index, record in enumerate(records):
         unit_id = str(record.get("unit_id") or "")
+        if index <= latest_plan_index and unit_id in task.get("correction", {}).get("unit_ids", list(unit_by_id)):
+            continue
         if record.get("type") in {"dispatch", "result"} and unit_id in unit_by_id:
             lifecycle_by_unit[unit_id].append(record)
     missing_dispatches = sorted(
@@ -4909,7 +4175,7 @@ def validate_review_readiness(
         ):
             dimension = str(record["dimension"])
             source_task_id = str(record.get("source_task_id") or "")
-            record_key = f"{dimension}\0{source_task_id}" if is_spec_task else dimension
+            record_key = gate_identity(record)
             latest_by_dimension[record_key] = record
     if not latest_by_dimension:
         raise StateError(
@@ -4965,6 +4231,9 @@ def validate_review_readiness(
                 "Canonical Spec review evidence does not cover selected source tasks: "
                 + ", ".join(missing_review_tasks)
             )
+    require_unit_evidence(latest_execution_plan(root, task_id) or {},
+                          list(latest_by_dimension.values()), "Review",
+                          2 if task.get("workflow_mode") == "strict" else 1)
     has_failed_dimension = False
     for record in latest_by_dimension.values():
         findings = record.get("findings")
@@ -4980,7 +4249,7 @@ def validate_review_readiness(
         raise StateError(
             "QUALITY cannot advance while a review dimension is not passed or has error findings."
         )
-    if task.get("tdd_enabled") is True:
+    if task.get("unit_test_mode") == "tdd":
         if is_spec_task:
             missing_tdd_reviews = sorted(
                 source_task_id
@@ -5011,7 +4280,7 @@ def validate_review_readiness(
                     "Strict Canonical Spec review requires at least two passed dimensions for "
                     "every selected source task: " + ", ".join(missing_strict_dimensions)
                 )
-        elif len(latest_by_dimension) < 2:
+        elif len({record["dimension"] for record in latest_by_dimension.values()}) < 2:
             raise StateError(
                 "Strict workflow requires at least two passed review dimensions for the current implementation fingerprint."
             )
@@ -5052,17 +4321,13 @@ def validate_verification_readiness(
             and is_non_empty_string(record.get("check"))
         ):
             if (
-                task.get("tdd_enabled") is True
+                task.get("unit_test_mode") in {"ut", "tdd"}
                 and record.get("check_type") == "coverage"
                 and record.get("coverage_scope") == "gitlab"
             ):
                 # 远程 CI 只作为生成的自动化能力，历史 pending/failed 记录不再参与本地验收。
                 continue
-            check = str(record["check"])
-            if task.get("tdd_enabled") is True and record.get("check_type") == "coverage":
-                check = f"{check}\0{record.get('coverage_scope') or ''}"
-            if is_spec_task:
-                check = f"{check}\0{record.get('source_task_id') or ''}"
+            check = gate_identity(record)
             previous = latest_by_check.get(check)
             if (
                 record.get("applicable") is False
@@ -5117,6 +4382,7 @@ def validate_verification_readiness(
     applicable_records = [
         record for record in latest_by_check.values() if record.get("applicable") is not False
     ]
+    require_unit_evidence(latest_execution_plan(root, task_id) or {}, applicable_records, "Verification")
     if not applicable_records:
         raise StateError(
             "QUALITY cannot advance to MEMORY without at least one applicable executed check."
@@ -5152,19 +4418,19 @@ def validate_verification_readiness(
                     + ", ".join(missing_source_tasks)
                 )
     if str(task.get("type") or "").strip().lower() == TDD_INIT_TASK_TYPE:
-        readiness = tdd_readiness(root)
+        readiness = tdd_readiness(root, include_ci=True)
         if readiness["status"] != "ready":
             raise StateError(
                 "TDD initialization cannot advance to MEMORY until readiness passes: "
                 + "; ".join(str(reason) for reason in readiness["reasons"])
             )
-    if task.get("tdd_enabled") is not True and any(
+    if task.get("unit_test_mode") not in {"ut", "tdd"} and any(
         record.get("check_type") == "coverage" for record in latest_by_check.values()
     ):
         raise StateError(
-            "Coverage verification evidence is not allowed when the frozen TDD mode is off."
+            "Coverage verification evidence is not allowed when the frozen unit test mode is none."
         )
-    if task.get("tdd_enabled") is True:
+    if task.get("unit_test_mode") in {"ut", "tdd"}:
         require_tdd_readiness(root)
         test_records = [
             record
@@ -5179,7 +4445,7 @@ def validate_verification_readiness(
         ]
         if not coverage_records:
             raise StateError(
-                "TDD verification requires changed-production-line JaCoCo coverage evidence."
+                "Unit test verification requires changed-production-line JaCoCo coverage evidence."
             )
         if is_spec_task:
             tested_source_tasks = {
@@ -5190,7 +4456,7 @@ def validate_verification_readiness(
             )
             if missing_test_tasks:
                 raise StateError(
-                    "TDD Canonical verification requires local unit-test evidence for every selected source task: "
+                    "Unit test Canonical verification requires local unit-test evidence for every selected source task: "
                     + ", ".join(missing_test_tasks)
                 )
             covered_source_tasks = {
@@ -5201,33 +4467,33 @@ def validate_verification_readiness(
             )
             if missing_coverage_tasks:
                 raise StateError(
-                    "TDD Canonical verification requires separate coverage evidence for every selected source task: "
+                    "Unit test Canonical verification requires separate coverage evidence for every selected source task: "
                     + ", ".join(missing_coverage_tasks)
                 )
         elif not test_records:
             raise StateError(
-                "TDD verification requires passed local unit-test evidence."
+                "Unit test verification requires passed local unit-test evidence."
             )
         for record in coverage_records:
             scope = str(record.get("coverage_scope") or "")
             if scope != "local":
                 raise StateError(
-                    "TDD coverage evidence must identify coverage_scope as local."
+                    "Unit test coverage evidence must identify coverage_scope as local."
                 )
-        expected_threshold = task.get("tdd_coverage_threshold")
+        expected_threshold = task.get("ut_coverage_threshold")
         expected_baselines = task.get("tdd_baselines")
         if (
             type(expected_threshold) is not int
             or expected_threshold < 1
             or expected_threshold > 100
         ):
-            raise StateError("TDD task is missing a valid frozen coverage threshold.")
+            raise StateError("Unit test task is missing a valid frozen coverage threshold.")
         if not isinstance(expected_baselines, dict) or not expected_baselines:
-            raise StateError("TDD task is missing frozen Git baselines.")
+            raise StateError("Unit test task is missing frozen Git baselines.")
         for record in coverage_records:
             coverage = record.get("coverage")
             if not isinstance(coverage, dict):
-                raise StateError("TDD coverage evidence must include the coverage result object.")
+                raise StateError("Unit test coverage evidence must include the coverage result object.")
             total = coverage.get("total_lines")
             covered = coverage.get("covered_lines")
             percentage = coverage.get("percentage")
@@ -5263,7 +4529,7 @@ def validate_verification_readiness(
                 )
             ):
                 raise StateError(
-                    "TDD coverage evidence must preserve the exact gate command, baseline, counts, percentage, frozen threshold, reports, and report fingerprint."
+                    "Unit test coverage evidence must preserve the exact gate command, baseline, counts, percentage, frozen threshold, reports, and report fingerprint."
                 )
             if total == 0:
                 if record.get("applicable") is not False or record.get("passed") is not True:
@@ -5272,7 +4538,7 @@ def validate_verification_readiness(
                     )
             elif abs(percentage - round(covered * 100.0 / total, 2)) > 0.01:
                 raise StateError(
-                    "TDD coverage evidence percentage does not match covered/total counts."
+                    "Unit test coverage evidence percentage does not match covered/total counts."
                 )
             elif (
                 record.get("applicable") is False
@@ -5280,7 +4546,7 @@ def validate_verification_readiness(
                 or percentage < threshold
             ):
                 raise StateError(
-                    f"TDD changed-line coverage must meet the frozen {threshold}% threshold."
+                    f"Unit test changed-line coverage must meet the frozen {threshold}% threshold."
                 )
     if task.get("workflow_mode") == "strict":
         if is_spec_task:
@@ -5350,7 +4616,10 @@ def validate_verification_readiness(
             for record in applicable_records
             if is_non_empty_string(record.get("command"))
         }
-        missing_commands = sorted(required_test_commands - executed_commands)
+        missing_commands = sorted(required for required in required_test_commands if not any(
+            actual[:2] == required[:2] and command_covers(actual[2], required[2])
+            for actual in executed_commands
+        ))
         if missing_commands:
             raise StateError(
                 "Canonical Spec verification is missing source test commands: "
@@ -5419,7 +4688,7 @@ def quality_repair_failures_for_window(
         and is_non_empty_string(unit.get("source_task_id"))
         and is_non_empty_string(unit.get("repo_id"))
     }
-    fingerprints = evidence_fingerprints(root, task_id)
+    fingerprints = evidence_fingerprints(root, task_id) if not (implementation_fingerprint_value and config_fingerprint_value) else {}
     implementation = (
         implementation_fingerprint_value or fingerprints["implementation_fingerprint"]
     )
@@ -5483,13 +4752,12 @@ def quality_repair_failures_for_window(
                     and repo_id == task_repositories[source_task_id]
                 )
             ):
-                owner = source_task_id if canonical else task_id
-                latest_reviews[(owner, str(record["dimension"]))] = record
+                latest_reviews[gate_identity(record)] = record
         elif record_type == "verify" and record.get(
             "implementation_fingerprint"
         ) == implementation and record.get("config_fingerprint") == config:
             if (
-                task.get("tdd_enabled") is True
+                task.get("unit_test_mode") in {"ut", "tdd"}
                 and record.get("check_type") == "coverage"
                 and record.get("coverage_scope") == "gitlab"
             ):
@@ -5512,17 +4780,11 @@ def quality_repair_failures_for_window(
                 )
             ):
                 continue
-            owner = source_task_id if canonical else task_id
-            latest_verifications[
-                (
-                    owner,
-                    str(record["check"]),
-                    str(record.get("coverage_scope") or ""),
-                )
-            ] = record
+            latest_verifications[gate_identity(record)] = record
 
     failures: dict[str, list[str]] = {}
-    for (source_task_id, dimension), record in latest_reviews.items():
+    for record in latest_reviews.values():
+        source_task_id = str(record.get("source_task_id")) if canonical else task_id
         findings = record.get("findings")
         has_error = isinstance(findings, list) and any(
             isinstance(finding, dict)
@@ -5530,13 +4792,11 @@ def quality_repair_failures_for_window(
             for finding in findings
         )
         if record.get("passed") is not True or has_error:
-            failures.setdefault(source_task_id, []).append(f"review:{dimension}")
-    for (source_task_id, check, scope), record in latest_verifications.items():
+            failures.setdefault(source_task_id, []).append(failure_label(record))
+    for record in latest_verifications.values():
+        source_task_id = str(record.get("source_task_id")) if canonical else task_id
         if record.get("applicable") is not False and record.get("passed") is not True:
-            label = f"verify:{check}"
-            if scope:
-                label = f"{label}:{scope}"
-            failures.setdefault(source_task_id, []).append(label)
+            failures.setdefault(source_task_id, []).append(failure_label(record))
     return failures
 
 
@@ -6263,8 +5523,26 @@ def validate_analysis_readiness(
     test_strategy = task_dir / "test-strategy.md"
     reasons: list[str] = []
     behavior = resolve_behavior(root, session or default_session())
-    tdd_enabled = behavior[8] if task_type != TDD_INIT_TASK_TYPE else False
+    unit_test_mode = behavior[8] if task_type != TDD_INIT_TASK_TYPE else "none"
     tdd_threshold = behavior[11]
+
+    if unit_test_mode == "ut":
+        require_tdd_readiness(root)
+        plan = latest_execution_plan(root, task_id) or {}
+        if not any(str(file).endswith(".java") for unit in plan.get("units", []) for file in unit.get("files", [])):
+            reasons.append("UT is enabled but the confirmed implementation scope has no Java source")
+        if reasons:
+            raise StateError("; ".join(reasons))
+
+    if dev_spec.is_file() and unit_test_mode != "tdd":
+        compact = dev_spec.read_text(encoding="utf-8")
+        if compact.startswith("<!-- easy-coding:compact -->"):
+            mode, _ = calculate_workflow_floor(root, task_id)
+            if mode != "fast" or not has_valid_execution_plan(root, task_id):
+                raise StateError("Compact analysis requires a valid Fast implementation plan.")
+            if re.findall(r"^decision_status:\s*(\w+)\s*$", compact, re.MULTILINE) != ["closed"]:
+                raise StateError("Compact analysis must record the confirmed scope.")
+            return
 
     dev_spec_content = ""
     if not dev_spec.exists():
@@ -6372,11 +5650,12 @@ def validate_analysis_readiness(
     plan_is_valid = has_valid_execution_plan(root, task_id)
     if not plan_is_valid:
         reasons.append("execution.jsonl has no valid plan record")
-    if tdd_enabled:
+    if unit_test_mode == "tdd":
         readiness = tdd_readiness(root)
         if readiness["status"] != "ready":
             reasons.append(
-                "TDD infrastructure is not ready; run ec-tdd-init first: "
+                ("TDD infrastructure is not ready; run ec-tdd-init first: "
+                 if readiness["status"] == "needs_init" else "Repair TDD readiness: ")
                 + "; ".join(str(reason) for reason in readiness["reasons"])
             )
         plan = latest_execution_plan(root, task_id) or {}
@@ -6434,6 +5713,8 @@ def validate_analysis_readiness(
                     dev_spec_content, strategy_content, baselines
                 )
             )
+    elif unit_test_mode == "ut":
+        pass
     elif task_type == TDD_INIT_TASK_TYPE:
         try:
             strategy_content = test_strategy.read_text(encoding="utf-8")
@@ -6616,424 +5897,8 @@ def validate_analysis_readiness(
 
 
 def latest_handoff_record(root: Path, task_id: str) -> dict | None:
-    path = execution_log_path(root, task_id)
-    if not path.exists():
-        return None
-    latest: dict | None = None
-    try:
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            try:
-                record = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(record, dict) and record.get("type") == "handoff":
-                latest = record
-    except OSError:
-        return None
-    return latest
-
-
-def pending_handoff_record(root: Path, task_id: str) -> dict | None:
-    path = execution_log_path(root, task_id)
-    if not path.exists():
-        return None
-    latest_coordination: dict | None = None
-    try:
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            try:
-                record = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(record, dict) and record.get("type") in {"handoff", "claim"}:
-                latest_coordination = record
-    except OSError:
-        return None
-    if latest_coordination and latest_coordination.get("type") == "handoff":
-        return latest_coordination
-    return None
-
-
-def assert_safe_task_id(task_id: str) -> None:
-    path = Path(task_id)
-    if not task_id or path.is_absolute() or "/" in task_id or "\\" in task_id or ".." in path.parts:
-        raise StateError(f"Unsafe task id: {task_id}")
-
-
-def is_project_init_required(root: Path) -> bool:
-    project_init = load_json(root / ".easy-coding" / "tasks" / "project-init" / "task.json")
-    return bool(project_init and project_init.get("status") != "COMPLETE")
-
-
-def get_pending_init_version(root: Path) -> str | None:
-    project_init = load_json(root / ".easy-coding" / "tasks" / "project-init" / "task.json")
-    if project_init and project_init.get("pending_init_since"):
-        return str(project_init["pending_init_since"])
-    return None
-
-
-def spec_task_summary(task: dict | None) -> dict | None:
-    if not task or not isinstance(task.get("spec_source"), dict):
-        return None
-    dependencies = task.get("spec_dependency_evidence")
-    pending_dependencies = [
-        {
-            "source_task_id": record.get("source_task_id"),
-            "task_id": record.get("task_id"),
-            "dependency_type": record.get("dependency_type"),
-            "required_evidence": record.get("required_evidence"),
-        }
-        for record in dependencies or []
-        if isinstance(record, dict) and record.get("status") == "pending"
-    ]
-    return {
-        "source": task["spec_source"],
-        "selected_spec_tasks": task.get("selected_spec_tasks", []),
-        "repositories": task.get("spec_repositories", []),
-        "pending_dependencies": pending_dependencies,
-        "writeback": task.get("spec_writeback_progress"),
-    }
-
-
-def transition_requires_confirmation(
-    previous: str,
-    current: str,
-    task_type: str,
-    approval_mode: str,
-) -> bool:
-    if (previous, current) in ALWAYS_AUTO_TRANSITIONS:
-        return False
-    if current == "CLOSED":
-        return True
-    if approval_mode == "auto":
-        return False
-    if approval_mode == "guard":
-        return (previous, current) in CRITICAL_CONFIRM_TRANSITIONS
-    if approval_mode == "confirm":
-        return (previous, current) == ANALYSIS_CONFIRM_TRANSITION
-    if approval_mode == "approve":
-        return True
-    raise StateError(f"Unknown approval mode: {approval_mode}")
-
-
-def is_automatic_transition(
-    previous: str,
-    current: str,
-    task_type: str,
-    approval_mode: str,
-) -> bool:
-    return not transition_requires_confirmation(previous, current, task_type, approval_mode)
-
-
-def validate_transition(
-    previous: str,
-    current: str,
-    task_type: str = "",
-    task: dict | None = None,
-) -> str | None:
-    if previous == current:
-        return None
-    allowed = set(VALID_TRANSITIONS.get(previous, set()))
-    if previous == "IMPLEMENT":
-        allowed.discard("COMPLETE")
-    if current in allowed:
-        return None
-    return (
-        f"ILLEGAL TRANSITION: {previous} -> {current}. "
-        f"Allowed from {previous}: {sorted(allowed) or 'NONE (terminal state)'}."
-    )
-
-
-def snapshot_state(
-    root: Path,
-    session_file: str | Path | None = None,
-    session: dict | None = None,
-) -> dict:
-    session_path = resolve_session_path(root, session_file)
-    resolved_session = session if session is not None else load_session(root, session_path)
-    if resolved_session is None:
-        resolved_session = default_session()
-
-    task_id = resolved_session.get("current_task")
-    task = load_task(root, str(task_id)) if task_id else None
-    missing = bool(task_id and task is None)
-    status = "idle"
-    if missing:
-        status = "MISSING"
-    elif task and task.get("status"):
-        status = str(task["status"])
-
-    if task_id and task and status in TERMINAL_STATUSES:
-        clear_session_pointer(resolved_session, task.get("last_agent"))
-        write_session(root, resolved_session, session_path)
-        task_id = None
-        task = None
-        missing = False
-        status = "idle"
-
-    (
-        project_approval_mode,
-        session_approval_mode,
-        effective_approval_mode,
-        project_workflow_mode,
-        session_workflow_mode,
-        configured_workflow_mode,
-        project_tdd_enabled,
-        session_tdd_enabled,
-        effective_tdd_enabled,
-        project_tdd_coverage_threshold,
-        session_tdd_coverage_threshold,
-        effective_tdd_coverage_threshold,
-    ) = resolve_behavior(root, resolved_session)
-    concrete_workflow_mode = None
-    if task:
-        concrete_workflow_mode = task.get("workflow_mode")
-        proposal = task.get("workflow_mode_proposal")
-        if concrete_workflow_mode is None and isinstance(proposal, dict):
-            concrete_workflow_mode = proposal.get("selected_mode")
-    task_tdd_enabled = task.get("tdd_enabled") if task else None
-    task_tdd_coverage_threshold = task.get("tdd_coverage_threshold") if task else None
-    frozen_tdd = bool(
-        task
-        and status not in {"ANALYSIS", "INIT"}
-        and isinstance(task_tdd_enabled, bool)
-    )
-    is_tdd_init = bool(
-        task and str(task.get("type") or "").strip().lower() == TDD_INIT_TASK_TYPE
-    )
-    displayed_tdd_enabled = (
-        False if is_tdd_init else task_tdd_enabled if frozen_tdd else effective_tdd_enabled
-    )
-    displayed_tdd_threshold = (
-        task_tdd_coverage_threshold
-        if frozen_tdd and isinstance(task_tdd_coverage_threshold, int)
-        else effective_tdd_coverage_threshold
-    )
-    should_check_readiness = bool(
-        effective_tdd_enabled or task_tdd_enabled is True or is_tdd_init
-    )
-    readiness = (
-        tdd_readiness(root)
-        if should_check_readiness
-        else {"status": "not_checked", "reasons": []}
-    )
-
-    return {
-        "session_file": display_path(root, session_path),
-        "current_task": str(task_id) if task_id else None,
-        "task": task,
-        "pending_transition": task.get("pending_transition") if task else None,
-        "memory_progress": task.get("memory_progress") if task else None,
-        "task_missing": missing,
-        "status": status,
-        "is_terminal": status in TERMINAL_STATUSES,
-        "last_agent": task.get("last_agent") if task else None,
-        "project_init_required": is_project_init_required(root),
-        "pending_init_version": get_pending_init_version(root),
-        "project_approval_mode": project_approval_mode,
-        "session_approval_mode": session_approval_mode,
-        "effective_approval_mode": effective_approval_mode,
-        "project_workflow_mode": project_workflow_mode,
-        "session_workflow_mode": session_workflow_mode,
-        "configured_workflow_mode": configured_workflow_mode,
-        "concrete_workflow_mode": concrete_workflow_mode,
-        "project_tdd_enabled": project_tdd_enabled,
-        "session_tdd_enabled": session_tdd_enabled,
-        "effective_tdd_enabled": effective_tdd_enabled,
-        "project_tdd_coverage_threshold": project_tdd_coverage_threshold,
-        "session_tdd_coverage_threshold": session_tdd_coverage_threshold,
-        "effective_tdd_coverage_threshold": effective_tdd_coverage_threshold,
-        "task_tdd_enabled": task_tdd_enabled,
-        "task_tdd_coverage_threshold": task_tdd_coverage_threshold,
-        "task_tdd_baselines": task.get("tdd_baselines") if task else None,
-        "displayed_tdd_enabled": displayed_tdd_enabled,
-        "displayed_tdd_coverage_threshold": displayed_tdd_threshold,
-        "tdd_readiness_status": readiness["status"],
-        "tdd_readiness_reasons": readiness["reasons"],
-        "spec_summary": spec_task_summary(task),
-        # Compatibility output aliases for pre-0.9 clients.
-        "project_confirm_mode": project_approval_mode,
-        "session_confirm_mode": session_approval_mode,
-        "effective_confirm_mode": effective_approval_mode,
-        "harness_disabled": resolved_session.get("harness_disabled") is True,
-        "lite_mode": resolved_session.get("lite_mode") is True,
-        "lite_proposal": resolved_session.get("lite_proposal"),
-    }
-
-
-def build_status_line(
-    root: Path,
-    session: dict,
-    agent: str | None = None,
-    session_file: str | Path | None = None,
-) -> str:
-    state = snapshot_state(root, session_file, session)
-    if state["lite_mode"]:
-        lite_state = (
-            "Awaiting Confirmation"
-            if isinstance(state.get("lite_proposal"), dict)
-            and not state["lite_proposal"].get("confirmed_at")
-            else "Ready"
-        )
-        return (
-            f"> **Easy Coding** · **Lite Direct** · {lite_state} · "
-            "No Task / Quality / Memory · Use `ec-lite` to exit"
-        )
-    approval = str(state["effective_approval_mode"]).capitalize()
-    workflow = str(state["concrete_workflow_mode"] or state["configured_workflow_mode"]).capitalize()
-    status_brand = f"> **Easy Coding** · **Approval: {approval}** · **Workflow: {workflow}**"
-    if state["displayed_tdd_enabled"] is True:
-        status_brand += " · **TDD**"
-    task_id = state["current_task"]
-    if task_id:
-        status = str(state["status"])
-        line = f"{status_brand} · `{task_id}` · `{status}`"
-        handoff = pending_handoff_record(root, str(task_id))
-        handoff_from = handoff.get("from") if handoff else None
-        if agent and handoff_from and not agents_equivalent(handoff_from, agent):
-            line += f" · Handoff -> `{handoff_from}`"
-        if state["is_terminal"] or state["task_missing"]:
-            line += f" · {HELP_SUFFIX}"
-        return line
-
-    if is_project_init_required(root):
-        return f"{status_brand} · {WAITING_INIT_LINE}"
-
-    pending = get_pending_init_version(root)
-    if pending:
-        return (
-            f"{status_brand} · Waiting init · "
-            f"Upgrade to v{pending} — run `ec-init` to adapt"
-        )
-
-    return f"{status_brand} · {READY_LINE}"
-
-
-def build_machine_breadcrumbs(
-    root: Path,
-    session: dict,
-    agent: str | None = None,
-    session_file: str | Path | None = None,
-) -> list[str]:
-    state = snapshot_state(root, session_file, session)
-    task_id = state["current_task"]
-    task = state["task"]
-    stage = str(state["status"]) if task else "idle"
-    resolved_session_file = str(state["session_file"])
-    lines = [
-        f"[workflow-state:{stage}]",
-        f"[easy-coding:session-file:{resolved_session_file}]",
-        f"[easy-coding:approval-mode:{state['effective_approval_mode']}]",
-        f"[easy-coding:configured-workflow-mode:{state['configured_workflow_mode']}]",
-    ]
-    if state.get("concrete_workflow_mode"):
-        lines.append(f"[easy-coding:workflow-mode:{state['concrete_workflow_mode']}]")
-    if state.get("displayed_tdd_enabled") is True:
-        lines.append("[easy-coding:tdd:enabled]")
-        lines.append(
-            f"[easy-coding:tdd-coverage-threshold:{state['displayed_tdd_coverage_threshold']}]"
-        )
-
-    if task_id:
-        lines.append(f"[current-task:{task_id}]")
-        if state["task_missing"]:
-            lines.append(f"[easy-coding:current-task-missing:{task_id}]")
-        handoff = pending_handoff_record(root, str(task_id))
-        handoff_from = handoff.get("from") if handoff else None
-        if agent and handoff_from and not agents_equivalent(handoff_from, agent):
-            lines.append(f"[easy-coding:handoff-from:{handoff_from}]")
-        pending = state.get("pending_transition")
-        if isinstance(pending, dict):
-            source = str(pending.get("from") or stage)
-            target = str(pending.get("to") or "")
-            if target:
-                lines.append(f"[easy-coding:pending-transition:{source}->{target}]")
-                task_type = str(task.get("type") or "") if task else ""
-                if pending.get("confirmation_override") == "evidence-drift":
-                    lines.append(
-                        "[easy-coding:acceptance-drift-confirmation-required]"
-                    )
-                    lines.append("[easy-coding:transition-confirmation-required]")
-                elif is_automatic_transition(
-                    source,
-                    target,
-                    task_type,
-                    str(state["effective_approval_mode"]),
-                ):
-                    lines.append(f"[easy-coding:auto-transition-ready:{source}->{target}]")
-                else:
-                    lines.append("[easy-coding:transition-confirmation-required]")
-
-    if is_project_init_required(root):
-        lines.append("[easy-coding:init-required]")
-    else:
-        pending = get_pending_init_version(root)
-        if pending:
-            lines.append(f"[easy-coding:upgrade-init-pending:{pending}]")
-
-    # Stage-specific reminders
-    if stage == "ANALYSIS" and task_id:
-        dev_spec = root / ".easy-coding" / "tasks" / str(task_id) / "dev-spec.md"
-        if dev_spec.exists():
-            try:
-                content = dev_spec.read_text(encoding="utf-8")
-                missing = [h for h in MANDATORY_DEV_SPEC_HEADERS if h not in content]
-                if missing:
-                    names = ",".join(h.lstrip("#").strip() for h in missing)
-                    lines.append(f"[easy-coding:analysis-template-drift:missing:{names}]")
-                else:
-                    lines.append("[easy-coding:analysis-template-ok]")
-            except OSError:
-                lines.append("[easy-coding:analysis-gate:skeleton-first-then-fill]")
-        else:
-            lines.append("[easy-coding:analysis-gate:skeleton-first-then-fill]")
-
-    # State machine validation
-    if task_id and task and task.get("status"):
-        current_stage = str(task["status"])
-        last_seen = session.get("last_seen_stage")
-        violation = record_seen_stage(root, str(task_id), current_stage, resolved_session_file)
-        if violation:
-            lines.append(f"[ILLEGAL-TRANSITION:{last_seen}->{current_stage}]")
-            lines.append(f"[easy-coding:transition-error:{violation}]")
-
-    return lines
-
-
-def build_status_context(
-    root: Path,
-    session: dict,
-    agent: str | None = None,
-    session_file: str | Path | None = None,
-) -> str:
-    if session.get("harness_disabled") is True:
-        session_path = resolve_session_path(root, session_file)
-        return "\n".join(
-            [
-                "[easy-coding:no-harness]",
-                f"[easy-coding:session-file:{display_path(root, session_path)}]",
-            ]
-        )
-    if session.get("lite_mode") is True:
-        session_path = resolve_session_path(root, session_file)
-        proposal = session.get("lite_proposal")
-        lines = [
-            build_status_line(root, session, agent, session_file),
-            "[easy-coding:lite-direct]",
-            f"[easy-coding:session-file:{display_path(root, session_path)}]",
-        ]
-        if isinstance(proposal, dict):
-            lines.append(f"[easy-coding:lite-proposal:{proposal.get('digest', 'missing')}]")
-        return "\n".join(lines)
-    return "\n".join(
-        [
-            build_status_line(root, session, agent, session_file),
-            *build_machine_breadcrumbs(root, session, agent, session_file),
-        ]
-    )
+    return next((r for r in reversed(execution_records(root, task_id))
+                 if r.get("type") == "handoff"), None)
 
 
 def attach_status_context(
@@ -7046,7 +5911,8 @@ def attach_status_context(
     session = load_session(root, resolved_session_file)
     if session is None:
         session = default_session()
-    context = build_status_context(root, session, agent, resolved_session_file)
+    state = data if "current_task" in data and "effective_approval_mode" in data else None
+    context = build_status_context(root, session, agent, resolved_session_file, state)
     first_line = context.splitlines()[0] if context.startswith("> ") else ""
     enriched = dict(data)
     enriched["status_line"] = first_line
@@ -7094,16 +5960,6 @@ def list_tasks(root: Path, agent: str | None = None) -> list[dict]:
     return items
 
 
-def ensure_session(root: Path, session_file: str | Path | None = None) -> dict:
-    session = load_session(root, session_file)
-    if session is None:
-        session = default_session()
-    if not session.get("created_at"):
-        session["created_at"] = now_iso()
-    session["last_active_at"] = now_iso()
-    return session
-
-
 def set_current_task(root: Path, task_id: str, agent: str, session_file: str | Path | None = None) -> dict:
     task = load_task(root, task_id)
     if task is None:
@@ -7116,7 +5972,11 @@ def set_current_task(root: Path, task_id: str, agent: str, session_file: str | P
     session["last_seen_stage"] = str(task.get("status") or "PENDING")
     session["last_agent"] = agent
     write_session(root, session, session_file)
-    return snapshot_state(root, session_file, session)
+    context = restore_spec_context(root, task_id, task, agent, session_file)
+    snapshot = snapshot_state(root, session_file, session)
+    if context is not None:
+        snapshot["spec_context"] = context
+    return snapshot
 
 
 def clear_current_task(root: Path, agent: str, session_file: str | Path | None = None) -> dict:
@@ -7252,42 +6112,43 @@ def clear_session_workflow_mode(
     return snapshot
 
 
-def set_session_tdd(
+def set_session_unit_test_mode(
     root: Path,
-    enabled: bool,
+    mode: str,
     agent: str,
     threshold: int | None = None,
     session_file: str | Path | None = None,
 ) -> dict:
-    if enabled:
+    mode = parse_unit_test_mode(mode, "session unit_test_mode")
+    if mode != "none":
         require_tdd_readiness(root)
     session = ensure_session(root, session_file)
     materialize_legacy_session_behavior(session)
-    session["tdd_enabled"] = enabled
+    session["unit_test_mode"] = mode
     if threshold is not None:
-        session["tdd_coverage_threshold"] = parse_tdd_threshold(
-            threshold, "session tdd_coverage_threshold"
+        session["ut_coverage_threshold"] = parse_ut_threshold(
+            threshold, "session ut_coverage_threshold"
         )
     session["last_agent"] = agent
     write_session(root, session, session_file)
     snapshot = snapshot_state(root, session_file, session)
-    snapshot["action"] = "set-tdd"
+    snapshot["action"] = "set-unit-test-mode"
     return snapshot
 
 
-def clear_session_tdd(
+def clear_session_unit_test_mode(
     root: Path,
     agent: str,
     session_file: str | Path | None = None,
 ) -> dict:
     session = ensure_session(root, session_file)
     materialize_legacy_session_behavior(session)
-    session.pop("tdd_enabled", None)
-    session.pop("tdd_coverage_threshold", None)
+    session.pop("unit_test_mode", None)
+    session.pop("ut_coverage_threshold", None)
     session["last_agent"] = agent
     write_session(root, session, session_file)
     snapshot = snapshot_state(root, session_file, session)
-    snapshot["action"] = "clear-tdd"
+    snapshot["action"] = "clear-unit-test-mode"
     return snapshot
 
 
@@ -7648,6 +6509,7 @@ def handoff_task(
     summary: str,
     task_id: str | None = None,
     session_file: str | Path | None = None,
+    continuation: dict | None = None,
 ) -> dict:
     if not summary.strip():
         raise StateError("Handoff summary is required.")
@@ -7661,6 +6523,24 @@ def handoff_task(
     stage = str(task.get("status") or "PENDING")
     if stage in TERMINAL_STATUSES:
         raise StateError(f"Cannot hand off terminal task: {resolved_task_id}")
+    if continuation is not None:
+        if not isinstance(continuation, dict) or set(continuation) - {
+            "next_action", "unit_ids", "evidence_refs", "stop_after", "repair_id"
+        }:
+            raise StateError("Unknown handoff continuation fields.")
+        if continuation.get("next_action") not in {"implement", "repair", "quality", "continue"}:
+            raise StateError("Handoff must name the next action.")
+        plan = latest_execution_plan(root, str(resolved_task_id)) or {}
+        unit_ids = continuation.get("unit_ids", [])
+        if not is_string_list(unit_ids) or not set(unit_ids) <= {u["id"] for u in plan.get("units", [])}:
+            raise StateError("Handoff units must belong to the existing plan.")
+        refs = continuation.get("evidence_refs", [])
+        count = len(execution_records(root, str(resolved_task_id)))
+        if not isinstance(refs, list) or any(type(i) is not int or i < 0 or i >= count for i in refs):
+            raise StateError("Handoff evidence must reference existing execution records.")
+        if continuation.get("stop_after") not in {None, "IMPLEMENT", "repair"}:
+            raise StateError("Unknown handoff stop point.")
+        task["continuation"] = continuation
 
     record = {
         "type": "handoff",
@@ -7668,6 +6548,7 @@ def handoff_task(
         "stage": stage,
         "summary": summary.strip(),
         "timestamp": now_iso(),
+        **(continuation or {}),
     }
     append_execution_record(root, str(resolved_task_id), record)
     task["last_agent"] = agent
@@ -7681,6 +6562,16 @@ def handoff_task(
     snapshot["task_id"] = str(resolved_task_id)
     snapshot["handoff"] = record
     snapshot["action"] = "handoff"
+    if continuation and continuation.get("next_action") == "quality":
+        snapshot["handoff_prompt"] = (
+            f'Use ec-workflow in project "{root.resolve()}" to resume task "{resolved_task_id}" '
+            "and continue review and verification."
+        )
+    else:
+        snapshot["handoff_prompt"] = (
+            f'Use ec-workflow in project "{root.resolve()}" to claim task "{resolved_task_id}" '
+            "and continue from the existing handoff."
+        )
     return snapshot
 
 
@@ -7703,6 +6594,9 @@ def claim_task(root: Path, task_id: str, agent: str, session_file: str | Path | 
         else "takeover"
     )
     latest_handoff = latest_handoff_record(root, task_id)
+    already_current = (session.get("current_task") == task_id
+                       and agents_equivalent(previous_agent, agent)
+                       and pending_handoff_record(root, task_id) is None)
     task["last_agent"] = agent
     write_task(root, task_id, task)
 
@@ -7719,15 +6613,42 @@ def claim_task(root: Path, task_id: str, agent: str, session_file: str | Path | 
         "action": action,
         "timestamp": now_iso(),
     }
-    append_execution_record(root, task_id, claim)
+    if not already_current:
+        append_execution_record(root, task_id, claim)
 
+    context = restore_spec_context(root, task_id, task, agent, session_file)
     snapshot = snapshot_state(root, session_file, session)
+    if context is not None:
+        snapshot["spec_context"] = context
     snapshot["task_id"] = task_id
     snapshot["action"] = action
     snapshot["previous_agent"] = previous_agent
     snapshot["latest_handoff"] = latest_handoff
     snapshot["claim"] = claim
+    snapshot["claim_recorded"] = not already_current
     return snapshot
+
+
+def set_cooperate_mode(root: Path, mode: str | None, agent: str,
+                       session_file: str | Path | None = None) -> dict:
+    if mode not in {None, "default", "dispatch"}:
+        raise StateError("cooperate_mode must be default or dispatch.")
+    session = ensure_session(root, session_file)
+    if mode is None:
+        session.pop("cooperate_mode", None)
+    else:
+        session["cooperate_mode"] = mode
+    write_session(root, session, session_file)
+    task_id = session.get("current_task")
+    task = load_task(root, task_id)
+    if task and pending_handoff_record(root, task_id) is None:
+        task["cooperation"] = {
+            "mode": behavior_layers(root, session)["cooperate_mode"]["value"],
+            "coordinator": (task.get("cooperation") or {}).get("coordinator") or {
+                "agent": agent, "session_file": display_path(root, resolve_session_path(root, session_file))},
+        }
+        write_task(root, task_id, task)
+    return snapshot_state(root, session_file, session)
 
 
 def create_task(
@@ -7760,6 +6681,8 @@ def create_task(
         "created_by": agent,
         "last_agent": agent,
         "stage_history": [{"stage": "INIT", "agent": agent, "entered_at": timestamp}],
+        "cooperation": {"mode": behavior_layers(root, session)["cooperate_mode"]["value"],
+                        "coordinator": {"agent": agent, "session_file": display_path(root, resolve_session_path(root, session_file))}},
         "context": {},
         "spawned_from": None,
         "spawned_tasks": [],
@@ -7771,7 +6694,8 @@ def create_task(
     write_task(root, task_id, task)
     if set_current:
         return set_current_task(root, task_id, agent, session_file)
-    return {"task_id": task_id, "task": task}
+    context = restore_spec_context(root, task_id, task, agent, session_file)
+    return {"task_id": task_id, "task": task, **({"spec_context": context} if context else {})}
 
 
 def create_task_from_spec(
@@ -7927,8 +6851,14 @@ def _execute_spec_writeback(
     action: dict,
     idempotency_key: str,
     invoke,
+    *, allow_pending_hard_dependencies: bool = False, inspection: dict | None = None,
 ) -> dict:
-    inspection, _ = inspect_task_spec(root, task)
+    if inspection is None:
+        inspection, _ = inspect_task_spec(
+            root, task, allow_pending_hard_dependencies=(
+                allow_pending_hard_dependencies or action.get("kind") == "dependency"
+            ),
+        )
     source = task["spec_source"]
     progress = _writeback_progress(task)
     serialized_action = json.dumps(action, ensure_ascii=False, sort_keys=True)
@@ -8006,19 +6936,14 @@ def _execute_spec_writeback(
         raise StateError(f"Canonical Spec writeback failed: {exc}") from exc
 
     event = _spec_event(execution, idempotency_key)
-    try:
-        details = show_execution(stored_spec_path(root, task))
-    except ExecutionStateError as exc:
-        raise StateError(f"Canonical Spec writeback cannot be verified: {exc}") from exc
-    source.update(
-        {
-            "revision": details["design_revision"],
-            "design_sha256": details["design_sha256"],
-            "document_sha256": details["document_sha256"],
-            "execution_revision": execution["execution_revision"],
-        }
+    # 写后只消费一次真实文件，同时检查设计未漂移、事件可见并刷新元数据。
+    confirmed, _ = inspect_task_spec(
+        root, task, allow_pending_hard_dependencies=(
+            allow_pending_hard_dependencies or action.get("kind") == "dependency"
+        ),
     )
-    inspect_task_spec(root, task)
+    if _spec_event(confirmed["execution"], idempotency_key)["event_id"] != event["event_id"]:
+        raise StateError("Canonical Spec writeback event changed before acknowledgment.")
     progress.update(
         {
             "last_execution_revision": execution["execution_revision"],
@@ -8058,8 +6983,11 @@ def writeback_spec_task(
     agent: str,
     task_id: str | None = None,
     session_file: str | Path | None = None,
+    *, event_agent: str | None = None,
 ) -> dict:
     session, resolved_task_id, task = resolve_current_task(root, task_id, session_file)
+    inspection = require_spec_context(root, task, agent, session_file)
+    writer_agent = event_agent or agent
     if source_task_id not in set(task.get("selected_spec_tasks") or []):
         raise StateError("Canonical source task is outside the Harness task selection.")
     action = {
@@ -8069,7 +6997,7 @@ def writeback_spec_task(
         "summary": summary,
         "evidence": evidence,
         "idempotency_key": idempotency_key,
-        "agent": agent,
+        "agent": writer_agent,
     }
     acknowledgment = _execute_spec_writeback(
         root,
@@ -8083,13 +7011,14 @@ def writeback_spec_task(
             status_value,
             summary,
             SPEC_WRITEBACK_APP,
-            spec_writeback_agent(agent),
+            spec_writeback_agent(writer_agent),
             design_digest,
             execution_revision,
             evidence=evidence,
             run_id=resolved_task_id,
             idempotency_key=idempotency_key,
         ),
+        inspection=inspection,
     )
     snapshot = snapshot_state(root, session_file, session)
     snapshot["spec_writeback"] = acknowledgment
@@ -8108,8 +7037,11 @@ def writeback_spec_step(
     agent: str,
     task_id: str | None = None,
     session_file: str | Path | None = None,
+    *, event_agent: str | None = None,
 ) -> dict:
     session, resolved_task_id, task = resolve_current_task(root, task_id, session_file)
+    inspection = require_spec_context(root, task, agent, session_file)
+    writer_agent = event_agent or agent
     if source_task_id not in set(task.get("selected_spec_tasks") or []):
         raise StateError("Canonical source task is outside the Harness task selection.")
     action = {
@@ -8120,7 +7052,7 @@ def writeback_spec_step(
         "summary": summary,
         "evidence": evidence,
         "idempotency_key": idempotency_key,
-        "agent": agent,
+        "agent": writer_agent,
     }
     acknowledgment = _execute_spec_writeback(
         root,
@@ -8135,13 +7067,14 @@ def writeback_spec_step(
             status_value,
             summary,
             SPEC_WRITEBACK_APP,
-            spec_writeback_agent(agent),
+            spec_writeback_agent(writer_agent),
             design_digest,
             execution_revision,
             evidence=evidence,
             run_id=resolved_task_id,
             idempotency_key=idempotency_key,
         ),
+        inspection=inspection,
     )
     snapshot = snapshot_state(root, session_file, session)
     snapshot["spec_writeback"] = acknowledgment
@@ -8160,8 +7093,11 @@ def writeback_spec_dependency(
     agent: str,
     task_id: str | None = None,
     session_file: str | Path | None = None,
+    *, event_agent: str | None = None,
 ) -> dict:
     session, resolved_task_id, task = resolve_current_task(root, task_id, session_file)
+    inspection = require_spec_context(root, task, agent, session_file, allow_pending_hard_dependencies=True)
+    writer_agent = event_agent or agent
     if source_task_id not in set(task.get("selected_spec_tasks") or []):
         raise StateError("Canonical source task is outside the Harness task selection.")
     action = {
@@ -8172,7 +7108,7 @@ def writeback_spec_dependency(
         "summary": summary,
         "evidence": evidence,
         "idempotency_key": idempotency_key,
-        "agent": agent,
+        "agent": writer_agent,
     }
     acknowledgment = _execute_spec_writeback(
         root,
@@ -8187,13 +7123,14 @@ def writeback_spec_dependency(
             status_value,
             summary,
             SPEC_WRITEBACK_APP,
-            spec_writeback_agent(agent),
+            spec_writeback_agent(writer_agent),
             design_digest,
             execution_revision,
             evidence=evidence,
             run_id=resolved_task_id,
             idempotency_key=idempotency_key,
         ),
+        inspection=inspection,
     )
     snapshot = snapshot_state(root, session_file, session)
     snapshot["spec_writeback"] = acknowledgment
@@ -8239,7 +7176,7 @@ def rebind_spec_source(
         source_path = str(resolved)
         path_mode = "absolute"
     source.update({"path": source_path, "path_mode": path_mode})
-    inspect_task_spec(root, task)
+    inspect_task_spec(root, task, allow_pending_hard_dependencies=True)
     task["last_agent"] = agent
     write_task(root, resolved_task_id, task)
     snapshot = snapshot_state(root, session_file, session)
@@ -8254,6 +7191,7 @@ def reconcile_local_result_evidence(
     agent: str,
     session_file: str | Path | None,
 ) -> tuple[int, list[str]]:
+    require_spec_context(root, task, agent, session_file)
     plan = latest_execution_plan(root, resolved_task_id)
     if not isinstance(plan, dict):
         return 0, []
@@ -8398,7 +7336,8 @@ def reconcile_local_result_evidence(
             and check.get("passed") is True
             and is_non_empty_string(check.get("command"))
         }
-        missing_unit_commands = sorted(set(unit.get("test_commands", [])) - passed_commands)
+        missing_unit_commands = sorted(command for command in unit.get("test_commands", [])
+                                       if not any(command_covers(actual, command) for actual in passed_commands))
         if missing_unit_commands:
             unresolved.append(
                 f"{unit_id}:missing-passed-command=" + ",".join(missing_unit_commands)
@@ -8436,7 +7375,7 @@ def reconcile_local_result_evidence(
             missing_commands = [
                 str(test.get("command"))
                 for test in tests
-                if str(test.get("command")) not in passed_commands
+                if not any(command_covers(actual, str(test.get("command"))) for actual in passed_commands)
             ]
             if missing_commands:
                 unresolved.append(
@@ -8554,9 +7493,10 @@ def reconcile_spec_execution(
             affected_task_ids,
             str(action.get("summary") or "Reconciled Canonical Spec design sync"),
             str(action.get("idempotency_key") or ""),
-            str(action.get("agent") or agent),
+            agent,
             resolved_task_id,
             session_file,
+            event_agent=str(action.get("agent") or agent),
         )
         result["action"] = "reconcile-spec-execution"
         result["reconciled"] = True
@@ -8586,12 +7526,34 @@ def reconcile_spec_execution(
         "summary": str(action.get("summary") or "Reconciled shared Spec writeback"),
         "evidence": action.get("evidence") if isinstance(action.get("evidence"), list) else [],
         "idempotency_key": str(action.get("idempotency_key") or ""),
-        "agent": str(action.get("agent") or agent),
+        "agent": agent,
+        "event_agent": str(action.get("agent") or agent),
         "task_id": resolved_task_id,
         "session_file": session_file,
     }
     if not common["idempotency_key"]:
         raise StateError("Pending Canonical Spec writeback has no idempotency key.")
+    cancellation_suffix = {"blocked": "close-blocked", "cancelled": "cancel"}.get(action.get("status"))
+    source_task_id = str(action.get("source_task_id") or "")
+    if (
+        kind == "task" and cancellation_suffix
+        and source_task_id in (task.get("selected_spec_tasks") or [])
+        and common["idempotency_key"] == f"{resolved_task_id}:{source_task_id}:{cancellation_suffix}"
+    ):
+        # 只恢复已经登记的取消链；沿用原动作，不能借恢复入口新增实施进度。
+        acknowledgment = _execute_spec_writeback(
+            root, resolved_task_id, task, action, common["idempotency_key"],
+            lambda design_digest, execution_revision: record_task_status(
+                stored_spec_path(root, task), source_task_id, str(action["status"]),
+                common["summary"], SPEC_WRITEBACK_APP, spec_writeback_agent(common["event_agent"]),
+                design_digest, execution_revision, evidence=common["evidence"],
+                run_id=resolved_task_id, idempotency_key=common["idempotency_key"],
+            ),
+            allow_pending_hard_dependencies=True,
+        )
+        result = snapshot_state(root, session_file, session)
+        result.update({"action": "reconcile-spec-execution", "reconciled": True, "spec_writeback": acknowledgment})
+        return result
     if kind == "task":
         result = writeback_spec_task(
             source_task_id=str(action.get("source_task_id") or ""),
@@ -8627,6 +7589,7 @@ def sync_spec_design_state(
     agent: str,
     task_id: str | None = None,
     session_file: str | Path | None = None,
+    event_agent: str | None = None,
 ) -> dict:
     session, resolved_task_id, task = resolve_current_task(root, task_id, session_file)
     source = task.get("spec_source")
@@ -8634,16 +7597,35 @@ def sync_spec_design_state(
         raise StateError("Current task is not backed by a Canonical Spec.")
     spec_path = stored_spec_path(root, task)
     requested_task_ids = sorted(set(affected_task_ids))
+    writer_agent = event_agent or agent
+    change = task.get("spec_change")
+    if isinstance(change, dict) and change.get("affected_task_ids") != requested_task_ids:
+        raise StateError("Design sync must include exactly the confirmed affected tasks.")
+    if isinstance(change, dict) and any(
+        change.get(field) != source.get(field) for field in ("spec_id", "revision", "design_sha256")
+    ):
+        raise StateError("Confirmed Spec change baseline no longer matches the bound design.")
+
+    def validate_change_event(event: dict) -> None:
+        if isinstance(change, dict) and (
+            event.get("from_design_revision") != change.get("revision")
+            or event.get("to_design_revision") != int(change["revision"]) + 1
+        ):
+            raise StateError("Old design sync cannot resolve the current confirmed Spec change.")
 
     def current_execution_envelope() -> dict:
         try:
             from easy_dev_spec_protocol import split_execution_region
+
 
             _, execution = split_execution_region(spec_path.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, ValueError) as exc:
             raise StateError(f"Cannot inspect pre-sync Canonical execution state: {exc}") from exc
         if not isinstance(execution, dict):
             raise StateError("Canonical Spec shared execution is missing before sync-design.")
+        for event in execution.get("events", []):
+            if isinstance(event, dict) and event.get("idempotency_key") == idempotency_key:
+                validate_change_event(event)
         if execution.get("design_sha256") != source.get("design_sha256"):
             matching_events = [
                 event
@@ -8667,7 +7649,7 @@ def sync_spec_design_state(
         "affected_task_ids": requested_task_ids,
         "summary": summary,
         "idempotency_key": idempotency_key,
-        "agent": agent,
+        "agent": writer_agent,
     }
     serialized_pending_action = json.dumps(
         pending_action, ensure_ascii=False, sort_keys=True
@@ -8699,7 +7681,7 @@ def sync_spec_design_state(
             requested_task_ids,
             summary,
             SPEC_WRITEBACK_APP,
-            spec_writeback_agent(agent),
+            spec_writeback_agent(writer_agent),
             str(source.get("design_sha256")),
             execution_revision,
             run_id=resolved_task_id,
@@ -8745,6 +7727,10 @@ def sync_spec_design_state(
         raise StateError(f"Cannot synchronize Canonical Spec design: {exc}") from exc
     if inspection.get("spec_id") != source.get("spec_id"):
         raise StateError("Synchronized Canonical Spec identity changed unexpectedly.")
+    event = _spec_event(execution, idempotency_key)
+    validate_change_event(event)
+    if isinstance(change, dict) and inspection.get("revision") != int(change["revision"]) + 1:
+        raise StateError("Synchronized design does not match the confirmed Spec change revision.")
     binding_was_synchronized = (
         source.get("revision") == inspection.get("revision")
         and source.get("design_sha256") == inspection.get("design_sha256")
@@ -8757,22 +7743,32 @@ def sync_spec_design_state(
             "execution_revision": execution["execution_revision"],
         }
     )
-    event = _spec_event(execution, idempotency_key)
     if not binding_was_synchronized:
         reset_task_ids = set(event.get("task_ids", []))
-        refreshed_dependencies: list[dict] = []
+        new_dependencies = {
+            (item["source_task_id"], item["task_id"]): item
+            for item in inspection["dependency_edges"]
+        }
+        preserved_evidence: dict[str, str] = {}
         for dependency in task.get("spec_dependency_evidence", []):
             if not isinstance(dependency, dict):
                 continue
-            refreshed = dict(dependency)
-            if refreshed.get("source_task_id") in reset_task_ids:
-                refreshed["status"] = "pending"
-                refreshed["shared_status"] = "pending"
-                for field in ("evidence", "satisfied_at", "satisfied_by"):
-                    refreshed.pop(field, None)
-            refreshed_dependencies.append(refreshed)
-        task["spec_dependency_evidence"] = refreshed_dependencies
-        inspect_task_spec(root, task)
+            edge = (dependency.get("source_task_id"), dependency.get("task_id"))
+            current = new_dependencies.get(edge)
+            if (
+                edge[0] not in reset_task_ids and edge[1] not in reset_task_ids
+                and current is not None
+                and dependency.get("dependency_type") == current.get("dependency_type")
+                and dependency.get("required_evidence") == current.get("required_evidence")
+                and dependency.get("status") == "satisfied"
+                and is_non_empty_string(dependency.get("evidence"))
+            ):
+                preserved_evidence[f"{edge[0]}->{edge[1]}"] = str(dependency["evidence"])
+        task["spec_dependency_evidence"] = select_tasks(
+            inspection, task["selected_spec_tasks"], preserved_evidence,
+            allow_pending_hard_dependencies=True,
+        )["dependency_records"]
+        inspect_task_spec(root, task, allow_pending_hard_dependencies=True)
     progress.update(
         {
             "last_execution_revision": execution["execution_revision"],
@@ -8783,23 +7779,32 @@ def sync_spec_design_state(
         }
     )
     progress.pop("pending_action", None)
-    if task.get("status") not in {"INIT", "ANALYSIS"}:
-        cleanup_verification_checkpoint(root, resolved_task_id, task)
-        task["status"] = "ANALYSIS"
-        append_stage_history(task, "ANALYSIS", agent)
-    task.pop("pending_transition", None)
-    task["last_agent"] = agent
+    task.pop("spec_change", None)
+    task.pop("spec_context", None)
+    task.pop("spec_contexts", None)
     already_acknowledged = any(
         record.get("type") == "spec-design-sync"
         and record.get("idempotency_key") == idempotency_key
         for record in execution_records(root, resolved_task_id)
     )
+    if task.get("correction") and not already_acknowledged:
+        refresh_correction_plan(root, resolved_task_id, task, inspection)
+    if task.get("correction") and not already_acknowledged:
+        task["status"] = "IMPLEMENT"
+        append_stage_history(task, "IMPLEMENT", agent)
+    if not task.get("correction") and task.get("status") not in {"INIT", "ANALYSIS"}:
+        cleanup_verification_checkpoint(root, resolved_task_id, task)
+        task["status"] = "ANALYSIS"
+        append_stage_history(task, "ANALYSIS", agent)
+    task.pop("pending_transition", None)
+    task["last_agent"] = agent
     if not already_acknowledged:
         append_execution_record(
             root,
             resolved_task_id,
             {
                 "type": "spec-design-sync",
+                "preserve_plan": bool(task.get("correction")),
                 "affected_task_ids": requested_task_ids,
                 "event_id": event["event_id"],
                 "design_sha256": details["design_sha256"],
@@ -8809,6 +7814,10 @@ def sync_spec_design_state(
             },
         )
     write_task(root, resolved_task_id, task)
+    if task.get("correction"):
+        writeback_ready_tasks_for_implement(root, resolved_task_id, task, agent,
+                                           source_task_ids=set(requested_task_ids),
+                                           restart_statuses={"not_started"})
     snapshot = snapshot_state(root, session_file, session)
     snapshot["action"] = "sync-spec-design"
     return snapshot
@@ -8881,6 +7890,7 @@ def writeback_ready_tasks_for_implement(
     agent: str,
     restart_statuses: set[str] | None = None,
     source_task_ids: set[str] | None = None,
+    *, repair_id: str | None = None,
 ) -> None:
     inspection, _ = inspect_task_spec(root, task)
     implement_attempt = 1 + sum(
@@ -8908,11 +7918,15 @@ def writeback_ready_tasks_for_implement(
             f"{harness_task_id}:{source_task_id}:enter-implement:"
             f"{task['spec_source']['revision']}:attempt-{implement_attempt}"
         )
+        if repair_id:
+            key = f"{harness_task_id}:{source_task_id}:quality-repair:{repair_id}:start"
+        summary = ("Harness started an approved repair within QUALITY" if repair_id else
+                   "Harness entered IMPLEMENT for a dependency-ready Canonical task")
         action = {
             "kind": "task",
             "source_task_id": source_task_id,
             "status": "in_progress",
-            "summary": "Harness entered IMPLEMENT for a dependency-ready Canonical task",
+            "summary": summary,
             "evidence": [],
             "idempotency_key": key,
             "agent": agent,
@@ -8927,7 +7941,7 @@ def writeback_ready_tasks_for_implement(
                 stored_spec_path(root, task),
                 str(source_task_id),
                 "in_progress",
-                "Harness entered IMPLEMENT for a dependency-ready Canonical task",
+                summary,
                 SPEC_WRITEBACK_APP,
                 spec_writeback_agent(agent),
                 design_digest,
@@ -9045,7 +8059,7 @@ def writeback_verified_tasks(
                     if record.get("passed") is True
                     and str(record.get("source_task_id") or "") == source_task_id
                     and str(record.get("repo_id") or "") == repo_id
-                    and str(record.get("command") or "") == command
+                    and command_covers(str(record.get("command") or ""), command)
                 ),
                 None,
             )
@@ -9147,7 +8161,7 @@ def cancel_shared_tasks(
     reason: str,
     agent: str,
 ) -> None:
-    inspection, _ = inspect_task_spec(root, task)
+    inspection, _ = inspect_task_spec(root, task, allow_pending_hard_dependencies=True)
     snapshots = _selected_execution_snapshots(inspection, task)
     for source_task_id in task.get("selected_spec_tasks") or []:
         current = snapshots.get(str(source_task_id), {}).get("status")
@@ -9182,6 +8196,7 @@ def cancel_shared_tasks(
                     run_id=harness_task_id,
                     idempotency_key=blocked_key,
                 ),
+                allow_pending_hard_dependencies=True,
             )
         cancel_key = f"{harness_task_id}:{source_task_id}:cancel"
         cancel_action = {
@@ -9211,6 +8226,7 @@ def cancel_shared_tasks(
                 run_id=harness_task_id,
                 idempotency_key=cancel_key,
             ),
+            allow_pending_hard_dependencies=True,
         )
 
 
@@ -9228,7 +8244,7 @@ def satisfy_spec_dependency(
         raise StateError("Spec dependency evidence cannot change after MEMORY begins.")
     if not is_non_empty_string(evidence):
         raise StateError("Spec dependency evidence must be non-empty.")
-    inspect_task_spec(root, task)
+    require_spec_context(root, task, agent, session_file, allow_pending_hard_dependencies=True)
     records = task.get("spec_dependency_evidence")
     if not isinstance(records, list):
         raise StateError("Current task is not backed by Canonical Spec dependency metadata.")
@@ -9315,52 +8331,16 @@ def resolve_current_task(
 
 
 def validate_workflow_mode_proposal(
-    root: Path,
-    session: dict,
-    proposal: object,
-    task_id: str | None = None,
+    root: Path, session: dict, proposal: object, task_id: str | None = None,
 ) -> dict:
-    if not isinstance(proposal, dict):
-        raise StateError("workflow_mode_proposal is missing.")
-    configured = str(proposal.get("configured_mode") or "")
-    selected = str(proposal.get("selected_mode") or "")
-    minimum = str(proposal.get("minimum_mode") or "")
-    source = str(proposal.get("source") or "")
-    reasons = proposal.get("reasons")
-    effective_configured = resolve_behavior(root, session)[5]
-    if configured != effective_configured:
-        raise StateError(
-            "Workflow proposal configured_mode no longer matches the effective project/session setting."
-        )
-    if configured not in CONFIGURED_WORKFLOW_MODES:
-        raise StateError("Invalid configured workflow mode.")
-    if selected not in WORKFLOW_MODES or minimum not in WORKFLOW_MODES:
-        raise StateError("selected_mode and minimum_mode must be fast, standard, or strict.")
-    if source not in {"project", "session", "adaptive", "user", "migration"}:
-        raise StateError("Invalid workflow proposal source.")
-    if not is_string_list(reasons, allow_empty=False):
-        raise StateError("Workflow proposal reasons must contain at least one non-empty reason.")
-    required_rank = WORKFLOW_MODE_RANK[minimum]
-    if configured in WORKFLOW_MODES and WORKFLOW_MODE_RANK[minimum] < WORKFLOW_MODE_RANK[configured]:
-        raise StateError(
-            f"Workflow minimum {minimum} is below configured floor {configured}."
-        )
-    if task_id:
-        calculated_minimum, calculated_reasons = calculate_workflow_floor(root, task_id)
-        calculated_rank = WORKFLOW_MODE_RANK[calculated_minimum]
-        if WORKFLOW_MODE_RANK[minimum] < calculated_rank:
-            raise StateError(
-                f"Workflow minimum {minimum} is below calculated floor {calculated_minimum}: "
-                + ", ".join(calculated_reasons)
-            )
-        required_rank = max(required_rank, calculated_rank)
-    if configured in WORKFLOW_MODES:
-        required_rank = max(required_rank, WORKFLOW_MODE_RANK[configured])
-    if WORKFLOW_MODE_RANK[selected] < required_rank:
-        raise StateError(
-            f"Workflow mode {selected} is below the allowed minimum for this task."
-        )
-    return proposal
+    if task_id is None:
+        raise StateError("A task is required to calculate the mechanical workflow mode.")
+    mode, reasons = calculate_workflow_floor(root, task_id)
+    return {
+        "configured_mode": resolve_behavior(root, session)[5],
+        "selected_mode": mode, "minimum_mode": mode, "source": "adaptive",
+        "reasons": reasons,
+    }
 
 
 def calculate_workflow_floor(root: Path, task_id: str) -> tuple[str, list[str]]:
@@ -9372,6 +8352,12 @@ def calculate_workflow_floor(root: Path, task_id: str) -> tuple[str, list[str]]:
     if not plan:
         raise StateError("Cannot calculate workflow floor without a valid execution plan.")
     units = [unit for unit in plan.get("units", []) if isinstance(unit, dict)]
+    correction = task.get("correction")
+    if isinstance(correction, dict):
+        files = set(correction["files"])
+        units = [{**unit, "files": sorted(set(unit.get("files", [])) & files),
+                  "risks": correction.get("risks", []), "contracts": []}
+                 for unit in units if unit["id"] in correction["unit_ids"]]
     missing_local_baseline = [
         str(unit.get("id") or "<unknown>")
         for unit in units
@@ -9388,7 +8374,7 @@ def calculate_workflow_floor(root: Path, task_id: str) -> tuple[str, list[str]]:
         for file_name in unit.get("files", [])
         if is_non_empty_string(file_name)
     }
-    repositories = workflow_plan_repository_roots(root, task, plan)
+    repositories = workflow_plan_repository_roots(root, task, {"units": units})
     ignored_values = {"none", "no", "n/a", "无", "无风险"}
     risk_values = [
         str(item)
@@ -9457,7 +8443,7 @@ def propose_workflow_mode(
         "proposed_at": now_iso(),
         "proposed_by": agent,
     }
-    validate_workflow_mode_proposal(root, session, proposal, resolved_task_id)
+    proposal.update(validate_workflow_mode_proposal(root, session, proposal, resolved_task_id))
     task["workflow_mode_proposal"] = proposal
     task["last_agent"] = agent
     write_task(root, resolved_task_id, task)
@@ -9477,35 +8463,36 @@ def freeze_workflow_mode(
     task["workflow_mode_confirmed_by"] = agent
 
 
-def freeze_tdd_mode(
+def freeze_unit_test_mode(
     root: Path, session: dict, task_id: str, task: dict, agent: str
 ) -> None:
     behavior = resolve_behavior(root, session)
     task_type = str(task.get("type") or "").strip().lower()
-    task["tdd_enabled"] = (
-        behavior[8] if task_type != TDD_INIT_TASK_TYPE else False
+    task["unit_test_mode"] = (
+        behavior[8] if task_type != TDD_INIT_TASK_TYPE else "none"
     )
-    task["tdd_coverage_threshold"] = behavior[11]
-    if task["tdd_enabled"] is True:
+    task["ut_coverage_threshold"] = behavior[11]
+    if task["unit_test_mode"] in {"ut", "tdd"}:
         require_tdd_readiness(root)
         plan = latest_execution_plan(root, task_id)
         if plan is None:
-            raise StateError("Cannot freeze TDD baseline without a valid execution plan.")
+            raise StateError("Cannot freeze unit test baseline without a valid execution plan.")
         baselines = {
             key: git_head_sha(repository)
             for key, repository in tdd_repositories(root, task, plan).items()
         }
-        task_dir = task_json_path(root, task_id).parent
-        try:
-            dev_spec_content = (task_dir / "dev-spec.md").read_text(encoding="utf-8")
-            strategy_content = (task_dir / "test-strategy.md").read_text(encoding="utf-8")
-        except OSError as error:
-            raise StateError("Cannot freeze TDD without readable analysis artifacts.") from error
-        marker_reasons = tdd_baseline_marker_reasons(
-            dev_spec_content, strategy_content, baselines
-        )
-        if marker_reasons:
-            raise StateError("; ".join(marker_reasons))
+        if task["unit_test_mode"] == "tdd":
+            task_dir = task_json_path(root, task_id).parent
+            try:
+                dev_spec_content = (task_dir / "dev-spec.md").read_text(encoding="utf-8")
+                strategy_content = (task_dir / "test-strategy.md").read_text(encoding="utf-8")
+            except OSError as error:
+                raise StateError("Cannot freeze TDD without readable analysis artifacts.") from error
+            marker_reasons = tdd_baseline_marker_reasons(
+                dev_spec_content, strategy_content, baselines
+            )
+            if marker_reasons:
+                raise StateError("; ".join(marker_reasons))
         task["tdd_baselines"] = baselines
     else:
         task.pop("tdd_baselines", None)
@@ -9530,21 +8517,8 @@ def raise_workflow_mode(
         )
     if stage != "IMPLEMENT":
         raise StateError("A frozen workflow mode can only be raised during active execution.")
-    current = str(task.get("workflow_mode") or "")
-    if current not in WORKFLOW_MODES or mode not in WORKFLOW_MODES:
-        raise StateError("Workflow mode must be frozen before it can be raised.")
-    if WORKFLOW_MODE_RANK[mode] <= WORKFLOW_MODE_RANK[current]:
-        raise StateError(f"Workflow mode can only be raised above {current}.")
+    mode, _reasons = calculate_workflow_floor(root, resolved_task_id)
     task["workflow_mode"] = mode
-    task.setdefault("workflow_mode_escalations", []).append(
-        {
-            "from": current,
-            "to": mode,
-            "reason": reason.strip(),
-            "raised_at": now_iso(),
-            "raised_by": agent,
-        }
-    )
     task["last_agent"] = agent
     write_task(root, resolved_task_id, task)
     snapshot = snapshot_state(root, session_file, session)
@@ -9563,6 +8537,8 @@ def request_transition(
     if stage not in VALID_TRANSITIONS:
         raise StateError(f"Unknown stage: {stage}")
     session, resolved_task_id, task = resolve_current_task(root, task_id, session_file)
+    if stage in {"IMPLEMENT", "QUALITY", "MEMORY", "COMPLETE"}:
+        require_spec_context(root, task, agent, session_file)
     previous = str(task.get("status") or "idle")
     task_type = str(task.get("type") or "")
     approval_mode = resolve_approval_mode(root, session)[2]
@@ -9663,6 +8639,8 @@ def apply_transition(
     if stage not in VALID_TRANSITIONS:
         raise StateError(f"Unknown stage: {stage}")
     session, resolved_task_id, task = resolve_current_task(root, task_id, session_file)
+    if stage in {"IMPLEMENT", "QUALITY", "MEMORY", "COMPLETE"}:
+        require_spec_context(root, task, agent, session_file)
 
     previous = str(task.get("status") or "idle")
     task_type = str(task.get("type") or "")
@@ -9674,7 +8652,7 @@ def apply_transition(
         validate_analysis_readiness(root, resolved_task_id, session)
         if task.get("workflow_mode_legacy") is not True:
             freeze_workflow_mode(root, session, resolved_task_id, task, agent)
-        freeze_tdd_mode(root, session, resolved_task_id, task, agent)
+        freeze_unit_test_mode(root, session, resolved_task_id, task, agent)
     repair_source_task_ids: set[str] | None = None
     quality_exit_outcome: str | None = None
     if previous == "QUALITY" and stage in {"IMPLEMENT", "ANALYSIS"}:
@@ -9729,7 +8707,7 @@ def apply_transition(
     if (
         previous == "QUALITY"
         and stage in {"IMPLEMENT", "ANALYSIS"}
-        and quality_exit_outcome in {"repair", "replan"}
+        and quality_exit_outcome in {"repair", "replan", "cancelled"}
     ):
         quality_records = validated_quality_records(root, resolved_task_id)
         task["quality_consumed_attempt"] = quality_records[-1][1]["attempt"]
@@ -9754,6 +8732,11 @@ def apply_transition(
         task = load_task(root, resolved_task_id) or task
     if stage in {"ANALYSIS", "IMPLEMENT", "MEMORY", "COMPLETE", "CLOSED"}:
         cleanup_verification_checkpoint(root, resolved_task_id, task)
+    if previous == "IMPLEMENT" and stage == "QUALITY":
+        quality_records = validated_quality_records(root, resolved_task_id)
+        if quality_records:
+            task["quality_consumed_attempt"] = quality_records[-1][1]["attempt"]
+        task.pop("quality_return_required", None)
     task.pop("pending_transition", None)
     if stage == "MEMORY" and previous != stage:
         task["memory_progress"] = {}
@@ -9779,6 +8762,8 @@ def auto_transition(
     session_file: str | Path | None = None,
 ) -> dict:
     session, resolved_task_id, task = resolve_current_task(root, task_id, session_file)
+    if stage in {"IMPLEMENT", "QUALITY", "MEMORY", "COMPLETE"}:
+        require_spec_context(root, task, agent, session_file)
     previous = str(task.get("status") or "idle")
     task_type = str(task.get("type") or "")
     approval_mode = resolve_approval_mode(root, session)[2]
@@ -9830,6 +8815,7 @@ def auto_transition(
             agent,
             approval_mode,
             "approval-policy",
+            drift=drift,
         )
 
     snapshot = apply_transition(root, stage, agent, task_id, session_file)
@@ -9857,6 +8843,8 @@ def confirm_transition(
     approval_mode = resolve_approval_mode(root, session)[2]
     source = str(pending.get("from") or "")
     target = str(pending.get("to") or "")
+    if target in {"IMPLEMENT", "QUALITY", "MEMORY", "COMPLETE"}:
+        require_spec_context(root, task, agent, session_file)
     if source != previous:
         raise StateError(
             f"Pending transition source {source or 'missing'} does not match current stage {previous}."
@@ -9930,6 +8918,7 @@ def memory_short_complete(
     session_file: str | Path | None = None,
 ) -> dict:
     session, resolved_task_id, task = resolve_current_task(root, task_id, session_file)
+    require_spec_context(root, task, agent, session_file)
     if task.get("status") != "MEMORY":
         raise StateError("Short-memory progress can only be recorded during MEMORY.")
     if not memory_file.strip():
@@ -9940,46 +8929,6 @@ def memory_short_complete(
         memory_file.strip(),
         require_current_id=True,
     )
-    acceptance = latest_acceptance_record(root, resolved_task_id, task)
-    if isinstance(acceptance, dict) and acceptance.get("changed_files"):
-        try:
-            memory_text = resolved_memory_path.read_text(encoding="utf-8")
-        except (OSError, UnicodeError) as exc:
-            raise StateError(f"Cannot read short-memory file: {resolved_memory_path}") from exc
-        required_decision_fields = {
-            "diff_sha256": str(acceptance.get("diff_sha256") or ""),
-            "authorization": str(acceptance.get("authorization") or ""),
-            "approval_mode": str(acceptance.get("approval_mode") or ""),
-            "review_policy": str(acceptance.get("review_policy") or ""),
-            "verification_policy": str(acceptance.get("verification_policy") or ""),
-            "summary": str(acceptance.get("summary") or ""),
-        }
-        missing_decision_fields = [
-            field_name
-            for field_name, value in required_decision_fields.items()
-            if not value or value not in memory_text
-        ]
-        missing_changed_files = [
-            str(file_name)
-            for file_name in acceptance.get("changed_files", [])
-            if not is_non_empty_string(file_name) or str(file_name) not in memory_text
-        ]
-        missing_targeted_tasks = [
-            str(source_task_id)
-            for source_task_id in acceptance.get("required_targeted_source_tasks", [])
-            if not is_non_empty_string(source_task_id)
-            or str(source_task_id) not in memory_text
-        ]
-        if missing_decision_fields or missing_changed_files or missing_targeted_tasks:
-            missing_labels = [
-                *missing_decision_fields,
-                *(f"changed_file:{file_name}" for file_name in missing_changed_files),
-                *(f"targeted_source_task:{task_name}" for task_name in missing_targeted_tasks),
-            ]
-            raise StateError(
-                "Short memory must record the complete accepted post-quality decision; "
-                "missing: " + ", ".join(missing_labels)
-            )
     progress = task.get("memory_progress")
     if not isinstance(progress, dict):
         progress = {}
@@ -10057,6 +9006,7 @@ def memory_complete(
     if action not in {"no-op", "distill"}:
         raise StateError(f"Unknown memory action: {action}")
     session, resolved_task_id, task = resolve_current_task(root, task_id, session_file)
+    require_spec_context(root, task, agent, session_file)
     if task.get("status") != "MEMORY":
         raise StateError("Memory completion can only be recorded during MEMORY.")
     progress = task.get("memory_progress")
@@ -10169,32 +9119,6 @@ def set_repo_path(
     return {"task_id": str(resolved_task_id), "repo_paths": repo_paths}
 
 
-def record_seen_stage(
-    root: Path,
-    task_id: str | None,
-    stage: str,
-    session_file: str | Path | None = None,
-) -> str | None:
-    if not task_id or stage in {"idle", "MISSING"}:
-        return None
-    session = ensure_session(root, session_file)
-    last_seen_task = session.get("last_seen_task")
-    last_seen_stage = session.get("last_seen_stage")
-
-    violation = None
-    if last_seen_task == task_id and last_seen_stage:
-        task = load_task(root, task_id)
-        task_type = str(task.get("type") or "") if task else ""
-        violation = validate_transition(str(last_seen_stage), stage, task_type, task)
-
-    if last_seen_task != task_id or last_seen_stage != stage:
-        session["last_seen_task"] = task_id
-        session["last_seen_stage"] = stage
-        write_session(root, session, session_file)
-
-    return violation
-
-
 def resolve_root(cwd: str | None) -> Path:
     root = find_ec_root(Path(cwd or os.getcwd()))
     if root is None:
@@ -10237,6 +9161,7 @@ def parse_evidence_args(values: list[str]) -> list[dict]:
     return evidence
 
 
+@evidence_operation()
 def main() -> int:
     configure_stdio()
     common = argparse.ArgumentParser(add_help=False)
@@ -10285,6 +9210,16 @@ def main() -> int:
     rebind_spec.add_argument("--spec", required=True)
     rebind_spec.add_argument("--agent", required=True)
     rebind_spec.add_argument("--task-id")
+
+    resume_spec = subcommands.add_parser("resume-spec-context", parents=[common])
+    resume_spec.add_argument("--agent", required=True)
+    resume_spec.add_argument("--task-id")
+
+    begin_change = subcommands.add_parser("begin-spec-change", parents=[common])
+    begin_change.add_argument("--affected-task", action="append", required=True)
+    begin_change.add_argument("--summary", required=True)
+    begin_change.add_argument("--agent", required=True)
+    begin_change.add_argument("--task-id")
 
     writeback_task = subcommands.add_parser("writeback-spec-task", parents=[common])
     writeback_task.add_argument("--spec-task", required=True)
@@ -10364,13 +9299,13 @@ def main() -> int:
     clear_workflow_mode_parser = subcommands.add_parser("clear-workflow-mode", parents=[common])
     clear_workflow_mode_parser.add_argument("--agent", required=True)
 
-    set_tdd_parser = subcommands.add_parser("set-tdd", parents=[common])
-    set_tdd_parser.add_argument("--enabled", required=True, choices=["true", "false"])
-    set_tdd_parser.add_argument("--threshold", type=int)
-    set_tdd_parser.add_argument("--agent", required=True)
+    set_unit_test_parser = subcommands.add_parser("set-unit-test-mode", parents=[common])
+    set_unit_test_parser.add_argument("--mode", required=True, choices=["none", "ut", "tdd"])
+    set_unit_test_parser.add_argument("--threshold", type=int)
+    set_unit_test_parser.add_argument("--agent", required=True)
 
-    clear_tdd_parser = subcommands.add_parser("clear-tdd", parents=[common])
-    clear_tdd_parser.add_argument("--agent", required=True)
+    clear_unit_test_parser = subcommands.add_parser("clear-unit-test-mode", parents=[common])
+    clear_unit_test_parser.add_argument("--agent", required=True)
 
     # Compatibility aliases for pre-0.9 callers.
     set_confirm_mode_parser = subcommands.add_parser("set-confirm-mode", parents=[common])
@@ -10386,20 +9321,20 @@ def main() -> int:
         "propose-workflow-mode", parents=[common]
     )
     propose_workflow_parser.add_argument(
-        "--configured", required=True, choices=sorted(CONFIGURED_WORKFLOW_MODES)
+        "--configured", default="adaptive", choices=sorted(CONFIGURED_WORKFLOW_MODES)
     )
     propose_workflow_parser.add_argument(
-        "--selected", required=True, choices=sorted(WORKFLOW_MODES)
+        "--selected", default="fast", choices=sorted(WORKFLOW_MODES)
     )
     propose_workflow_parser.add_argument(
-        "--minimum", required=True, choices=sorted(WORKFLOW_MODES)
+        "--minimum", default="fast", choices=sorted(WORKFLOW_MODES)
     )
     propose_workflow_parser.add_argument(
         "--source",
-        required=True,
+        default="adaptive",
         choices=["project", "session", "adaptive", "user", "migration"],
     )
-    propose_workflow_parser.add_argument("--reason", required=True, action="append")
+    propose_workflow_parser.add_argument("--reason", action="append", default=[])
     propose_workflow_parser.add_argument("--agent", required=True)
     propose_workflow_parser.add_argument("--task-id")
 
@@ -10416,6 +9351,37 @@ def main() -> int:
     fingerprints_parser = subcommands.add_parser("evidence-fingerprints", parents=[common])
     fingerprints_parser.add_argument("--agent", required=True)
     fingerprints_parser.add_argument("--task-id")
+
+    for name in ("prepare-check", "record-check"):
+        check_parser = subcommands.add_parser(name, parents=[common])
+        check_parser.add_argument("--agent", required=True)
+        check_parser.add_argument("--task-id")
+        if name == "prepare-check":
+            check_parser.add_argument("--record", required=True)
+        else:
+            check_parser.add_argument("--prepared-id")
+            check_parser.add_argument("--result", required=True)
+    correction_parser = subcommands.add_parser("begin-correction", parents=[common])
+    correction_parser.add_argument("--file", action="append", required=True)
+    correction_parser.add_argument("--summary", required=True)
+    correction_parser.add_argument("--risk", action="append", default=[])
+    correction_parser.add_argument("--agent", required=True)
+    correction_parser.add_argument("--task-id")
+
+    for name in ("start-quality-repair", "complete-quality-repair"):
+        repair_parser = subcommands.add_parser(name, parents=[common])
+        repair_parser.add_argument("--repair-id", required=True)
+        repair_parser.add_argument("--agent", required=True)
+        repair_parser.add_argument("--task-id")
+        if name == "start-quality-repair":
+            repair_parser.add_argument("--executor", choices=["current", "other"], required=True)
+            repair_parser.add_argument("--confirmed", action="store_true")
+
+    for name in ("set-cooperate-mode", "clear-cooperate-mode"):
+        cooperate_parser = subcommands.add_parser(name, parents=[common])
+        cooperate_parser.add_argument("--agent", required=True)
+        if name == "set-cooperate-mode":
+            cooperate_parser.add_argument("--mode", choices=["default", "dispatch"], required=True)
 
     finalize_quality_parser = subcommands.add_parser(
         "finalize-quality", parents=[common]
@@ -10494,6 +9460,7 @@ def main() -> int:
     handoff.add_argument("--agent", required=True)
     handoff.add_argument("--summary", required=True)
     handoff.add_argument("--task-id")
+    handoff.add_argument("--continuation", help="JSON next_action, unit_ids, evidence_refs and stop_after")
 
     claim = subcommands.add_parser("claim-task", parents=[common])
     claim.add_argument("--task-id", required=True)
@@ -10614,6 +9581,9 @@ def main() -> int:
             command_lock = acquire_session_command_lock(
                 root, resolve_session_path(root, session_file)
             )
+        if command == "evidence-fingerprints":
+            _, _, current = resolve_current_task(root, getattr(args, "task_id", None), session_file)
+            require_spec_context(root, current, agent, session_file)
         if command == "snapshot":
             emit(snapshot_state(root, session_file))
         elif command == "inspect-dev-spec":
@@ -10696,6 +9666,15 @@ def main() -> int:
                     session_file,
                 )
             )
+        elif command == "resume-spec-context":
+            emit(attach_status_context(
+                root, resume_spec_context(root, agent, args.task_id, session_file), agent, session_file
+            ))
+        elif command == "begin-spec-change":
+            emit(attach_status_context(
+                root, begin_spec_change(root, args.affected_task, args.summary, agent, args.task_id, session_file),
+                agent, session_file,
+            ))
         elif command == "writeback-spec-task":
             emit(
                 attach_status_context(
@@ -10853,13 +9832,13 @@ def main() -> int:
                     session_file,
                 )
             )
-        elif command == "set-tdd":
+        elif command == "set-unit-test-mode":
             emit(
                 attach_status_context(
                     root,
-                    set_session_tdd(
+                    set_session_unit_test_mode(
                         root,
-                        args.enabled == "true",
+                        args.mode,
                         agent,
                         args.threshold,
                         session_file,
@@ -10868,11 +9847,11 @@ def main() -> int:
                     session_file,
                 )
             )
-        elif command == "clear-tdd":
+        elif command == "clear-unit-test-mode":
             emit(
                 attach_status_context(
                     root,
-                    clear_session_tdd(root, agent, session_file),
+                    clear_session_unit_test_mode(root, agent, session_file),
                     agent,
                     session_file,
                 )
@@ -10975,6 +9954,37 @@ def main() -> int:
                     session_file,
                 )
             )
+        elif command in {"prepare-check", "record-check", "begin-correction"}:
+            session, task_id, task = resolve_current_task(root, args.task_id, session_file)
+            require_spec_context(root, task, agent, session_file)
+            if command == "prepare-check":
+                descriptors = json.loads(args.record)
+                result = ([prepare_check(root, task_id, task, item, agent) for item in descriptors]
+                          if isinstance(descriptors, list) else prepare_check(root, task_id, task, descriptors, agent))
+            elif command == "record-check":
+                results = json.loads(args.result)
+                result = ([record_check(root, task_id, task, item["prepared_id"], item["result"], agent) for item in results]
+                          if isinstance(results, list) else record_check(root, task_id, task, args.prepared_id, results, agent))
+            else:
+                result = begin_correction(root, task_id, task, args.file, args.summary, args.risk, agent)
+            if command in {"prepare-check", "record-check"}:
+                for item in result if isinstance(result, list) else [result]:
+                    item["task_id"] = task_id
+                    item["stage"] = task.get("status")
+                    item["next_action"] = (
+                        "reuse-check" if item.get("reusable") else "run-check"
+                    ) if command == "prepare-check" else "continue"
+            emit(result)
+        elif command in {"start-quality-repair", "complete-quality-repair"}:
+            if command == "start-quality-repair":
+                result = start_quality_repair(root, args.repair_id, args.executor, args.confirmed,
+                                              agent, args.task_id, session_file)
+            else:
+                result = complete_quality_repair(root, args.repair_id, agent, args.task_id, session_file)
+            emit(attach_status_context(root, result, agent, session_file))
+        elif command in {"set-cooperate-mode", "clear-cooperate-mode"}:
+            emit(attach_status_context(root, set_cooperate_mode(root,
+                args.mode if command == "set-cooperate-mode" else None, agent, session_file), agent, session_file))
         elif command == "finalize-quality":
             emit(
                 attach_status_context(
@@ -11091,7 +10101,8 @@ def main() -> int:
             emit(
                 attach_status_context(
                     root,
-                    handoff_task(root, agent, args.summary, args.task_id, session_file),
+                    handoff_task(root, agent, args.summary, args.task_id, session_file,
+                                 json.loads(args.continuation) if args.continuation else None),
                     agent,
                     session_file,
                 )
@@ -11261,7 +10272,7 @@ def main() -> int:
                 )
             )
         return 0
-    except (StateError, EasyDevSpecError) as error:
+    except (StateError, EasyDevSpecError, ValueError) as error:
         print(json.dumps({"error": str(error)}, ensure_ascii=False), file=sys.stderr)
         return 1
     finally:

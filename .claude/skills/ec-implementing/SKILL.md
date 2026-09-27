@@ -7,25 +7,44 @@ description: IMPLEMENT-stage skill. Executes the confirmed plan with workflow-mo
 
 Use only after ANALYSIS has frozen `task.json.workflow_mode` to `fast`, `standard`, or
 `strict`. Read `dev-spec.md`, the latest `plan` record in `execution.jsonl`, relevant RULES
-and ABSTRACT sections, and `test-strategy.md` for code tasks.
+and ABSTRACT sections. Read `test-strategy.md` when required; compact Fast uses plan checks.
 
-If frozen `task.tdd_enabled` is not `true`, IMPLEMENT writes production and planned test code but
+For a Canonical-backed task, consume the ready `spec_context.consumption` returned on creation
+or claim. Reuse unchanged context on the same session; only if context is missing or design changed, call `resume-spec-context --agent <agent-id>
+--session-file <P>`. The bound source and selected changes/steps/tests govern the implementation;
+handoff summaries and derived plans cannot substitute for this context. A blocked context or
+pending `spec_change` stops implementation until the original source is repaired/synchronized.
+
+If frozen `task.unit_test_mode` is `none` or `ut`, IMPLEMENT writes production and planned test code but
 does not run lint, typecheck, test, build, or coverage commands. Deterministic execution belongs
 to QUALITY's Verification Gate. TDD is the only exception because RED/GREEN/REFACTOR commands are
 part of the implementation method; current-fingerprint green evidence may be reused by QUALITY.
+UT writes the necessary tests here and runs them once with coverage in QUALITY, with no TDD lifecycle.
 
-When frozen TDD is enabled, every feature/bug unit must capture a meaningful failing unit test
-before production code (RED), the smallest passing implementation (GREEN), and a green refactor.
+When frozen `task.unit_test_mode` is `tdd`, every feature/bug unit must capture a meaningful failing unit test
+before production code (RED) and the smallest passing implementation (GREEN). Refactor only
+when a concrete improvement is needed; unchanged GREEN inputs do not require another run.
 Pure refactors instead capture a passing characterization test before the change and rerun it
 afterward. Never fake RED evidence. Keep tests deterministic, boundary-focused, and minimally
-mocked, and design changed production code toward 100% unit coverage.
+mocked, and meet the confirmed changed-line threshold without expanding scope for extra coverage.
 
 Communicate with the user in the user's language.
 
+For a bounded correction already routed by `begin-correction`, use the existing plan and the
+returned file scope. Restoring known behavior needs the affected regression checks, not an
+artificial RED/REFACTOR cycle. Preserve all unrelated Unit progress. A correction of generated
+tracking metadata is handled once; do not reopen design or rewrite the complete plan for it.
+
+When a lifecycle check is necessary, call `prepare-check` before running it and `record-check`
+afterward as documented in ec-quality. QUALITY reuses these input-bound results.
+Batch independent checks at the same code state with the array forms of `--record` and `--result`.
+Use each state operation's returned context and next action; query again only when required
+information is absent or an intervening edit makes the returned context stale.
+
 ## Non-negotiable gates
 
-1. Modify only files in the confirmed change-scope table. A new file requirement returns the
-   task to ANALYSIS.
+1. Modify only confirmed files. Return to ANALYSIS only for a substantive scope/contract
+   expansion; restoring a previously mapped file uses the correction scope.
 2. Preserve existing encoding and project comment conventions.
 3. Each unit must carry `acceptance_criteria`, `test_points`, `contracts`, and `risks`.
    Missing unit context is an analysis defect; do not make the implementer rediscover it.
@@ -82,6 +101,11 @@ Communicate with the user in the user's language.
 14. Use one blank line between coherent logic sections. Do not create noisy blank-line gaps or
     compress unrelated steps into an unreadable block.
 
+Keep validation at its responsible boundary. Do not repeat internal null/state checks already
+covered by the contract. Without an explicit requirement or demonstrated defect, add no fallback,
+retry, compatibility branch, idempotency change, defensive copy, or speculative error handling.
+An added validation needs a concrete triggering input and the failure it prevents.
+
 ## Choose the execution owner
 
 `strategy` defines dependency shape; `workflow_mode` defines assurance depth.
@@ -114,7 +138,7 @@ Sub-agents never dispatch other sub-agents or read `.easy-coding` workflow asset
 # Task Card
 ## Identity       Easy Coding implementation unit
 ## Workflow Mode  {fast|standard|strict}
-## TDD            {off | on, frozen changed-line threshold N%}
+## Unit Tests     {none | ut | tdd; shared changed-line threshold N%}
 ## Task           {unit description}
 ## Source Spec    {spec_id@revision + sha256 | NONE}
 ## Source Task    {source_task_id | NONE}
@@ -167,8 +191,12 @@ checks:[], issues:[], needs_attention:[]
 6. For parallel units, detect overlapping writes before advancing.
 7. If implementation needs a file, symbol, repository, or source step outside the mapped
    Canonical change set, stop and return to ANALYSIS instead of expanding scope implicitly.
-8. If a static Canonical change is confirmed, revise the original design by exactly one revision
-   and use `sync-spec-design`; never edit the machine-owned execution block. If a writeback was
+8. If a static Canonical change is confirmed, first persist it with `begin-spec-change
+   --affected-task <id> --summary <confirmed-change> --agent <agent-id> --session-file <P>`.
+   Revise the original design by exactly one revision, validate READY and use `sync-spec-design`;
+   then `resume-spec-context`. A bounded correction preserves the plan and continues IMPLEMENT;
+   substantive expansion returns to ANALYSIS. Never edit the
+   machine-owned execution block. If a writeback was
    interrupted, run `reconcile-spec-execution` with the stored idempotent pending action.
    Reconciliation only consumes dispatch/result evidence created after the current `in_progress`
    acknowledgment; it never opens a new repair attempt or reuses an earlier attempt's result.
@@ -179,8 +207,8 @@ conversation overhead while keeping work observable.
 ## End state
 
 - After all units are implemented, hand control to ec-workflow for IMPLEMENT -> QUALITY.
-- New risk above the frozen mode: call `raise-workflow-mode`; modes may rise but never silently
-  fall after ANALYSIS.
+- A concrete new risk changes the calculated minimum: update its Unit risk and call
+  `raise-workflow-mode` to recalculate. The argument cannot inflate the mechanical result.
 
 ## Self-check
 
@@ -196,3 +224,15 @@ conversation overhead while keeping work observable.
       an existing core Java class, has Javadoc unless it qualifies for the documented-interface
       implementation exception.
 - [ ] The task enters QUALITY, regardless of workflow mode.
+
+## Manual implementation handoff
+
+When `continuation.next_action=implement`, execute only its approved Units. Reuse the original plan,
+commands and results. Honor `stop_after:IMPLEMENT`: record completion and hand back with
+`next_action:quality`. After that handoff succeeds, localize its returned `handoff_prompt` into the
+user's language, show it in a standalone copyable code block while preserving `ec-workflow`, the
+exact absolute project path, and task ID, and tell the user to copy it to the original main Agent.
+Persist important details in the handoff summary first; the prompt may append at most one short
+reminder and never carries the scope, approval, progress, or evidence by itself. Then stop without
+starting QUALITY. Users may instead choose current-Agent execution. No platform is permanently
+assigned either role.

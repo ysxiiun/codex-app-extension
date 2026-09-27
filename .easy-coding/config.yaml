@@ -1,5 +1,5 @@
-version: 5
-harness_version: 1.0.0
+version: 6
+harness_version: 1.1.1-beta.0
 agents:
   - claude-code
   - codex
@@ -16,7 +16,8 @@ tasks:
 behavior:
   approval_mode: guard
   workflow_mode: adaptive
-  tdd_enabled: false
-  tdd_coverage_threshold: 90
+  unit_test_mode: none
+  ut_coverage_threshold: 90
+  cooperate_mode: default
 supermodule:
   role: standalone

@@ -57,8 +57,6 @@
   "workflow_mode": "standard",
   "workflow_mode_confirmed_at": "2026-08-18T06:27:49.713860+00:00",
   "workflow_mode_confirmed_by": "codex",
-  "tdd_enabled": false,
-  "tdd_coverage_threshold": 90,
   "tdd_confirmed_at": "2026-08-18T06:27:49.713896+00:00",
   "tdd_confirmed_by": "codex",
   "memory_progress": {
@@ -102,5 +100,7 @@
     },
     "long_memory_action": "no-op",
     "completed": true
-  }
+  },
+  "unit_test_mode": "none",
+  "ut_coverage_threshold": 90
 }

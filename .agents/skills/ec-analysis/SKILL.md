@@ -6,7 +6,8 @@ description: ANALYSIS-stage skill. Produces the confirmed dev-spec, execution pl
 # ec-analysis — progressive analysis and mode selection
 
 This stage is read-only for project source. Its outputs are task artifacts only:
-`dev-spec.md`, `execution.jsonl` plan, and `test-strategy.md` for code tasks.
+`dev-spec.md`, `execution.jsonl` plan, and `test-strategy.md` when required by the concrete mode.
+Compact Fast keeps checks in the existing plan.
 
 Communicate with the user in the user's language.
 
@@ -14,35 +15,29 @@ Communicate with the user in the user's language.
 
 1. Read task.json, SOUL, RULES index/headings, ABSTRACT index/headings, and the dev-spec
    skeleton.
-2. Search short-memory frontmatter and summaries first. Open only memories whose domains,
+2. Search short-memory frontmatter and knowledge summaries first. Open only memories whose domains,
    tags, related files, or predecessor links match this task. Do not load the newest five
-   memories unconditionally.
+   memories unconditionally. Skip `memory_value: none` during knowledge retrieval. For legacy
+   reports, read the matching reusable decisions or pitfalls; consult acceptance/process records
+   only when the current task needs that history, not as default development context.
 3. Read full RULES/ABSTRACT sections only for affected modules.
 4. Inspect concrete code paths and tests. Expand context only when evidence reveals another
    dependency or risk.
 
-Apply a progressive cost budget while doing this work. A likely Fast task reads only the nearest
-comparable implementation, its direct contracts, and targeted tests. Standard reads the affected
-module closure. Expand into cross-module or repository-wide context only after concrete evidence
-shows the compound high-risk and complexity signals required for Strict. Do not scan unrelated
-repositories, the full Spec, broad Git history, or every architecture section merely to prove
-that a bounded task might be complicated.
+Load context only for the current change and its direct dependencies. Reuse existing findings;
+without new evidence, do not repeat discovery or expand into unrelated modules.
 
-For a task with `task.json.spec_source`, re-run `inspect-dev-spec` against the stored source, exact
+For a task with `task.json.spec_source`, reuse the returned/current-session consumption closure.
+Only if missing or changed, use `resume-spec-context` against the stored source, exact
 `selected_spec_tasks`, and only their stored `task.repo_paths` bindings. Schema, Spec ID, design
 revision, and `design_sha256` must still match. A changed `document_sha256` with the same design is
 normal shared progress; refresh `execution_revision` without invalidating plan/QUALITY
-evidence. An execution revision rollback is blocking. Then call the selector once for the exact
-selection:
+evidence. An execution revision rollback is blocking. Reuse the ready consumption returned by
+creation/claim in this session; otherwise load it once with:
 
 ```bash
-python3 .codex/hooks/easy_coding_state.py inspect-dev-spec \
-  --spec <stored-source> \
-  --spec-task <selected-task-id> [--spec-task <selected-task-id>]... \
-  [--repo-path <repo-id>=<stored-path>]...
-
-python3 .codex/hooks/easy_coding_state.py select-dev-spec-scope \
-  --spec <stored-source> --spec-task <selected-task-id> [--spec-task <selected-task-id>]...
+python3 .codex/hooks/easy_coding_state.py resume-spec-context \
+  --task-id <task-id> --agent <agent-id> --session-file <P>
 ```
 
 Load only the returned per-repository consumption closures: manifest/global context, selected
@@ -78,7 +73,8 @@ when local evidence conflicts or a deviation can change the contract, risk, or a
 
 ## Analysis artifacts
 
-Copy `.easy-coding/templates/dev-spec-skeleton.md` first, then replace every `[[EC_TODO:...]]`.
+For a non-TDD Fast task use the compact form below. Otherwise copy
+`.easy-coding/templates/dev-spec-skeleton.md` first, then replace every `[[EC_TODO:...]]`.
 Keep every mandatory section. The `### 决策闭环` (Decision Closure) and `### Workflow Mode`
 sections are required. The decision section must contain exactly one standalone
 `decision_status: closed` marker, and no other `decision_status` marker may appear elsewhere in
@@ -158,107 +154,67 @@ line count, or create many one-use helpers, merely to make the plan look modular
 clear semantic boundary, reuse point, or independently testable responsibility. Use parallel only
 for truly independent write scopes. Better unit contracts reduce later QUALITY rework.
 
-Every Harness task is a repository-mutation task and requires `test-strategy.md`. Pure read-only
+Standard/Strict tasks require `test-strategy.md`; compact Fast tasks keep checks in the plan. Pure read-only
 conversation never enters ANALYSIS and creates no task.
 
-## Optional Java TDD analysis
+## Optional Java unit test strategies
 
-Read `effective_tdd_enabled` and `effective_tdd_coverage_threshold` from the state snapshot.
-For a `type=tdd-init` task, treat frozen TDD as off even if the project/session requests it. That
-task is the sole exception allowed to inspect and plan build/CI coverage infrastructure while TDD
-is off. Its scope is infrastructure only: never plan historical business-test backfill or a
-repository-wide coverage target, and explicitly record `coverage scope: changed production lines`.
+Read `effective_unit_test_mode` and `effective_ut_coverage_threshold` from the snapshot. The
+strategy is independent of workflow depth. For `type=tdd-init`, freeze strategy `none` and only
+initialize the existing changed-line infrastructure; do not backfill historical business tests.
 
-When TDD is disabled, stop here: do not inspect GitLab CI or JaCoCo, do not add TDD fields or
-extra tests, and do not strengthen the selected Workflow Mode's ordinary acceptance depth. This
-zero-cost rule applies to ordinary tasks, not the explicit `tdd-init` infrastructure task above.
+With `none`, retain ordinary task-required verification and add no coverage scan, command, or
+artifact. With `ut` or `tdd`, reuse the existing Java/JUnit/JaCoCo readiness. Missing infrastructure
+uses `ec-tdd-init`; damaged local entries need only the reported repair. Build-file changes alone
+do not require reinitialization. GitLab execution is not an acceptance dependency.
 
-When TDD is enabled for a Java code task, make `test-strategy.md` record:
+For UT, keep the normal compact Fast analysis when applicable. Record the related unit-test
+command with coverage collection and the changed-line gate command in the plan for compact Fast,
+or in the existing `test-strategy.md` for other tasks, using the
+confirmed `ut_coverage_threshold`. The state API freezes each repository's current Git HEAD in
+`task.tdd_baselines`; use that exact baseline at verification time. Do not duplicate these values
+across extra documents or add a UT Mode section. No RED/GREEN/REFACTOR evidence or TDD review is
+required. Existing tests may already satisfy the threshold; add tests only for relevant gaps.
 
-- detected Java/JUnit build system, exact unit-test command, production/test source roots, and
-  JaCoCo XML paths;
-- immutable Git baseline SHA and the configured changed-production-line threshold; design tests
-  toward 100% while treating the threshold as the mechanical minimum;
-- feature/bug RED -> GREEN -> REFACTOR evidence, or for pure refactors a pre-change
-  characterization GREEN -> post-change GREEN sequence without inventing a RED failure;
-- the local unit-test command and local changed-line acceptance command. Record that
-  `ec-tdd-init` generated the GitLab TEST-stage job, but remote execution, pipeline identity, and
-  status are non-blocking and never require an intermediate commit or push. Include these exact,
-  language-independent contract markers: `local_test_gate: required` and
-  `remote_ci_acceptance: non-blocking`.
-- current `tdd_readiness_status=ready`; if missing or drifted, stop before IMPLEMENT and route to
-  `ec-tdd-init`. Never plan to initialize CI inside an already-enabled TDD feature task.
+For TDD, also record the existing test-first contract in `test-strategy.md` and a `### TDD Mode`
+section in `dev-spec.md`: frozen threshold, immutable baseline per repository, local unit-test
+command, JaCoCo XML paths, and lifecycle evidence. Use RED -> GREEN -> REFACTOR for feature/bug
+units, or characterization GREEN -> post-change GREEN for pure refactors. Refactor only for a
+concrete improvement. Include `TDD`, `JaCoCo`, `baseline`, `local_test_gate: required`, and
+`remote_ci_acceptance: non-blocking` in the test strategy.
 
-The state API mechanically freezes current Git `HEAD` per repository into `task.tdd_baselines`
-when ANALYSIS advances to IMPLEMENT. Plan the local command with that exact SHA and the frozen
-threshold. The generated GitLab job remains parameterized for infrastructure parity, but the
-Harness acceptance plan never waits for remote CI. Never use a mutable `HEAD` fallback at
-verification time. Non-Canonical TDD is limited to one Git repository; multi-repository TDD must
-use Canonical repository bindings.
-
-Also append a `### TDD Mode` section to `dev-spec.md` with enabled state, frozen threshold,
-baseline, local unit-test gate, local coverage gate, generated GitLab job as non-blocking
-infrastructure, and lifecycle evidence. Do not add this section when TDD is disabled.
-
-If the task is not a Java project, explain that Java-only TDD cannot be activated and obtain a
-mode decision before advancing. The CLI never installs JaCoCo or edits CI automatically.
+Both strategies accept changed production lines at the configured threshold, without chasing
+100% or expanding to historical coverage. One grouped test execution supplies both test and
+coverage evidence. Non-Canonical coverage uses one Git repository; multi-repository coverage uses
+Canonical repository bindings. Preserve failed tests as failures even when coverage reaches target.
 
 ## Workflow mode calculation
 
-Resolve configured mode from the state snapshot:
+Execution mode equals the mechanical minimum for the actual current scope. Do not propose a
+higher mode or ask the user to select one. Old configured/frozen modes do not raise the minimum.
+Use `propose-workflow-mode --agent <agent-id> --session-file <P>` once after the plan exists;
+it returns the calculated mode and reasons, so a separate floor/proposal round is unnecessary.
 
-`session.workflow_mode > project behavior.workflow_mode > adaptive`
+For a non-TDD Fast task, dev-spec.md may use the compact form:
 
-After writing the execution plan, ask the state API to calculate the mechanical minimum:
-
-```bash
-python3 .codex/hooks/easy_coding_state.py workflow-floor \
-  --agent <agent-id> --session-file <P>
+```markdown
+<!-- easy-coding:compact -->
+decision_status: closed
+Goal: <confirmed behavior>
+Scope: <exact files and preservation boundary>
+Acceptance: <observable outcome and minimum check>
 ```
 
-Use its `minimum_mode` and `reasons` as the proposal floor. You may raise this result when
-uncertainty or user preference requires more rigor, but never lower or replace it with a
-self-reported floor. The state API rechecks the floor when the proposal is saved and frozen.
-
-The calculation is intentionally Standard-centered:
-
-- `fast`: up to three coherent low-risk units in one actually modified repository, at most eight
-  changed files, no explicit high-risk signal, and no public or cross-repository contract impact.
-  Small parameter changes, bounded field/mapping edits, and a few ordinary model files should
-  normally remain Fast.
-- `standard`: the default for ordinary business work. Four or more units, more than eight files,
-  bounded compatibility work, actual but contained multi-repository changes, broad low-risk work,
-  and bounded high-risk work remain Standard.
-- `strict`: requires both an explicit high-risk signal and concrete complexity/blast-radius
-  evidence. Complexity means actual multi-repository edits, at least five units, at least fifteen
-  changed files, or a public/cross-repository contract. Parallel execution is a Standard signal
-  by itself. Generic domain words in a risk description, title, file path, Spec repository
-  catalog, or unselected task are never sufficient evidence of high risk.
-
-Repository count comes only from repositories that own files in current plan units. Canonical
-Spec metadata, unselected tasks, dependency summaries, unused `repo_paths`, and supermodule child
-registrations do not raise the mode. A real multi-repository change is a Standard signal by
-itself and reaches Strict only when an explicit high-risk signal is also present.
-
-If configuration is concrete, it is also a floor. The selected mode may be raised by the user
-but never placed below either floor. The Agent must not raise an adaptive proposal to Strict from
-vague uncertainty or a domain keyword; cite both the explicit risk and the concrete complexity
-signal. Explain the decision and state-specific effects in the dev-spec.
-
-Persist the proposal before requesting ANALYSIS -> IMPLEMENT:
-
-```bash
-python3 .codex/hooks/easy_coding_state.py propose-workflow-mode \
-  --configured <adaptive|fast|standard|strict> \
-  --selected <fast|standard|strict> \
-  --minimum <fast|standard|strict> \
-  --source <project|session|adaptive|user> \
-  --reason "<reason>" \
-  --agent <agent-id> --session-file <P>
-```
-
-Repeat `--reason` for distinct material risks. Re-running the command replaces the proposal
-while still in ANALYSIS.
+Record Unit `input_files` for the known additional direct inputs (an empty list means the
+Unit files are self-contained). Include shared helpers, fixtures, schemas and configuration
+actually consumed by its checks. Without a declared closure, checks cover the owning module.
+For targeted Vitest/Jest/Python/Node checks, name the selected test file in the command and declare
+its helper/fixture inputs so unrelated test cases can retain their evidence. Module production
+inputs and build configuration remain included. Maven/Gradle/tsc compilation still includes
+neighboring sources/tests even with a test selector. Do not infer a whole-program call graph.
+Keep Unit contracts and test points in the existing execution plan. Do not duplicate them across
+full template chapters or create a separate test strategy for this compact form. Canonical work
+consumes the selected source closure; it does not redesign unrelated selected tasks.
 
 ## User presentation and transition
 
@@ -267,9 +223,9 @@ pasting the full `dev-spec.md`. The receipt must contain:
 
 - the core solution and affected scope/units;
 - acceptance and test-strategy highlights;
-- configured, minimum, and selected workflow modes with reasons;
+- the computed minimum workflow mode and its concrete reasons;
 - the material risks and explicit acceptance boundaries;
-- explicit user ability to request a higher mode or a permitted lower mode.
+- the computed minimum mode as an execution fact, without offering mode choices.
 
 End the summary with the absolute path to
 `.easy-coding/tasks/<task-id>/dev-spec.md`. When the current client supports local-file Markdown
@@ -306,6 +262,9 @@ waiting; it never changes the selected execution depth.
   incomplete selected-task coverage, or an open Unit/Step/File/Symbol/Test traceability gap.
 
 If evidence requires changing Canonical task boundaries, contracts, files, symbols, Steps, Tests,
-or dependencies, remain/return to ANALYSIS, update the original static design with revision +1,
-restore READY, and call `sync-spec-design --affected-task ...`. This invalidates the old local
-plan. Never substitute edits to the derived `dev-spec.md`, and never edit `EDS:EXECUTION` by hand.
+or dependencies, obtain confirmation and run `begin-spec-change --affected-task <id> --summary
+<confirmed-change> --agent <agent-id> --session-file <P>` before editing. This persists the
+intent across handoffs and blocks implementation/acceptance until synchronization. Update the original static design with revision +1,
+restore READY, and call `sync-spec-design --affected-task ...`. For bounded corrections this refreshes only affected Unit mappings; other design changes
+invalidate the old local plan. Run `resume-spec-context` after synchronization, then refresh derived artifacts. Never
+substitute edits to the derived `dev-spec.md`, and never edit `EDS:EXECUTION` by hand.
