@@ -89,7 +89,7 @@ public struct AdapterPerformanceMeasurement: Equatable, Sendable {
 }
 
 public actor CDPPageRuntimeBridge: PageRuntimeBridging, CodexSurfaceProbing {
-    static let implementationRevision = 16
+    static let implementationRevision = 17
 
     private struct SessionState: Sendable, Equatable {
         let identifier: String

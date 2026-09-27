@@ -276,8 +276,8 @@ final class AdapterFixtureTests: XCTestCase {
         XCTAssertEqual(try harness.string("document.querySelector('.thread-scroll-container').style.getPropertyValue('--cae-wide-layout-content-offset-x')"), "0px")
         let css = try harness.string("document.getElementById('cae-wide-layout-style').textContent")
         XCTAssertTrue(css.contains(".thread-scroll-container[data-cae-wide-layout='true']"))
-        XCTAssertTrue(css.contains("[class*='thread-content-max-width']"))
-        XCTAssertTrue(css.contains("[class*='thread-composer-max-width']"))
+        XCTAssertTrue(css.contains("[class~='max-w-(--thread-content-max-width)']"))
+        XCTAssertTrue(css.contains("[class~='max-w-(--thread-composer-max-width)']"))
         XCTAssertTrue(css.contains("[class*='markdown-wide-block-max-width']"))
         XCTAssertTrue(css.contains("[data-selected-text-overlay-target]"))
         XCTAssertTrue(css.contains("[data-selected-text-overlay-target] [data-markdown-table]:not([role='menu']"))
@@ -381,7 +381,7 @@ final class AdapterFixtureTests: XCTestCase {
           </head>
           <body>
             <main class="thread-scroll-container" data-cae-wide-layout="true">
-              <div id="content" class="thread-content-max-width-shell">
+              <div id="content" class="thread-content-max-width-shell max-w-(--thread-content-max-width)">
                 <article id="markdown" data-selected-text-overlay-target>
                   <div id="wide-shell" data-markdown-table>
                     <div id="wide-scroll" class="native-wide-block">
@@ -571,7 +571,7 @@ final class AdapterFixtureTests: XCTestCase {
         <div class="negative-panel" data-pip-obstacle="menu-only-wrapper"><div role="menu">Temporary menu.</div></div>
         <div data-selected-text-overlay-target class="negative-panel" data-pip-obstacle="detached-markdown"></div>
         <div class="markdown-wide-block-max-width negative-panel" data-pip-obstacle="markdown-block"></div>
-        <div class="thread-composer-max-width-shell negative-panel" data-pip-obstacle="detached-width-owner"></div>
+        <div class="thread-composer-max-width-shell max-w-(--thread-composer-max-width) negative-panel" data-pip-obstacle="detached-width-owner"></div>
         <div id="initial-transient-scope" role="menu"><div class="negative-panel" data-pip-obstacle="initially-transient"></div></div>
         """)
         try mutateFloatingPanelFixture("""
@@ -1448,6 +1448,9 @@ final class AdapterFixtureTests: XCTestCase {
               }
               return false;
             }
+            if (atom.startsWith(':is(') && atom.endsWith(')')) {
+              return splitTopLevel(atom.slice(4, -1)).some((member) => matchesAtom(node, member));
+            }
             const proseMirror = /^\\.ProseMirror\\[contenteditable='([^']+)'\\]$/.exec(atom);
             if (proseMirror) {
               return classValue(node).split(/\\s+/).includes('ProseMirror')
@@ -1455,6 +1458,8 @@ final class AdapterFixtureTests: XCTestCase {
             }
             const classSubstring = /^\\[class\\*='([^']+)'\\]$/.exec(atom);
             if (classSubstring) return classValue(node).includes(classSubstring[1]);
+            const classToken = /^\\[class~='([^']+)'\\]$/.exec(atom);
+            if (classToken) return classValue(node).split(/\\s+/).includes(classToken[1]);
             const exactAttribute = /^\\[([^=]+)='([^']*)'\\]$/.exec(atom);
             if (exactAttribute) return node.getAttribute(exactAttribute[1]) === exactAttribute[2];
             const presentAttribute = /^\\[([^=]+)\\]$/.exec(atom);
@@ -1487,11 +1492,8 @@ final class AdapterFixtureTests: XCTestCase {
             if (!isWithinScroller(node) || scroller.getAttribute('data-cae-wide-layout') !== 'true') return false;
             const firstNot = selector.indexOf(':not(');
             const positive = firstNot < 0 ? selector : selector.slice(0, firstNot);
-            const positiveMatches = positive.includes("[class*='thread-content-max-width']")
-              ? matchesAtom(node, "[class*='thread-content-max-width']")
-              : positive.includes("[class*='thread-composer-max-width']")
-                ? matchesAtom(node, "[class*='thread-composer-max-width']")
-                : false;
+            const scopePrefix = ".thread-scroll-container[data-cae-wide-layout='true'] ";
+            const positiveMatches = matchesAtom(node, positive.slice(scopePrefix.length));
             if (!positiveMatches) return false;
             return notGroups(selector).every((group) =>
               splitTopLevel(group).every((excluded) => !matchesAtom(node, excluded))
@@ -1968,6 +1970,143 @@ final class AdapterFixtureTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testWideLayoutHomeVariableDeclarationsPreserveFullPageAndCenterInRealWebKit() throws {
+        let webView = try floatingPanelWebKitFixture(panelHTML: "")
+        try mutateFloatingPanelFixture("""
+        document.body.innerHTML = `
+          <style>
+            #layout { display: flex; flex-direction: column; }
+            #home { flex: 1; --thread-content-max-width: 672px; }
+            #headline { width: min(100%, var(--thread-content-max-width)); margin-inline: auto; height: 60px; }
+            #composer { width: 100%; max-width: var(--thread-content-max-width); margin-inline: auto; }
+          </style>
+          <main id="layout" data-app-shell-main-content-layout>
+            <div id="home" class="relative min-h-0 flex-1 [--thread-content-max-width:42rem]">
+              <div id="headline" class="mx-auto w-[min(100%,var(--thread-content-max-width))]">Fixture heading.</div>
+              <div id="composer" class="mx-auto max-w-(--thread-body-max-width) [--thread-content-max-width:inherit]">
+                <div id="editor" class="ProseMirror" contenteditable="true"><p>Fixture input.</p></div>
+              </div>
+            </div>
+          </main>`;
+        window.__codexAppExtensionV2.update({
+          runtimeVersion: 2, requestId: 10, adapterId: 'wide-layout', operation: 'update',
+          config: { maximumContentWidth: 800, minimumSidePadding: 0 }
+        });
+        """, in: webView)
+
+        let geometryScript = """
+        (() => {
+          const rect = (id) => document.getElementById(id).getBoundingClientRect();
+          const center = (id) => (rect(id).left + rect(id).right) / 2;
+          return JSON.stringify({
+            layoutWidth: rect('layout').width, pageWidth: rect('home').width,
+            layoutCenter: center('layout'), headlineCenter: center('headline'), composerCenter: center('composer'),
+            composerWidth: rect('composer').width,
+            pageOffset: document.getElementById('home').style.getPropertyValue('--cae-wide-layout-owner-offset-x'),
+            composerOffset: document.getElementById('composer').style.getPropertyValue('--cae-wide-layout-owner-offset-x'),
+            observerCount: window.__codexAppExtensionV2.observerCount(),
+            styleCount: document.querySelectorAll('#cae-wide-layout-style').length
+          });
+        })()
+        """
+        let ownerClasses = [
+            "max-w-(--thread-body-max-width) [--thread-content-max-width:inherit]",
+            "max-w-(--thread-content-max-width)",
+            "max-w-[var(--thread-content-max-width)]",
+            "w-[min(100%,var(--thread-content-max-width))]",
+            "max-w-(--thread-composer-max-width)",
+            "max-w-[var(--thread-composer-max-width)]"
+        ]
+        for ownerClass in ownerClasses {
+            try mutateFloatingPanelFixture("""
+            document.getElementById('composer').className = 'mx-auto \(ownerClass)';
+            """, in: webView)
+            let geometry = try evaluateWebKitJSON(geometryScript, in: webView)
+            XCTAssertGreaterThan(try number("layoutWidth", in: geometry), 800)
+            XCTAssertEqual(try number("pageWidth", in: geometry), try number("layoutWidth", in: geometry), accuracy: 1, ownerClass)
+            XCTAssertEqual(try number("composerWidth", in: geometry), 800, accuracy: 1, ownerClass)
+            XCTAssertEqual(try number("headlineCenter", in: geometry), try number("layoutCenter", in: geometry), accuracy: 1, ownerClass)
+            XCTAssertEqual(try number("composerCenter", in: geometry), try number("layoutCenter", in: geometry), accuracy: 1, ownerClass)
+            XCTAssertEqual(geometry["pageOffset"] as? String, "")
+            XCTAssertEqual(geometry["composerOffset"] as? String, "0px")
+        }
+
+        try mutateFloatingPanelFixture("""
+        document.getElementById('composer').className = '[--thread-composer-max-width:672px]';
+        """, in: webView)
+        let waiting = try evaluateWebKitJSON("""
+        JSON.stringify(window.__codexAppExtensionV2.diagnose({
+          runtimeVersion: 2, requestId: 11, adapterId: 'wide-layout', operation: 'diagnose', config: {}
+        }))
+        """, in: webView)
+        XCTAssertEqual((waiting["result"] as? [String: Any])?["qualified"] as? Bool, false)
+        XCTAssertEqual((waiting["result"] as? [String: Any])?["recoverable"] as? Bool, true)
+        let native = try evaluateWebKitJSON(geometryScript, in: webView)
+        XCTAssertEqual(try number("composerWidth", in: native), 672, accuracy: 1)
+        XCTAssertEqual(try number("pageWidth", in: native), try number("layoutWidth", in: native), accuracy: 1)
+        XCTAssertEqual(native["composerOffset"] as? String, "")
+
+        try mutateFloatingPanelFixture("""
+        document.getElementById('composer').className = 'mx-auto max-w-(--thread-body-max-width)';
+        """, in: webView)
+        let recovered = try evaluateWebKitJSON(geometryScript, in: webView)
+        XCTAssertEqual(try number("composerWidth", in: recovered), 800, accuracy: 1)
+        try mutateFloatingPanelFixture("""
+        window.__codexAppExtensionV2.uninstall({
+          runtimeVersion: 2, requestId: 12, adapterId: 'wide-layout', operation: 'uninstall', config: {}
+        });
+        """, in: webView)
+        let restored = try evaluateWebKitJSON(geometryScript, in: webView)
+        XCTAssertEqual(try number("pageWidth", in: restored), try number("layoutWidth", in: restored), accuracy: 1)
+        XCTAssertEqual(try number("composerWidth", in: restored), 672, accuracy: 1)
+        XCTAssertEqual(try number("composerCenter", in: restored), try number("layoutCenter", in: restored), accuracy: 1)
+        XCTAssertEqual(restored["composerOffset"] as? String, "")
+        XCTAssertEqual(try number("observerCount", in: restored), 0)
+        XCTAssertEqual(try number("styleCount", in: restored), 0)
+    }
+
+    @MainActor
+    func testWideLayoutThreadBodyOwnersIgnoreVariableOnlyAncestorsInRealWebKit() throws {
+        let webView = try floatingPanelWebKitFixture(panelHTML: "")
+        try mutateFloatingPanelFixture("""
+        const scroller = document.getElementById('scroller');
+        const declaration = document.createElement('div');
+        declaration.id = 'declaration';
+        declaration.className = '[--thread-content-max-width:inherit]';
+        declaration.style.height = '100%';
+        Array.from(scroller.children).forEach((node) => declaration.appendChild(node));
+        scroller.appendChild(declaration);
+        for (const id of ['content', 'composer']) {
+          document.getElementById(id).className = 'mx-auto max-w-(--thread-body-max-width) [--thread-content-max-width:inherit]';
+          document.getElementById(id).style.marginInline = 'auto';
+        }
+        window.__codexAppExtensionV2.update({
+          runtimeVersion: 2, requestId: 20, adapterId: 'wide-layout', operation: 'update',
+          config: { maximumContentWidth: 800, minimumSidePadding: 0 }
+        });
+        """, in: webView)
+        let geometry = try evaluateWebKitJSON("""
+        (() => {
+          const rect = (id) => document.getElementById(id).getBoundingClientRect();
+          return JSON.stringify({
+            scrollerWidth: rect('scroller').width, declarationWidth: rect('declaration').width,
+            declarationOffset: document.getElementById('declaration').style.getPropertyValue('--cae-wide-layout-owner-offset-x'),
+            contentWidth: rect('content').width, composerWidth: rect('composer').width,
+            contentCenter: (rect('content').left + rect('content').right) / 2,
+            composerCenter: (rect('composer').left + rect('composer').right) / 2,
+            scrollerCenter: (rect('scroller').left + rect('scroller').right) / 2
+          });
+        })()
+        """, in: webView)
+        XCTAssertEqual(try number("declarationWidth", in: geometry), try number("scrollerWidth", in: geometry), accuracy: 1)
+        XCTAssertEqual(geometry["declarationOffset"] as? String, "")
+        XCTAssertEqual(try number("contentWidth", in: geometry), 800, accuracy: 1)
+        XCTAssertEqual(try number("composerWidth", in: geometry), 800, accuracy: 1)
+        XCTAssertEqual(try number("contentCenter", in: geometry), try number("scrollerCenter", in: geometry), accuracy: 1)
+        XCTAssertEqual(try number("composerCenter", in: geometry), try number("scrollerCenter", in: geometry), accuracy: 1)
+    }
+
     func testWideLayoutAppliesToUniqueEmptyTaskComposerAndUninstallRestoresHostState() throws {
         let harness = try JSRuntimeHarness(fixture: "current-surface")
         try harness.evaluate("""
@@ -2087,7 +2226,7 @@ final class AdapterFixtureTests: XCTestCase {
             "min(1800px, max(1px, calc(100% - 48px)))"
         )
         XCTAssertEqual(try harness.string("document.querySelector('[data-app-shell-main-content-layout]').style.getPropertyValue('--thread-content-max-width')"), "")
-        XCTAssertTrue(try harness.bool("document.getElementById('cae-wide-layout-style').textContent.includes(\"[class*='thread-content-max-width']:has(\")"))
+        XCTAssertTrue(try harness.string("document.getElementById('cae-wide-layout-style').textContent").contains("[class~='max-w-(--thread-content-max-width)']"))
         XCTAssertTrue(try harness.bool("document.getElementById('cae-wide-layout-style').textContent.includes('data-cae-wide-layout-editor')"))
         XCTAssertFalse(try harness.bool("document.getElementById('cae-wide-layout-style').textContent.includes('data-codex-composer')"))
 
@@ -2659,11 +2798,11 @@ final class AdapterFixtureTests: XCTestCase {
         </style></head><body>
           <main id="layout" data-app-shell-main-content-layout>
             <section id="scroller" class="thread-scroll-container">
-              <div id="content-row"><div id="content" class="thread-content-max-width-shell">
+              <div id="content-row"><div id="content" class="thread-content-max-width-shell max-w-(--thread-content-max-width)">
                 <article id="markdown" data-selected-text-overlay-target><p>Fixture response.</p></article>
               </div></div>
               <div id="composer-row"><div id="composer-shift">
-                <div id="composer" class="thread-composer-max-width-shell">
+                <div id="composer" class="thread-composer-max-width-shell max-w-(--thread-composer-max-width)">
                   <div id="editor" class="ProseMirror" contenteditable="true" data-codex-composer="true"><p>Fixture input.</p></div>
                 </div>
               </div></div>

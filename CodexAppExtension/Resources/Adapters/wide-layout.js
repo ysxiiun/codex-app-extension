@@ -14,6 +14,21 @@
   ];
   const canonicalWidthConsumer = "[class*='thread-content-max-width']";
   const composerWidthConsumer = "[class*='thread-composer-max-width']";
+  const bodyWidthConsumer = "[class*='thread-body-max-width']";
+  // 变量声明只提供继承值；JS 与 CSS 仅把实际使用宽度的完整 class 当作 owner。
+  const canonicalWidthClasses = [
+    "max-w-(--thread-content-max-width)",
+    "max-w-[var(--thread-content-max-width)]",
+    "w-[min(100%,var(--thread-content-max-width))]",
+    "max-w-(--thread-body-max-width)"
+  ];
+  const composerWidthClasses = [
+    "max-w-(--thread-composer-max-width)",
+    "max-w-[var(--thread-composer-max-width)]"
+  ];
+  const widthOwnerClasses = [...canonicalWidthClasses, ...composerWidthClasses];
+  const [canonicalWidthSelector, composerWidthSelector] = [canonicalWidthClasses, composerWidthClasses]
+    .map((classes) => `:is(${classes.map((name) => `[class~='${name}']`).join(", ")})`);
   const ownerOffsetProperty = "--cae-wide-layout-owner-offset-x";
   const persistentRightRail = [
     "[class*='thread-floating-content-top-inset'][class*='thread-floating-content-bottom-inset']",
@@ -125,7 +140,7 @@
     const markdownTable = `${scrollerScope} [data-selected-text-overlay-target] [data-markdown-table]${outsideTransientOverlay}`;
     const markdownTableBody = `table${outsideTransientOverlay}`;
     const activeEditor = `:is(.ProseMirror[${emptyEditorMarker}='true'][contenteditable='true'], .ProseMirror[${emptyEditorMarker}='true'][contenteditable='plaintext-only'])`;
-    const widthOwners = [canonicalWidthConsumer, composerWidthConsumer];
+    const widthOwners = [canonicalWidthSelector, composerWidthSelector];
     const outsideOwnerAncestor = widthOwners
       .map((selector) => `:not(${selector} *)`)
       .join("");
@@ -158,10 +173,10 @@
       "}"
     ].join("\n");
     return [
-      rule(scrollerScope, canonicalWidthConsumer, "--thread-content-max-width"),
-      rule(scrollerScope, composerWidthConsumer, "--thread-composer-max-width"),
-      rule(emptyTaskScope, `${canonicalWidthConsumer}:has(${activeEditor})`, "--thread-composer-max-width"),
-      rule(emptyTaskScope, `${composerWidthConsumer}:has(${activeEditor})`, "--thread-composer-max-width"),
+      rule(scrollerScope, canonicalWidthSelector, "--thread-content-max-width"),
+      rule(scrollerScope, composerWidthSelector, "--thread-composer-max-width"),
+      rule(emptyTaskScope, `${canonicalWidthSelector}:has(${activeEditor})`, "--thread-composer-max-width"),
+      rule(emptyTaskScope, `${composerWidthSelector}:has(${activeEditor})`, "--thread-composer-max-width"),
       tableContainment
     ].join("\n");
   }
@@ -309,9 +324,9 @@
     });
   }
 
-  function isWidthOwnerNode(node) {
+  function isWidthOwnerNode(node, classes = widthOwnerClasses) {
     const className = node?.getAttribute?.("class") ?? "";
-    return className.includes("thread-content-max-width") || className.includes("thread-composer-max-width");
+    return className.split(/\s+/).some((name) => classes.includes(name));
   }
 
   function isExcludedWidthOwner(candidate, scroller) {
@@ -333,10 +348,12 @@
   function enhancedWidthOwners(scroller) {
     const candidates = [
       ...Array.from(scroller?.querySelectorAll?.(canonicalWidthConsumer) ?? []),
-      ...Array.from(scroller?.querySelectorAll?.(composerWidthConsumer) ?? [])
+      ...Array.from(scroller?.querySelectorAll?.(composerWidthConsumer) ?? []),
+      ...Array.from(scroller?.querySelectorAll?.(bodyWidthConsumer) ?? [])
     ];
     return candidates.filter((candidate, index) => {
-      if (candidates.indexOf(candidate) !== index || isExcludedWidthOwner(candidate, scroller)) return false;
+      if (candidates.indexOf(candidate) !== index || !isWidthOwnerNode(candidate) ||
+          isExcludedWidthOwner(candidate, scroller)) return false;
       for (let current = candidate.parentElement; current && current !== scroller; current = current.parentElement) {
         if (isWidthOwnerNode(current)) return false;
       }
@@ -408,8 +425,7 @@
   }
 
   function canonicalContentOwner(scroller, owners = enhancedWidthOwners(scroller)) {
-    return owners
-      .find((owner) => (owner.getAttribute?.("class") ?? "").includes("thread-content-max-width")) ?? null;
+    return owners.find((owner) => isWidthOwnerNode(owner, canonicalWidthClasses)) ?? null;
   }
 
   function nativeShiftNodes(scroller, owner = canonicalContentOwner(scroller)) {

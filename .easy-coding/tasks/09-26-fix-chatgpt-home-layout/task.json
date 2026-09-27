@@ -1,0 +1,187 @@
+{
+  "type": "bugfix",
+  "title": "修复 ChatGPT 首页被宽屏增强错误收窄",
+  "status": "QUALITY",
+  "created_at": "2026-09-26T09:59:23.428590+00:00",
+  "created_by": "codex",
+  "last_agent": "codex",
+  "stage_history": [
+    {
+      "stage": "INIT",
+      "agent": "codex",
+      "entered_at": "2026-09-26T09:59:23.428590+00:00"
+    },
+    {
+      "stage": "ANALYSIS",
+      "agent": "codex",
+      "entered_at": "2026-09-26T09:59:31.437719+00:00"
+    },
+    {
+      "stage": "IMPLEMENT",
+      "agent": "codex",
+      "entered_at": "2026-09-26T10:07:16.263535+00:00"
+    },
+    {
+      "stage": "QUALITY",
+      "agent": "codex",
+      "entered_at": "2026-09-26T10:17:07.863909+00:00"
+    }
+  ],
+  "cooperation": {
+    "mode": "dispatch",
+    "coordinator": {
+      "agent": "codex",
+      "session_file": ".easy-coding/sessions/codex-01a0dcfc-99d8-7fe2-933b-05c2382ff76e.json"
+    }
+  },
+  "context": {},
+  "spawned_from": null,
+  "spawned_tasks": [],
+  "closed_reason": null,
+  "repos": [],
+  "workflow_mode_proposal": {
+    "configured_mode": "adaptive",
+    "selected_mode": "fast",
+    "minimum_mode": "fast",
+    "source": "adaptive",
+    "reasons": [
+      "single-bounded-unit"
+    ],
+    "proposed_at": "2026-09-26T10:06:17.741422+00:00",
+    "proposed_by": "codex"
+  },
+  "workflow_mode": "fast",
+  "workflow_mode_confirmed_at": "2026-09-26T10:07:16.263505+00:00",
+  "workflow_mode_confirmed_by": "codex",
+  "unit_test_mode": "none",
+  "ut_coverage_threshold": 90,
+  "tdd_confirmed_at": "2026-09-26T10:07:16.263532+00:00",
+  "tdd_confirmed_by": "codex",
+  "quality_repair": {
+    "repair_id": "f2fa9b2ad3c61dea81cf069b6320def5738b4cf8b4bffc6af012f9ff046e305e",
+    "summary": "仅同步两项旧测试的 CSS 观察方式；按用户执行已讨论修复的授权，由当前 Codex 完成必要测试修正。生产代码和需求范围不变。",
+    "files": [
+      "PageRuntimeTests/AdapterFixtureTests.swift"
+    ],
+    "unit_ids": [
+      "U1"
+    ],
+    "quality_attempt": 1,
+    "implementation_fingerprint": "7f0e179cb2080fda1049a107180d3f229bd4d69f5e16f277c6d9fcd344d70056",
+    "inputs": {
+      "spec": {
+        "schema": 1,
+        "repositories": {
+          "/Users/ysxiiun/Documents/ysx/myProject/codex-app-extension": [
+            "CodexAppExtension.xcodeproj/project.pbxproj",
+            "CodexAppExtension.xcodeproj/xcshareddata/xcschemes/CodexAppExtension.xcscheme",
+            "CodexAppExtension/Core/CDP/CDPPageRuntimeBridge.swift",
+            "CodexAppExtension/Resources/Adapters/wide-layout.js",
+            "CodexAppExtension/Resources/PageRuntime/bootstrap.js",
+            "CodexAppExtensionTests/CDPPageRuntimeBridgeTests.swift",
+            "PageRuntimeTests/AdapterFixtureTests.swift",
+            "PageRuntimeTests/Fixtures/current-surface.html",
+            "PageRuntimeTests/Fixtures/legacy-fictional-surface.html",
+            "PageRuntimeTests/Fixtures/unsupported-surface.html",
+            "PageRuntimeTests/PageRuntimeTests.swift",
+            "README.md",
+            "install.sh"
+          ]
+        },
+        "production_only": false,
+        "contract": [
+          {
+            "id": "U1",
+            "contracts": [
+              "保持单一最外层真实 owner、差异写入和完整恢复",
+              "保持配置、surface 资格和浮窗几何",
+              "bootstrap 与 Swift bridge revision 同步"
+            ],
+            "acceptance_criteria": [
+              "首页变量声明外层保持全宽，标题与输入框正确居中",
+              "Codex body-width 正文及输入框保持宽屏与浮窗避让",
+              "卸载恢复原生状态，revision 17 替换旧 runtime",
+              "Core、Release 安装和资源一致性全部通过"
+            ]
+          }
+        ],
+        "command": [],
+        "environment": {},
+        "toolchain": {}
+      },
+      "files": {
+        "/Users/ysxiiun/Documents/ysx/myProject/codex-app-extension": {
+          "CodexAppExtension.xcodeproj/project.pbxproj": [
+            "100644",
+            "54b6febf6d499438dc13250d16d125b5fe6aec24"
+          ],
+          "CodexAppExtension.xcodeproj/xcshareddata/xcschemes/CodexAppExtension.xcscheme": [
+            "100644",
+            "90d27040540e38b82994b86f26033a1f785e54df"
+          ],
+          "CodexAppExtension/Core/CDP/CDPPageRuntimeBridge.swift": [
+            "100644",
+            "980cd2a88702032623720d5c055f85dfaf4a4394"
+          ],
+          "CodexAppExtension/Resources/Adapters/wide-layout.js": [
+            "100644",
+            "9b95d3e9f51a081f592e1163f9f6d49ea02c27e1"
+          ],
+          "CodexAppExtension/Resources/PageRuntime/bootstrap.js": [
+            "100644",
+            "74d01bc9e9a1adcda144d149e3857961cdb859c1"
+          ],
+          "CodexAppExtensionTests/CDPPageRuntimeBridgeTests.swift": [
+            "100644",
+            "16e244539f09b1959bd63c4635c02c0be6dc6e51"
+          ],
+          "PageRuntimeTests/AdapterFixtureTests.swift": [
+            "100644",
+            "c3a61d606e12c95d528807eeb05f19a4287a8ac6"
+          ],
+          "PageRuntimeTests/Fixtures/current-surface.html": [
+            "100644",
+            "01ddd00964e9a6effb5f6f3e4122993f110303dc"
+          ],
+          "PageRuntimeTests/Fixtures/legacy-fictional-surface.html": [
+            "100644",
+            "fc77f0e84a6986388f38d3838e08c85e08889959"
+          ],
+          "PageRuntimeTests/Fixtures/unsupported-surface.html": [
+            "100644",
+            "481d675d89752ce4ce453765d49eb5a68295a999"
+          ],
+          "PageRuntimeTests/PageRuntimeTests.swift": [
+            "100644",
+            "c708553a34f7e3f025ecb44bb7d27222af72179e"
+          ],
+          "README.md": [
+            "100644",
+            "c14e0152cbd5ecbb044e2cde04343b6daa094ecb"
+          ],
+          "install.sh": [
+            "100755",
+            "b515acaa9a892a0755aa6f2f924cb211d01c9a2b"
+          ]
+        }
+      },
+      "signature": "7f0e179cb2080fda1049a107180d3f229bd4d69f5e16f277c6d9fcd344d70056"
+    },
+    "approved_at": "2026-09-26T10:20:22.209068+00:00",
+    "approved_by": "codex",
+    "executor": "current",
+    "authorization": "explicit-user",
+    "execution_start_index": 15,
+    "completed_at": "2026-09-26T10:20:50.731772+00:00"
+  },
+  "quality_consumed_attempt": 1,
+  "quality_attempt": {
+    "schema": 1,
+    "attempt": 2,
+    "implementation_fingerprint": "84f892b6b45e671dcb02245c0c4aef1c4ea973daaf19659f58aaad16bade662c",
+    "config_fingerprint": "3f7b14f9b4d65fcd8351caaab2220669cfefcb27c49289a776a91372959179e3",
+    "started_at": "2026-09-26T10:23:19.603874+00:00",
+    "execution_start_index": 21,
+    "repair_count": 1
+  }
+}
